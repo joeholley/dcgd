@@ -31,13 +31,15 @@ graph LR
         RAW[BigQuery Raw: omniarcade_raw]
         GOLD[BigQuery Gold: omniarcade_gold]
         SILVER[BigQuery Silver: omniarcade_silver]
-        FIREBASE[Firebase / Firestore]
+        OPERATIONAL_DB[Operational DB: Spanner / AlloyDB / Firestore]
     end
 
     UI_GUARDRAIL -->|/api/telemetry/stream| EXPRESS
     EXPRESS -->|Pub/Sub SDK (snake_case JSON)| PUBSUB
     PUBSUB -->|Direct BQ Subscription| RAW
     EXPRESS -->|ML.PREDICT Query| BQML
+    EXPRESS -->|State Update| OPERATIONAL_DB
+    OPERATIONAL_DB -->|SSE Push| UI_GUARDRAIL
 
     UI_AI -->|/api/chat| EXPRESS
     EXPRESS -->|ADC OAuth| ADK
@@ -49,7 +51,7 @@ graph LR
 
     UI_OVERVIEW -->|BigQuery Client| GOLD
     UI_OPS -->|BigQuery Client| SILVER
-    UI_CAMPAIGN -->|Firestore SDK| FIREBASE
+    UI_CAMPAIGN -->|Operational Sync| OPERATIONAL_DB
     UI_CAMPAIGN -->|Cohort Read| GOLD
     UI_OBS -->|Audit Logs| GOLD
 ```
@@ -61,11 +63,13 @@ graph LR
 ### 1. 🎮 LiveOps Churn Guardrail Split-Screen View ([LiveOpsGuardrail.tsx](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/churn-guardrail-plan.md))
 * **Frontend Component**: Interactive game client simulator (Left Panel) & LiveOps Telemetry / Guardrail Observatory (Right Panel).
 * **Express Routes**: `/api/telemetry/stream` & `/api/guardrail/events` (SSE / WebSocket).
-* **Target GCP Service**: **Cloud Pub/Sub (`omniarcade-live-telemetry`)** $\rightarrow$ **BigQuery Direct Subscription (`omniarcade_raw.live_session_events`)** $\rightarrow$ **BQML (`ML.PREDICT`)** $\rightarrow$ **Vertex AI Agent Engine**.
+* **Target GCP Service**: **Cloud Pub/Sub (`omniarcade-live-telemetry`)** $\rightarrow$ **BigQuery Direct Subscription (`omniarcade_raw.live_session_events`)** $\rightarrow$ **BQML (`ML.PREDICT`)** $\rightarrow$ **Cloud Spanner / Firestore**.
 * **Data & Action Exchanged**:
   - Emits `snake_case` JSON session events (`boss_fail`, `quit_intent`) to `/api/telemetry/stream`.
   - Express server publishes messages to Pub/Sub, streaming into BigQuery `live_session_events` in ~100ms.
-  - BigQuery BQML `ML.PREDICT(MODEL player_churn_model)` evaluates churn probability score (> 85%), triggering pre-cached KC Agent policy checks to push a $0.99 offer pop-up back to the game client (<300ms) before unmounting.
+  - BigQuery BQML `ML.PREDICT(MODEL player_churn_model)` evaluates churn probability score (> 85%), triggering pre-cached KC Agent policy checks.
+  - Express updates operational state in Cloud Spanner / Firestore and pushes SSE payload to rendering pop-up offer:
+    > *"That Frost Giant is tough! Grab a temporary 50% Shield Boost and 100 Health Elixirs for just $0.99 (normally $4.99) to defeat him now."*
 
 ---
 
@@ -80,13 +84,13 @@ graph LR
 
 ---
 
-### 3. 📚 Knowledge Catalog Explorer ([KnowledgeCatalog.tsx](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/remix-gaming-app/overview.md#L53))
-* **Frontend Component**: Dataset search and metadata catalog browser.
-* **Express Route**: `/api/catalog` search proxy endpoints.
+### 3. 📚 Knowledge Catalog Explorer & Automatic Discovery ([KnowledgeCatalog.tsx](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/remix-gaming-app/overview.md#L53))
+* **Frontend Component**: Dataset search, metadata catalog browser, and **Automatic Rule Discovery Sandbox**.
+* **Express Route**: `/api/catalog` search & discovery proxy endpoints.
 * **Target GCP Service**: **Dataplex Knowledge Catalog REST APIs** (`dataplex.googleapis.com`).
 * **Data & Action Exchanged**:
-  - Searches cross-cloud datasets (BigQuery, Snowflake, AlloyDB, AWS S3).
-  - Fetches Dataplex catalog entries, business glossary terms (e.g. *Whale Spend*, *MAU*), data quality scores, and data lineage graphs across `omniarcade_raw`, `omniarcade_silver`, and `omniarcade_gold` datasets.
+  - **Catalog Search**: Searches cross-cloud datasets (BigQuery, Snowflake, AlloyDB, AWS S3) for glossaries (*Whale Spend*), custom aspect tags (`liveops_campaign_policy_aspect`), and data lineage.
+  - **Automatic Rule Discovery Sandbox**: Allows non-SQL executives (Alex, VP of Marketing) to paste plain-text campaign execution criteria into the UI, automatically discovering business logic and rendering backend BigQuery rules tables without typing SQL.
 
 ---
 
@@ -110,10 +114,10 @@ graph LR
 
 ### 6. 🎯 Player Marketing Campaign Engine ([CampaignEngine.tsx](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/remix-gaming-app/overview.md#L52))
 * **Frontend Component**: Targeted marketing campaign builder & budget allocator.
-* **Target GCP Service**: **Firebase/Firestore** + **BigQuery Gold Tables** (`omniarcade_gold.gold_campaign_analytics`).
+* **Target GCP Service**: **Cloud Spanner / Firebase / Firestore** + **BigQuery Gold Tables** (`omniarcade_gold.gold_campaign_analytics`).
 * **Data & Action Exchanged**:
   - Queries BigQuery `gold_player_360` to calculate target player cohort sizes (e.g. inactive Whales in Japan).
-  - Stores campaign state in Firestore, which automatically syncs to BigQuery for campaign performance and ROI tracking.
+  - Stores campaign state in Spanner/Firestore, which automatically syncs to BigQuery for campaign performance and ROI tracking.
 
 ---
 
@@ -129,12 +133,12 @@ graph LR
 
 | Frontend Module | UI Component File | Target Backend Service | Primary Data Exchanged |
 | :--- | :--- | :--- | :--- |
-| **LiveOps Guardrail** | [LiveOpsGuardrail.tsx](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/churn-guardrail-plan.md) | Cloud Pub/Sub $\rightarrow$ BQ Direct Sub $\rightarrow$ BQML `ML.PREDICT` | Streaming game telemetry, predictive ML churn probability, dynamic offer pop-ups. |
+| **LiveOps Guardrail** | [LiveOpsGuardrail.tsx](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/churn-guardrail-plan.md) | Cloud Pub/Sub $\rightarrow$ BQ Direct Sub $\rightarrow$ BQML `ML.PREDICT` $\rightarrow$ Spanner/Firestore | Streaming game telemetry, predictive ML churn probability, dynamic offer pop-ups ($0.99 Shield Pack). |
 | **AI Assistant** | [HospitalAdmin.tsx](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/remix-gaming-app/overview.md#L55) | Vertex AI Agent Engine + Dataplex MCP | Natural language QA, schema resolution, SQL query results. |
-| **Catalog Explorer** | [KnowledgeCatalog.tsx](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/remix-gaming-app/overview.md#L53) | Dataplex Knowledge Catalog APIs | Glossaries, custom aspect tags, quality scores, lineage graphs. |
+| **Catalog Explorer & Auto-Discovery** | [KnowledgeCatalog.tsx](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/remix-gaming-app/overview.md#L53) | Dataplex Knowledge Catalog APIs | Glossaries, aspect tags, quality scores, lineage, and Automatic Rule Discovery Sandbox. |
 | **Executive Overview** | [Overview.tsx](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/remix-gaming-app/overview.md#L49) | BigQuery Gold (`gold_player_360`) | Regional revenue, MAU, player spend tiers (*Whales/Minnows*). |
 | **Operations Telemetry** | [Operations.tsx](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/remix-gaming-app/overview.md#L50) | BigQuery Silver (`server_latency`) | Real-time concurrent active users (CCU), server region capacity. |
-| **Campaign Engine** | [CampaignEngine.tsx](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/remix-gaming-app/overview.md#L52) | Firebase/Firestore + BigQuery Gold | Target player cohort sizing, campaign CRUD state, ROI metrics. |
+| **Campaign Engine** | [CampaignEngine.tsx](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/remix-gaming-app/overview.md#L52) | Cloud Spanner / Firestore + BigQuery Gold | Target player cohort sizing, campaign CRUD state, ROI metrics. |
 | **IT Observatory** | [ITObservatory.tsx](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/remix-gaming-app/overview.md#L54) | BigQuery Audit Logs | API throughput, latency distribution, system health checks. |
 
 ---
@@ -144,7 +148,7 @@ graph LR
 1. **Express Server Gateway (`server.ts`)**:
    - Add `@google-cloud/pubsub` SDK to publish live telemetry events to topic `omniarcade-live-telemetry`. Enforce strict `snake_case` keys and ISO-8601 timestamps.
    - Execute an immediate targeted BQML `ML.PREDICT` query upon receiving stream events to push live ML churn probability scores via Server-Sent Events (SSE).
-   - Add `/api/catalog` proxy endpoints to connect `KnowledgeCatalog.tsx` to Dataplex REST APIs.
+   - Add `/api/catalog` proxy endpoints to connect `KnowledgeCatalog.tsx` to Dataplex REST APIs and handle plain-text Automatic Rule Discovery.
    - Update `/api/chat` route to authenticate via Application Default Credentials (ADC) to Vertex AI Agent Engine.
 
 2. **BigQuery Client Adapter**:

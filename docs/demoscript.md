@@ -1,0 +1,18 @@
+# Agentic Data Cloud \- Gaming Demo : Predictive Churn Intervention
+
+## **Persona**
+
+* **Alex (VP of Marketing):** Needs fast inventory decisions; lacks SQL skills; hates waiting for stale analytics gaming data at GamingCo
+
+## **Demo Script / Flow (to accompany UI Mockups)**
+
+|  | Persona | Say | Do | See   | Show the Tech |
+| :---- | :---- | :---- | :---- | :---- | :---- |
+| **1** | **Section 1 : LiveOps Telemetry Tracking**  |  |  |  |  |
+| **1.1** | **Narrator** | *Imagine a player enters a highly challenging boss chamber and fails the encounter, dying three times consecutively. Feeling frustrated, the player taps the in-game "Quit Mission" button, intending to close the app and abandon the sessions. For Alex, the VP of marketing these signals are critical send signals to have the player stay in-game.* | Click LiveOps Telemetry Dashboard tab simulating mobile RPG client operations data of players   | Showcase player telemetry data into BQ \- \[Abandoned Session Log\] and Trigger to flag \[At Risk Player\] | Data Ingestion and Processing: Scroll to Pub/Sub (for telemetry data) and Dataflow for streaming data  |
+| **1.2** | **Narrator** | *Traditionally, telemetry data like dying 3 times consecutively sits in cold storage. It waits for overnight batch processing.  By the time your marketing automation triggers an email notification, the player has already moved to a competitor.* | Show BQ Native Proactive Teammate agent tab with active session data, Propensity to Churn | \[Custom Agent that is continuously monitoring data and flagging players with Propensity-to-Churn score \>85%. | Custom Agents  |
+| **2** | **Section 2: Knowledge Catalog** |  |  |  |  |
+| **2.1** | **Narrator** | Before generating an intervention, the background agent queries the Knowledge Catalog to validate the execution boundaries. It cross-references *Business Semantics* to verify the user's specific tier classification as a highly monetizable customer. *It checks the active data policy tags and Trust Metadata to guarantee that the automated monetization campaign, the dynamically generated pricing models, and the localized reward SKUs are fully certified and compliant for production use.* | Paste the text of the execution criteria into the Knowledge Catalog Automatic Discovery interface. |  \[Scope UI Rendering of Business Semantic rules with backend KC tables\] | **Knowledge Catalog Automatic Discovery:** Demonstrates the ingestion of Business Semantics to automatically discover business logic and instantiate structured rules tables without manual coding.  Show the automatic BQ table created by Knowledge catalog |
+| **3** | **Section 3: Active Lakehouse \[V1: Mention Operational Spanner, backend capability in V2\]** |  |  |  |  |
+| **3.1** | **Narrator** | *The agent updates the player's session profile state inside Cloud Spanner. This backend state update instantly pushes an instruction to the front-end game client. Before the application can unmount or close, the user-facing game client intercepts the player with a dynamically targeted pop-up offer.* | Switch to UI tab that simulates player screen | UI pop-up that shows: That Frost Giant is tough\! Grab a temporary 50% Shield Boost and 100 Health Elixirs for just $0.99 (normally $4.99) to defeat him now. | **BigQuery Scheduled Queries:** Demonstrates batch automation. BigQuery runs a scheduled orchestration that scans the player telemetry data, instantly isolating players where propensity to church \> 85%  |
+| **3.2** | **Narrator** | *The player purchases the discounted bundle, turning a predicted churn event into an active micro-transaction.*  | Click LiveOps Telemetry Dashboard tab  | Real-time LiveOps streaming dashboard on the right screen updates instantly. |  |
