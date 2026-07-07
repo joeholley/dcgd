@@ -12,6 +12,21 @@ This repository reconciles three game analytics projects into a single, unified 
 
 To deploy the entire end-to-end platform (Terraform -> Pub/Sub -> Dataform -> BQML -> Dataplex -> Cloud Build -> Private Cloud Run), execute the master deployment runbook:
 
+### Prerequisites & Cloud Shell Setup
+
+Before running the deployment:
+
+1. **CLI Utilities**: Ensure `gcloud`, `bq`, `node` (v18+), `npm`, `python3`, and `terraform` (v1.5+) are installed.
+2. **Google Cloud Shell Terraform Setup**:
+   On fresh Google Cloud Shell instances, `command -v terraform` points to a placeholder stub (`/google/bin/terraform`) that will fail during `terraform init`. Install real Terraform in Cloud Shell before running:
+   ```bash
+   wget -O - https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+   echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(grep -oP '(?<=UBUNTU_CODENAME=).*' /etc/os-release || lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+   sudo apt update && sudo apt install -y terraform
+   ```
+3. **Automated API Bootstrapping**:
+   Step 0 of `docs/deploy-demo.sh` automatically pre-enables foundational GCP APIs (`cloudresourcemanager`, `serviceusage`, `iam`, `artifactregistry`, `bigquery`, `pubsub`, etc.) so that Terraform can manage project services without 403 permission errors on new GCP projects.
+
 ```bash
 # 1. Set your target GCP Project ID and region
 gcloud config set project YOUR_PROJECT_ID

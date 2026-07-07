@@ -2,35 +2,28 @@
 # Cloud Build Configuration: Build & Store Image in Artifact Registry (Without Deploying)
 
 steps:
-  # Step 1: Build the unified Docker container image with commit SHA and latest tags
+  # Step 1: Build the unified Docker container image
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
       - '-t'
-      - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:${SHORT_SHA}'
-      - '-t'
-      - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:latest'
+      - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:${_TAG}'
       - '.'
 
-  # Step 2: Push the tagged container images to Artifact Registry
+  # Step 2: Push the tagged container image to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:${SHORT_SHA}'
-
-  - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'push'
-      - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:latest'
+      - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:${_TAG}'
 
 # Store images in Artifact Registry (Build artifacts registration)
 images:
-  - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:${SHORT_SHA}'
-  - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:latest'
+  - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:${_TAG}'
 
 substitutions:
   _LOCATION: 'us-central1'
   _REPOSITORY: 'data-cloud-ai-demos'
+  _TAG: 'latest'
 
 options:
   logging: CLOUD_LOGGING_ONLY

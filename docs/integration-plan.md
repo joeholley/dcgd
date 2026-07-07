@@ -217,15 +217,13 @@ Because a complete demonstration requires strict chronological ordering across I
 #!/usr/bin/env bash
 set -e
 
-echo "=== Step 0: Pre-Flight Application Default Credentials (ADC) Verification ==="
-if ! gcloud auth application-default print-access-token >/dev/null 2>&1; then
-  echo "Error: Application Default Credentials (ADC) not configured."
-  echo "Please run: gcloud auth application-default login"
-  exit 1
-fi
+echo "=== Step 0: Pre-Flight Verification, CLI Utility Test & GCP API Bootstrapping ==="
+# Verifies gcloud, bq, terraform (detecting Cloud Shell stub), node, npm, python3
+# Pre-enables foundational GCP APIs (cloudresourcemanager, serviceusage, iam, artifactregistry, etc.)
+./docs/deploy-demo.sh
 
 echo "=== Step 1: Provisioning GCP Infrastructure, Pub/Sub, Artifact Registry & Service APIs (Terraform) ==="
-cd infrastructure/terraform
+cd src/retail-data-and-ai-demo/infrastructure/terraform
 terraform apply -var="industry_target=games" -auto-approve
 
 echo "=== Step 2: Executing Quota-Bounded Synthetic Data Generation ==="

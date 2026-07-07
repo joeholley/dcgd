@@ -244,9 +244,26 @@ log_success "Step 5 BQML model trained."
 # ==============================================================================
 log_step "STEP 6: Cloud Build Container Compilation (Artifact Registry)"
 
+log_info "Ensuring Cloud Build service account permissions on Cloud Storage & Artifact Registry..."
+gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
+  --member="serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role="roles/storage.admin" --condition=None &>/dev/null || true
+
+gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
+  --member="serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role="roles/artifactregistry.writer" --condition=None &>/dev/null || true
+
+gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
+  --member="serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
+  --role="roles/storage.admin" --condition=None &>/dev/null || true
+
+gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
+  --member="serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
+  --role="roles/artifactregistry.writer" --condition=None &>/dev/null || true
+
 log_info "Submitting Cloud Build job to compile unified container image..."
 gcloud builds submit --config="${REPO_ROOT}/cloudbuild.yaml" \
-  --substitutions=_LOCATION="${GCP_REGION}",_REPOSITORY="data-cloud-ai-demos" \
+  --substitutions=_LOCATION="${GCP_REGION}",_REPOSITORY="data-cloud-ai-demos",_TAG="latest" \
   "${REPO_ROOT}"
 
 log_success "Step 6 Container image built and pushed to Artifact Registry."

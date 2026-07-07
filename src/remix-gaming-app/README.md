@@ -19,7 +19,8 @@ An enterprise React 19 + Express web application providing real-time game analyt
 
 ### 1. Prerequisites
 - **Node.js**: v18+
-- **Google Cloud SDK**: `gcloud` installed and logged into Application Default Credentials:
+- **Google Cloud SDK & CLI Tools**: `gcloud`, `bq`, `python3`, and `terraform` (v1.5+). Note: On fresh Cloud Shell instances, run `sudo apt update && sudo apt install -y terraform` if `command -v terraform` points to a placeholder.
+- **Application Default Credentials**: Logged into ADC:
   ```bash
   gcloud auth application-default login
   ```
