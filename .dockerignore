@@ -13,3 +13,4 @@ __pycache__
 .DS_Store
 .df-credentials.json
 **/config.json
+src/retail-data-and-ai-demo/
