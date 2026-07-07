@@ -1,0 +1,8 @@
+{
+  "name": "Jingle Games Player 360",
+  "description": "An intelligent multi-cloud player telemetry, monetization, and compliance data engine for Jingle Games.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,7 +1,7 @@
 # Demo Script Technical Validation Report
 ## Alignment Analysis: `demoscript.md` vs. Target Architecture
 
-This document evaluates [demoscript.md](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/demoscript.md) line-by-line against the system design defined in [docs/integration-plan.md](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/integration-plan.md), [docs/churn-guardrail-plan.md](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/churn-guardrail-plan.md), and [docs/frontend-backend-mapping.md](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/frontend-backend-mapping.md).
+This document evaluates [demoscript.md](../demoscript.md) line-by-line against the system design defined in [docs/integration-plan.md](integration-plan.md), [docs/churn-guardrail-plan.md](churn-guardrail-plan.md), and [docs/frontend-backend-mapping.md](frontend-backend-mapping.md).
 
 ---
 
@@ -48,4 +48,4 @@ The technical architecture, dataset taxonomy, BQML inference pipeline, Dataplex 
 
 ## 📌 Conclusion & Readiness
 
-The design explicitly satisfies all 4 sections of [demoscript.md](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/demoscript.md). The system is ready for phase-by-phase implementation.
+The design explicitly satisfies all 4 sections of [demoscript.md](../demoscript.md). The system is ready for phase-by-phase implementation.

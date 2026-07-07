@@ -2,18 +2,18 @@ Viewed customers.json:1-34
 
 ### How `populate-customer-tables.sql.tftpl` Works
 
-The file [populate-customer-tables.sql.tftpl](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/cloud-gtm/retail-data-and-ai-demo-dev/infrastructure/terraform/bigquery-routines/populate-customer-tables.sql.tftpl) is a **Terraform SQL template** used to create a BigQuery stored procedure (`retail_synthetic.populate_customer_tables`). It takes synthetic identity data (`synthetic_persons`) and creates populated customer profiles with simulated retail order history metrics.
+The file [populate-customer-tables.sql.tftpl](../../src/retail-data-and-ai-demo/infrastructure/terraform/bigquery-routines/populate-customer-tables.sql.tftpl) is a **Terraform SQL template** used to create a BigQuery stored procedure (`retail_synthetic.populate_customer_tables`). It takes synthetic identity data (`synthetic_persons`) and creates populated customer profiles with simulated retail order history metrics.
 
 Here is a step-by-step breakdown of how it operates:
 
 #### 1. Terraform Template Interpolation
-Terraform replaces place-holder variables enclosed in `${...}` when provisioning the routine in [bigquery-procedure.tf](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/cloud-gtm/retail-data-and-ai-demo-dev/infrastructure/terraform/bigquery-procedure.tf#L45-L49):
+Terraform replaces place-holder variables enclosed in `${...}` when provisioning the routine in [bigquery-procedure.tf](../../src/retail-data-and-ai-demo/infrastructure/terraform/bigquery-procedure.tf#L45-L49):
 * `${persons_table}` $\rightarrow$ Fully qualified name of `retail_synthetic.synthetic_persons`
 * `${gcp_customers_table}` $\rightarrow$ Fully qualified name of `retail.customers`
 * `${aws_customers_table}` $\rightarrow$ Fully qualified name of `retail_synthetic.aws_customers`
 
 #### 2. Random Data Generation via Temporary UDF (`customer_values()`)
-The script defines a temporary SQL function [customer_values()](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/cloud-gtm/retail-data-and-ai-demo-dev/infrastructure/terraform/bigquery-routines/populate-customer-tables.sql.tftpl#L1-L10) that computes synthetic retail metrics for each row:
+The script defines a temporary SQL function [customer_values()](../../src/retail-data-and-ai-demo/infrastructure/terraform/bigquery-routines/populate-customer-tables.sql.tftpl#L1-L10) that computes synthetic retail metrics for each row:
 * **`customer_since_date`**: Subtracted up to ~10,000 days (~27 years) from today.
 * **`last_purchase_date`**: Added up to 5,000 days after registration date (capped at current date via `LEAST()`).
 * **`ltv`** (Lifetime Value): Generated randomly between `$0.00` and `$5,000.00` using `CAST(rand() * 5000 AS DECIMAL)`.
@@ -33,7 +33,7 @@ Both tables share identical email addresses generated from `synthetic_persons`, 
 To convert retail order histories into **Game IAP Histories**, you can track gaming-specific metrics such as player spend tiers (*Whale, Dolphin, Minnow, F2P*), platform (*iOS, Android, PC, Console*), primary purchase categories (*Skins, Battle Pass, Currency Packs, Boosters*), and total IAP transactions.
 
 #### Step 1: Update the BigQuery Schema
-Update or replace [customers.json](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/cloud-gtm/retail-data-and-ai-demo-dev/infrastructure/terraform/bigquery-schema/customers.json) with gaming/IAP fields:
+Update or replace [customers.json](../../src/retail-data-and-ai-demo/infrastructure/terraform/bigquery-schema/customers.json) with gaming/IAP fields:
 
 ```json
 [
@@ -51,7 +51,7 @@ Update or replace [customers.json](file:///usr/local/google/home/joeholley/Docum
 
 #### Step 2: Adapt the SQL Routine Template
 
-Modify [populate-customer-tables.sql.tftpl](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/cloud-gtm/retail-data-and-ai-demo-dev/infrastructure/terraform/bigquery-routines/populate-customer-tables.sql.tftpl) to compute game IAP attributes:
+Modify [populate-customer-tables.sql.tftpl](../../src/retail-data-and-ai-demo/infrastructure/terraform/bigquery-routines/populate-customer-tables.sql.tftpl) to compute game IAP attributes:
 
 ```sql
 CREATE TEMP FUNCTION player_iap_values()

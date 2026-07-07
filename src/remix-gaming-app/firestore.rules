@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidReport(data) {
+      return data.keys().hasAll(['title', 'url', 'category', 'updatedAt']) &&
+             data.keys().size() == 4 &&
+             data.title is string && data.title.size() <= 200 &&
+             data.url is string && data.url.size() <= 1000 &&
+             data.category is string &&
+             data.updatedAt is string; // Using string ISO format as per blueprint
+    }
+
+    function isValidCampaign(data) {
+      return data.keys().hasAll(['name', 'cohort', 'game', 'propensity', 'originalBudget', 'aiBudget', 'message', 'isAiAdjusted', 'networks', 'status', 'createdAt']) &&
+             data.keys().size() == 11 &&
+             data.name is string && data.name.size() <= 200 &&
+             data.cohort is string && data.cohort.size() <= 200 &&
+             data.game is string && data.game.size() <= 100 &&
+             data.propensity is int && data.propensity >= 0 && data.propensity <= 100 &&
+             data.originalBudget is int && data.originalBudget >= 0 &&
+             data.aiBudget is int && data.aiBudget >= 0 &&
+             data.message is string && data.message.size() <= 2000 &&
+             data.isAiAdjusted is bool &&
+             data.networks is list && data.networks.size() <= 10 &&
+             data.status is string &&
+             data.createdAt is string; // ISO string format
+    }
+
+    // Reports collection
+    match /reports/{reportId} {
+      allow read: if true; // Publicly accessible reports for Baptist Health DNS
+      allow create: if isSignedIn() && isValidReport(request.resource.data);
+      allow update: if isSignedIn() && isValidReport(request.resource.data);
+      allow delete: if isSignedIn();
+    }
+
+    // Campaigns collection
+    match /campaigns/{campaignId} {
+      allow read, list: if true;
+      allow create: if isValidCampaign(request.resource.data);
+      allow delete: if true;
+    }
+    
+    // Connectivity test path
+    match /test/connection {
+      allow read: if true;
+    }
+  }
+}

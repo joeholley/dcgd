@@ -1,7 +1,7 @@
 # Real-Time Autonomous Churn Guardrail & Dynamic Incentive Engine
 ## End-to-End Implementation & Backend Integration Plan
 
-This document details the plan to extend the **Remix Gaming App** ([remix-gaming-app](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/remix-gaming-app/overview.md)) and integrate it with the GCP backend architecture ([retail-data-and-ai-demo-dev](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/retail-data-and-ai-demo-dev/overview.md) + [gamingdatademo](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/gamingdatademo/overview.md)) to fulfill the **Real-Time Autonomous Guardrail Narrative** ([docs/narrative.md](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/narrative.md)).
+This document details the plan to extend the **Remix Gaming App** ([remix-gaming-app](remix-gaming-app/overview.md)) and integrate it with the GCP backend architecture ([retail-data-and-ai-demo](retail-data-and-ai-demo/overview.md) + [gamingdatademo](gamingdatademo/overview.md)) to fulfill the **Real-Time Autonomous Guardrail Narrative** ([docs/narrative.md](narrative.md)).
 
 ---
 
@@ -49,7 +49,7 @@ graph TD
 
 ## 📚 Dataplex Knowledge Catalog Required Metadata Specification
 
-To ensure the ADK Proactive Agent can query and validate intervention parameters, the Dataplex Knowledge Catalog setup in `gamingdatademo/scripts/` is extended with dedicated terms and aspect types (`08_create_churn_guardrail_aspects.py`):
+To ensure the ADK Proactive Agent can query and validate intervention parameters, the Dataplex Knowledge Catalog setup in `src/gamingdatademo/scripts/` is extended with dedicated terms and aspect types (`08_create_churn_guardrail_aspects.py`):
 
 ### 1. Business Glossary Terms (`01_create_glossary.py` Extension)
 - **`Whale Spend`**: Definition = *"Player lifetime monetization exceeding $500.00 USD"*. Linked to `omniarcade_gold.gold_player_360.total_iap_spend`.
@@ -194,7 +194,7 @@ WHERE p.label = 1;
 
 ## 📡 Google Cloud Pub/Sub $\rightarrow$ BigQuery Streaming Pattern
 
-Following the **`retail-data-and-ai-demo-dev`** Infrastructure-as-Code pattern, Pub/Sub ingestion is provisioned as part of the `games/` Terraform extension in `infrastructure/terraform/games/games-pubsub.tf`.
+Following the **`retail-data-and-ai-demo`** Infrastructure-as-Code pattern, Pub/Sub ingestion is provisioned as part of the `games/` Terraform extension in `infrastructure/terraform/games/games-pubsub.tf`.
 
 ```hcl
 # Pub/Sub Topic for Live Game Telemetry
@@ -254,7 +254,7 @@ resource "google_pubsub_subscription" "live_telemetry_bq_sub" {
 
 ## ⚡ Detailed Step-by-Step Extension Plan
 
-### Phase 1: Real-Time Telemetry & BQML Churn Reasoning Engine (`gamingdatademo` + `retail-data-and-ai-demo-dev`)
+### Phase 1: Real-Time Telemetry & BQML Churn Reasoning Engine (`gamingdatademo` + `retail-data-and-ai-demo`)
 1. **Define `omniarcade_raw.live_session_events` Table**:
    - Schema: `session_id`, `player_id`, `event_type` (`boss_fail`, `quit_intent`), `consecutive_deaths`, `timestamp`.
 2. **Implement BQML Training & Inference Routines**:
@@ -264,7 +264,7 @@ resource "google_pubsub_subscription" "live_telemetry_bq_sub" {
 ---
 
 ### Phase 2: Dataplex Universal Context Check & Aspects Setup (Vertex AI Agent Engine + MCP + ADK)
-1. **Create Churn Guardrail Aspects Script (`gamingdatademo/scripts/08_create_churn_guardrail_aspects.py`)**:
+1. **Create Churn Guardrail Aspects Script (`src/gamingdatademo/scripts/08_create_churn_guardrail_aspects.py`)**:
    - Registers `liveops_campaign_policy_aspect` and `certified_reward_sku_aspect` in Dataplex Knowledge Catalog.
 2. **Extend ADK KC-Guided Agent Tools (`agents/agent_kc`)**:
    - Equip agent with `verify_intervention_policy`, `get_glossary_term`, and `verify_aspect_compliance` tools.

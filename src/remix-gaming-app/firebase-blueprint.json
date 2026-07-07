@@ -1,0 +1,57 @@
+{
+  "entities": {
+    "Report": {
+      "title": "Hospital Report",
+      "description": "Metadata for hospital operational and compliance reports",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "description": "The display name of the report" },
+        "url": { "type": "string", "description": "The URL to the report asset (PDF)" },
+        "category": { "type": "string", "description": "Category like 'compliance' or 'operations'" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last time the report was updated" }
+      },
+      "required": ["title", "url", "category", "updatedAt"]
+    },
+    "Campaign": {
+      "title": "Campaign",
+      "description": "Marketing campaign targeting specific player cohorts and game titles",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "The campaign identification name" },
+        "cohort": { "type": "string", "description": "Target player cohort name" },
+        "game": { "type": "string", "description": "The target game title" },
+        "propensity": { "type": "integer", "description": "Cohort propensity score block from Snowflake" },
+        "originalBudget": { "type": "integer", "description": "Allocated budget in USD" },
+        "aiBudget": { "type": "integer", "description": "AI-optimized and adjusted budget in USD" },
+        "message": { "type": "string", "description": "Hyper-personalized messaging text template" },
+        "isAiAdjusted": { "type": "boolean", "description": "Whether budget adjustment AI toggle is active" },
+        "networks": { "type": "array", "description": "Publish delivery channel networks" },
+        "status": { "type": "string", "description": "State status like Draft, Pending, Active" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Time the campaign was generated" }
+      },
+      "required": [
+        "name", 
+        "cohort", 
+        "game", 
+        "propensity", 
+        "originalBudget", 
+        "aiBudget", 
+        "message", 
+        "isAiAdjusted", 
+        "networks", 
+        "status", 
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/reports/{reportId}": {
+      "schema": "Report",
+      "description": "Collection of hospital reports and policy documents"
+    },
+    "/campaigns/{campaignId}": {
+      "schema": "Campaign",
+      "description": "Collection of cohort campaigns and operational marketing budgets"
+    }
+  }
+}
