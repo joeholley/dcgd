@@ -265,12 +265,20 @@ gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
   --role="roles/artifactregistry.writer" --condition=None &>/dev/null || true
 
 gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
+  --member="serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role="roles/logging.logWriter" --condition=None &>/dev/null || true
+
+gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
   --member="serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
   --role="roles/storage.admin" --condition=None &>/dev/null || true
 
 gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
   --member="serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
   --role="roles/artifactregistry.writer" --condition=None &>/dev/null || true
+
+gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
+  --member="serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
+  --role="roles/logging.logWriter" --condition=None &>/dev/null || true
 
 log_info "Submitting Cloud Build job to compile unified container image..."
 gcloud builds submit --config="${REPO_ROOT}/cloudbuild.yaml" \
