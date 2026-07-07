@@ -69,13 +69,56 @@ GCP_PROJECT_NUMBER="$(gcloud projects describe "${GCP_PROJECT}" --format="value(
 log_step "STEP 0: Pre-flight Verification & Environment Sanity Check"
 
 log_info "Verifying required CLI utilities..."
-for cmd in gcloud terraform node npm python3; do
-  if command -v $cmd &> /dev/null; then
-    log_info "  - Tool '$cmd': INSTALLED ($(command -v $cmd))"
-  else
-    log_warn "  - Tool '$cmd': NOT FOUND"
+
+PREFLIGHT_FAILED=0
+
+check_tool() {
+  local tool="$1"
+  local ver_cmd="$2"
+  local path
+  path="$(command -v "$tool" 2>/dev/null || true)"
+
+  if [ -z "$path" ]; then
+    log_error "  - Tool '$tool': NOT FOUND"
+    PREFLIGHT_FAILED=1
+    return 1
   fi
-done
+
+  if [ "$tool" = "terraform" ]; then
+    local tf_output
+    tf_output="$("$path" version 2>&1 || true)"
+    if echo "$tf_output" | grep -qE "Terraform v[0-9]" && ! echo "$tf_output" | grep -q "apt.releases.hashicorp.com"; then
+      log_info "  - Tool 'terraform': INSTALLED ($path)"
+    else
+      log_error "  - Tool 'terraform': STUB / UNINSTALLED ($path)"
+      log_error "    Google Cloud Shell placeholder detected. Install real Terraform with:"
+      log_error "      sudo apt update && sudo apt install -y terraform"
+      log_error "    (or follow https://developer.hashicorp.com/terraform/install)"
+      PREFLIGHT_FAILED=1
+      return 1
+    fi
+  else
+    if eval "$ver_cmd" &>/dev/null; then
+      log_info "  - Tool '$tool': INSTALLED ($path)"
+    else
+      log_error "  - Tool '$tool': INSTALLED ($path) BUT FAILED EXECUTION TEST"
+      PREFLIGHT_FAILED=1
+      return 1
+    fi
+  fi
+}
+
+check_tool "gcloud" "gcloud --version"
+check_tool "bq" "bq version"
+check_tool "terraform" "terraform version"
+check_tool "node" "node --version"
+check_tool "npm" "npm --version"
+check_tool "python3" "python3 --version"
+
+if [ "$PREFLIGHT_FAILED" -ne 0 ]; then
+  log_error "Step 0 Pre-flight checks failed. Please install or fix missing/broken tools before continuing."
+  exit 1
+fi
 
 log_info "Configuring GCP Project context..."
 log_info "  - GCP Project ID: ${GCP_PROJECT}"
