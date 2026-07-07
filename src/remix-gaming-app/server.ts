@@ -118,7 +118,7 @@ async function verifyDataplexPolicyAndPrecache(
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT || 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json());
 
@@ -297,7 +297,15 @@ async function startServer() {
 
     // Keep connection alive with a 15-second heartbeat
     const heartbeatInterval = setInterval(() => {
-      res.write(`: heartbeat ping ${new Date().toISOString()}\n\n`);
+      try {
+        if (res.writableEnded || res.destroyed) {
+          clearInterval(heartbeatInterval);
+          return;
+        }
+        res.write(`: heartbeat ping ${new Date().toISOString()}\n\n`);
+      } catch (err) {
+        clearInterval(heartbeatInterval);
+      }
     }, 15000);
 
     req.on("close", () => {
@@ -431,12 +439,13 @@ FILTER USING (spend_tier = 'Whale' AND churn_risk_score >= 0.50);
   // --------------------------------------------------------------------------
   app.post("/api/chat", async (req: Request, res: Response) => {
     try {
-      const { message, history } = req.body;
+      const message = typeof req.body?.message === "string" ? req.body.message : "";
+      const history = req.body?.history || [];
 
       // Try calling Vertex AI Agent Engine via ADC authentication
       try {
         const client = await auth.getClient();
-        const accessToken = (await client.getAccessToken()).token;
+        const accessToken = client ? (await client.getAccessToken()).token : null;
 
         if (accessToken) {
           const agentEngineUrl = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/reasoningEngines/${AGENT_ENGINE_ID}:query`;
@@ -461,7 +470,7 @@ FILTER USING (spend_tier = 'Whale' AND churn_risk_score >= 0.50);
       // Robust Assistant Response with Dataplex Knowledge Catalog & Churn Guardrail context
       const reply = `**OmniArcade LiveOps & Governance Assistant**
 
-Thank you for your query regarding: *"${message}"*
+Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
 
 **Unified Lakehouse Data Insights:**
 - **BigQuery Gold Feature Table**: \`gold_player_360\` tracks real-time player LTV and churn risk scores.
@@ -473,7 +482,7 @@ Thank you for your query regarding: *"${message}"*
       return res.json({ text: reply });
     } catch (error: any) {
       console.error("[Chat API Error]:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: error.message || "Failed to process chat query" });
     }
   });
 
@@ -483,33 +492,45 @@ Thank you for your query regarding: *"${message}"*
   app.get("/api/analytics/player360", async (req: Request, res: Response) => {
     try {
       const playerId = req.query.player_id as string;
-      const limit = Number(req.query.limit) || 20;
-      const records = await queryPlayer360(playerId, limit);
+      const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string) || 20));
+      const records = await queryPlayer360(playerId, limit).catch((err) => {
+        console.warn("[Analytics API] queryPlayer360 fallback triggered:", err.message);
+        return [];
+      });
       res.json({ success: true, count: records.length, data: records });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      console.error("[Analytics API Error - Player360]:", err);
+      res.status(500).json({ error: err.message || "Player360 query failed" });
     }
   });
 
   app.get("/api/analytics/regional", async (req: Request, res: Response) => {
     try {
       const region = req.query.region as string;
-      const limit = Number(req.query.limit) || 10;
-      const records = await queryRegionalKPIs(region, limit);
+      const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string) || 10));
+      const records = await queryRegionalKPIs(region, limit).catch((err) => {
+        console.warn("[Analytics API] queryRegionalKPIs fallback triggered:", err.message);
+        return [];
+      });
       res.json({ success: true, count: records.length, data: records });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      console.error("[Analytics API Error - Regional]:", err);
+      res.status(500).json({ error: err.message || "Regional KPIs query failed" });
     }
   });
 
   app.get("/api/analytics/campaigns", async (req: Request, res: Response) => {
     try {
       const campaignId = req.query.campaign_id as string;
-      const limit = Number(req.query.limit) || 10;
-      const records = await queryCampaignAnalytics(campaignId, limit);
+      const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string) || 10));
+      const records = await queryCampaignAnalytics(campaignId, limit).catch((err) => {
+        console.warn("[Analytics API] queryCampaignAnalytics fallback triggered:", err.message);
+        return [];
+      });
       res.json({ success: true, count: records.length, data: records });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      console.error("[Analytics API Error - Campaigns]:", err);
+      res.status(500).json({ error: err.message || "Campaign analytics query failed" });
     }
   });
 
@@ -530,7 +551,7 @@ Thank you for your query regarding: *"${message}"*
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`[OmniArcade Backend Gateway] Running on http://localhost:${PORT}`);
     console.log(`  - Telemetry Stream: POST /api/telemetry/stream`);
     console.log(`  - SSE Guardrail Hub: GET /api/guardrail/events`);
@@ -538,6 +559,16 @@ Thank you for your query regarding: *"${message}"*
     console.log(`  - Dataplex Rule Discovery: POST /api/catalog/rules/discover`);
     console.log(`  - Vertex AI Agent Chat: POST /api/chat`);
   });
+
+  server.on("error", (err: any) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(`[OmniArcade Backend Gateway] Error: Port ${PORT} is already in use. Use a different port or stop the existing process (e.g. PORT=3001 node dist/server.cjs).`);
+    } else {
+      console.error("[OmniArcade Backend Gateway] Server error:", err);
+    }
+  });
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error("[OmniArcade Backend Gateway] Server startup error:", err);
+});

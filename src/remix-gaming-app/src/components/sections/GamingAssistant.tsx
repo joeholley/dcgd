@@ -197,10 +197,32 @@ export function GamingAssistant({ isOpen, onToggle }: { isOpen: boolean; onToggl
           suggestions: ["Dataplex Policy Verification", "GDPR Health Check"]
         };
       } else {
+        let apiText = "";
+        try {
+          const res = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: userMsg }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            apiText = data.text;
+          }
+        } catch {
+          apiText = "";
+        }
+
         botResponse = {
           role: "bot",
           stepper: finalSteps,
-          content: (
+          content: apiText ? (
+            <div className="space-y-3">
+              <p className="text-xs text-slate-700 font-bold">PineCore AI Response:</p>
+              <div className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap font-sans">
+                {apiText}
+              </div>
+            </div>
+          ) : (
             <div className="space-y-3">
               <p className="text-xs text-slate-700 font-bold">PineCore AI Query Execution Completed.</p>
               <p className="text-xs text-slate-500 leading-relaxed font-light">

@@ -177,8 +177,11 @@ export function LiveOpsGuardrail() {
         body: JSON.stringify(payload),
       });
 
-      if (res.ok) {
-        const data = await res.json();
+      if (!res.ok) {
+        throw new Error(`Server returned HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
         if (data.bqml_prediction) {
           const score = data.bqml_prediction.predicted_churn_score;
           setChurnScore(score);
@@ -209,7 +212,6 @@ export function LiveOpsGuardrail() {
         };
 
         setTelemetryLogs(prev => [logEntry, ...prev.slice(0, 19)]);
-      }
     } catch (err) {
       console.warn("Telemetry stream error, executing local fallback simulation:", err);
       // Local fallback logic
