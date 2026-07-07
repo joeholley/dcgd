@@ -60,7 +60,7 @@ bash docs/deploy-demo.sh
 After deployment, access the private Cloud Run service from Cloud Shell:
 
 ```bash
-gcloud run proxy --service=omniarcade-app --port=8080
+gcloud run services proxy --service=omniarcade-app --port=8080 --region=us-central1
 ```
 Then click **Web Preview** -> **Preview on port 8080** in Google Cloud Shell.
 

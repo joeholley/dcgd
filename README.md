@@ -48,7 +48,7 @@ To view the application from Google Cloud Shell:
 
 ```bash
 # 1. Start the gcloud run proxy on port 8080
-gcloud run proxy --service=omniarcade-app --port=8080
+gcloud run services proxy --service=omniarcade-app --port=8080 --region=us-central1
 
 # 2. In Google Cloud Shell, click 'Web Preview' -> 'Preview on port 8080'
 ```
@@ -110,7 +110,7 @@ gcloud run deploy omniarcade-app \
   --port=8080
 
 # Proxy & Access via Cloud Shell Web Preview
-gcloud run proxy --service=omniarcade-app --port=8080
+gcloud run services proxy --service=omniarcade-app --port=8080 --region=us-central1
 ```
 
 ---

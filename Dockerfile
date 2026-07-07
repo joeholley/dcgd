@@ -36,6 +36,7 @@ COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 ENV PORT=8080
+ENV NODE_ENV=production
 EXPOSE 8080
 
 ENTRYPOINT ["/app/entrypoint.sh"]
