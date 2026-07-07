@@ -1,0 +1,3 @@
+[submodule "src/gamingdatademo"]
+	path = src/gamingdatademo
+	url = git@github.com:chrisbgooglecloud/gamingdatademo.git
