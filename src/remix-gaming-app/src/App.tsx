@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Layout } from "./components/Layout";
 import { Overview } from "./components/sections/Overview";
-import { HospitalAdmin } from "./components/sections/HospitalAdmin";
+import { GamingAssistant } from "./components/sections/GamingAssistant";
 import { KnowledgeCatalog } from "./components/sections/KnowledgeCatalog";
 import { ITObservatory } from "./components/sections/ITObservatory";
 import { AgenticWorkflows } from "./components/sections/AgenticWorkflows";
@@ -65,7 +65,7 @@ export default function App() {
       </Layout>
 
       {/* Persistent PineCore AI Assistant */}
-      <HospitalAdmin isOpen={assistantOpen} onToggle={() => setAssistantOpen(!assistantOpen)} />
+      <GamingAssistant isOpen={assistantOpen} onToggle={() => setAssistantOpen(!assistantOpen)} />
     </div>
   );
 }

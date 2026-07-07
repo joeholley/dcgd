@@ -47,13 +47,23 @@ An enterprise React 19 + Express web application providing real-time game analyt
 
 
 
-### 2. Full Platform Deployment (Automated)
-To deploy the entire backend infrastructure, Dataform pipelines, BQML model, Dataplex tags, and UI in one command:
+### 2. Full Platform Deployment (Cloud Build & Private Cloud Run)
+To deploy the entire backend infrastructure, Dataform pipelines, BQML model, Dataplex tags, and unified UI in one command:
 ```bash
-bash ../../docs/deploy-demo.sh
+# From repository root:
+bash docs/deploy-demo.sh
 ```
 
-### 3. Running UI Development Server Locally
+### 3. Accessing the Private Cloud Run Deployment
+
+After deployment, access the private Cloud Run service from Cloud Shell:
+
+```bash
+gcloud run proxy --service=omniarcade-app --port=8080
+```
+Then click **Web Preview** -> **Preview on port 8080** in Google Cloud Shell.
+
+### 4. Running UI Development Server Locally
 ```bash
 # Install dependencies
 npm install

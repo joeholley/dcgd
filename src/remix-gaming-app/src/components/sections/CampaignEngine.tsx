@@ -26,7 +26,7 @@ import {
   Cable
 } from "lucide-react";
 import { collection, query, getDocs, orderBy, addDoc, deleteDoc, doc } from "firebase/firestore";
-import { db, auth } from "../../services/firebase";
+import { db, auth, isUsingFirebaseMock } from "../../services/firebase";
 import { cn } from "../../lib/utils";
 
 enum OperationType {
@@ -1039,6 +1039,41 @@ export function CampaignEngine({
   // Load campaigns from Firestore
   const fetchCampaigns = async () => {
     setLoading(true);
+    if (isUsingFirebaseMock) {
+      setCampaigns([
+        {
+          id: "initial-raider-re-engage",
+          name: "High-Spender Cosmic Reactivation",
+          cohort: "Cosmic Raider Dormant Cohort",
+          game: "Cosmic Raider RPG",
+          propensity: 88,
+          originalBudget: 4000,
+          aiBudget: 5500,
+          message: "Ready to conquer the stars again, Commander? A rare Legendary Obsidian Blade is waiting in your gift crate!",
+          isAiAdjusted: true,
+          networks: ["Google Ads", "Google Analytics"],
+          status: "Active",
+          createdAt: new Date(Date.now() - 86450000).toISOString()
+        },
+        {
+          id: "initial-speedy-promo",
+          name: "Speed Racer Turbo Boost",
+          cohort: "Retro Speed Racer Churn-Risk",
+          game: "Retro Speed Racer",
+          propensity: 42,
+          originalBudget: 1500,
+          aiBudget: 900,
+          message: "The track is clear! Drag your Retro Speed Racer back today and claim 150 gold coins!",
+          isAiAdjusted: true,
+          networks: ["Google Ads"],
+          status: "Active",
+          createdAt: new Date(Date.now() - 172800000).toISOString()
+        }
+      ]);
+      setLoading(false);
+      return;
+    }
+
     try {
       const q = query(collection(db, "campaigns"), orderBy("createdAt", "desc"));
       let querySnapshot;
@@ -1090,7 +1125,6 @@ export function CampaignEngine({
       }
     } catch (err) {
       console.error("Error loading campaigns:", err);
-      // Fail-safe robust local state fallback so that the interface is never empty when Firestore is connection-limited
       setCampaigns([
         {
           id: "initial-raider-re-engage",
@@ -1132,6 +1166,14 @@ export function CampaignEngine({
 
   // Handle saving campaign to Firestore
   const saveCampaign = async (newCamp: Omit<Campaign, "id">) => {
+    if (isUsingFirebaseMock) {
+      setCampaigns(prev => [
+        { id: `mock-${Date.now()}`, ...newCamp },
+        ...prev
+      ]);
+      return;
+    }
+
     try {
       let docRef;
       try {
@@ -1143,7 +1185,6 @@ export function CampaignEngine({
       fetchCampaigns();
     } catch (err) {
       console.error("Error saving campaign: ", err);
-      // Fallback update local state if Firestore write hits permission limits
       setCampaigns(prev => [
         { id: Math.random().toString(), ...newCamp },
         ...prev
@@ -1152,6 +1193,11 @@ export function CampaignEngine({
   };
 
   const handleDeleteCampaign = async (id: string) => {
+    if (isUsingFirebaseMock) {
+      setCampaigns(prev => prev.filter(c => c.id !== id));
+      return;
+    }
+
     try {
       try {
         await deleteDoc(doc(db, "campaigns", id));
@@ -1162,7 +1208,6 @@ export function CampaignEngine({
       fetchCampaigns();
     } catch (err) {
       console.error("Error deleting campaign:", err);
-      // Fallback
       setCampaigns(prev => prev.filter(c => c.id !== id));
     }
   };

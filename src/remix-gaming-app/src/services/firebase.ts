@@ -7,7 +7,9 @@ const defaultConfig = {
   appId: '1:000000000:web:000000000',
   apiKey: 'PLACEHOLDER_KEY',
   authDomain: 'demo-project.firebaseapp.com',
-  firestoreDatabaseId: '(default)'
+  firestoreDatabaseId: '(default)',
+  storageBucket: 'demo-project.firebasestorage.app',
+  messagingSenderId: '00000000000'
 };
 
 let firebaseConfig = defaultConfig;

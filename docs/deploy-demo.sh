@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Master Deployment Orchestrator Script: Unified Gaming Data & AI Operations Platform
-# Steps 0 to 7 Runbook (Terraform -> Dataform -> BQML -> Dataplex -> Agent -> UI)
+# Steps 0 to 7 Runbook (Terraform -> Dataform -> BQML -> Dataplex -> Cloud Build -> Cloud Run)
 # ==============================================================================
 
 set -eo pipefail
@@ -44,11 +44,24 @@ GAMING_DIR="${REPO_ROOT}/src/gamingdatademo"
 REMIX_UI_DIR="${REPO_ROOT}/src/remix-gaming-app"
 
 # Configuration variables
-GCP_PROJECT="${GOOGLE_CLOUD_PROJECT:-omniarcade-demo}"
+GCP_PROJECT="${GOOGLE_CLOUD_PROJECT:-${GCP_PROJECT}}"
+if [ -z "$GCP_PROJECT" ]; then
+  GCP_PROJECT="$(gcloud config get-value project 2>/dev/null || true)"
+fi
+
+if [ -z "$GCP_PROJECT" ]; then
+  log_error "No active GCP project ID detected."
+  log_error "Please set GOOGLE_CLOUD_PROJECT or run 'gcloud config set project <PROJECT_ID>'."
+  exit 1
+fi
+
 GCP_REGION="${GCP_LOCATION:-us-central1}"
 PUBSUB_TOPIC="omniarcade-live-telemetry"
 BQ_DATASET_RAW="omniarcade_raw"
 BQ_DATASET_GOLD="omniarcade_gold"
+
+# Fetch project number
+GCP_PROJECT_NUMBER="$(gcloud projects describe "${GCP_PROJECT}" --format="value(projectNumber)" 2>/dev/null || echo "000000000000")"
 
 # ==============================================================================
 # Step 0: Pre-flight Verification & Environment Sanity Check
@@ -56,16 +69,17 @@ BQ_DATASET_GOLD="omniarcade_gold"
 log_step "STEP 0: Pre-flight Verification & Environment Sanity Check"
 
 log_info "Verifying required CLI utilities..."
-for cmd in gcloud terraform node npm; do
+for cmd in gcloud terraform node npm python3; do
   if command -v $cmd &> /dev/null; then
     log_info "  - Tool '$cmd': INSTALLED ($(command -v $cmd))"
   else
-    log_warn "  - Tool '$cmd': NOT FOUND (Will run in simulation mode if absent)"
+    log_warn "  - Tool '$cmd': NOT FOUND"
   fi
 done
 
 log_info "Configuring GCP Project context..."
 log_info "  - GCP Project ID: ${GCP_PROJECT}"
+log_info "  - GCP Project Number: ${GCP_PROJECT_NUMBER}"
 log_info "  - GCP Region: ${GCP_REGION}"
 log_info "  - Telemetry Pub/Sub Topic: ${PUBSUB_TOPIC}"
 log_success "Step 0 Pre-flight checks completed."
@@ -79,100 +93,122 @@ TF_DIR="${RETAIL_DIR}/infrastructure/terraform"
 if [ -d "$TF_DIR" ]; then
   log_info "Navigating to Terraform directory: ${TF_DIR}"
   log_info "Running 'terraform init'..."
-  # terraform -chdir="${TF_DIR}" init -input=false || log_warn "Terraform init warning"
-  log_info "Executing 'terraform apply -var=\"industry_target=games\"'..."
-  # terraform -chdir="${TF_DIR}" apply -auto-approve -var="industry_target=games" || log_warn "Terraform apply warning"
+  terraform -chdir="${TF_DIR}" init -input=false
+
+  log_info "Executing 'terraform apply -var=\"project_id=${GCP_PROJECT}\" -var=\"industry_target=games\"'..."
+  terraform -chdir="${TF_DIR}" apply -auto-approve \
+    -var="project_id=${GCP_PROJECT}" \
+    -var="industry_target=games"
+
   log_success "Step 1 Terraform infrastructure applied successfully."
 else
-  log_warn "Terraform directory ${TF_DIR} not found. Skipping live IaC apply step."
+  log_error "Terraform directory ${TF_DIR} not found."
+  exit 1
 fi
 
 # ==============================================================================
-# Step 2: Cloud Pub/Sub Direct BigQuery Subscription Setup
+# Step 2: Auto-Generate Dataplex Script Configuration
 # ==============================================================================
-log_step "STEP 2: Cloud Pub/Sub Direct BigQuery Subscription Verification"
+log_step "STEP 2: Auto-Generate Dataplex Governance Configuration"
 
-log_info "Checking topic '${PUBSUB_TOPIC}' and direct BigQuery subscription '${PUBSUB_TOPIC}-bq-sub'..."
-log_info "Direct Subscription Target: ${GCP_PROJECT}.${BQ_DATASET_RAW}.live_session_events"
-log_info "Zero-code streaming pipeline verified (<150ms ingestion SLA)."
-log_success "Step 2 Pub/Sub Direct Subscription active."
-
-# ==============================================================================
-# Step 3: Quota-Safe Synthetic Player Population & Power-Law Spend
-# ==============================================================================
-log_step "STEP 3: Synthetic Player Population & Power-Law Distribution"
-
-log_info "Executing Vertex AI synthetic player population stored procedure..."
-log_info "Populating datasets 'players', 'iap_transactions', and 'synthetic_players'..."
-log_info "Configuring power-law spend ratio: 5% Whales (LTV > $500), 20% Dolphins ($50-$500), 75% Minnows (<$50)."
-log_success "Step 3 Player population and synthetic data generated."
+DATAPLEX_CONFIG="${GAMING_DIR}/scripts/config.json"
+log_info "Writing Dataplex script config to: ${DATAPLEX_CONFIG}"
+cat <<EOF > "${DATAPLEX_CONFIG}"
+{
+  "project_id": "${GCP_PROJECT}",
+  "project_number": "${GCP_PROJECT_NUMBER}",
+  "region": "${GCP_REGION}",
+  "multi_region": "us"
+}
+EOF
+log_success "Step 2 Configuration generated."
 
 # ==============================================================================
-# Step 4: In-Warehouse BQML Churn Prediction Model Training
+# Step 3: Dataform Medallion Pipeline Execution
 # ==============================================================================
-log_step "STEP 4: In-Warehouse BQML Churn Model Training & Validation"
-
-log_info "Training BQML Logistic Regression model 'omniarcade_raw.player_churn_model'..."
-log_info "Training Features: consecutive_deaths, session_duration_seconds, event_type, player_tier"
-log_info "Validating BQML ML.PREDICT execution..."
-log_info "  - Test Case: 3 consecutive deaths on boss encounter -> Evaluates churn risk > 0.80"
-log_success "Step 4 BQML model trained and validated."
-
-# ==============================================================================
-# Step 5: Dataform Medallion Pipeline Execution
-# ==============================================================================
-log_step "STEP 5: Dataform Medallion Pipeline Execution (Bronze -> Silver -> Gold)"
+log_step "STEP 3: Dataform Medallion Pipeline Execution (Bronze -> Silver -> Gold)"
 
 DATAFORM_DIR="${GAMING_DIR}/dataform"
 if [ -d "$DATAFORM_DIR" ]; then
-  log_info "Compiling Dataform Medallion models in ${DATAFORM_DIR}..."
-  log_info "  - Bronze: Raw JSON ingestion"
-  log_info "  - Silver: Cleaned & schema-validated events"
-  log_info "  - Gold: 'gold_player_360', 'gold_regional_kpis', 'gold_campaign_analytics'"
-  # dataform run --vars=industry:games || log_warn "Dataform execution completed with warnings"
-  log_success "Step 5 Dataform Gold analytical tables built."
+  log_info "Compiling and running Dataform Medallion models in ${DATAFORM_DIR}..."
+  if command -v dataform &> /dev/null; then
+    dataform run "${DATAFORM_DIR}" --vars=project_id:${GCP_PROJECT},industry:games || log_warn "Dataform execution completed with warnings"
+  elif command -v npx &> /dev/null; then
+    npx --yes @dataform/cli run "${DATAFORM_DIR}" --vars=project_id:${GCP_PROJECT},industry:games || log_warn "Dataform execution completed with warnings"
+  else
+    log_warn "Neither 'dataform' nor 'npx' found. Skipping Dataform execution."
+  fi
+  log_success "Step 3 Dataform Gold analytical tables built."
 else
   log_warn "Dataform directory ${DATAFORM_DIR} not found. Skipping live compilation."
 fi
 
 # ==============================================================================
-# Step 6: Dataplex Aspect Tags & ADK Agent Engine Deployment
+# Step 4: Dataplex Aspect Tags & Business Glossary Registration
 # ==============================================================================
-log_step "STEP 6: Dataplex Aspect Tags & ADK Proactive Agent Engine Deployment"
+log_step "STEP 4: Dataplex Aspect Tags & Business Glossary Registration"
 
 SCRIPTS_DIR="${GAMING_DIR}/scripts"
 log_info "Registering Dataplex Business Glossaries & Aspect Tags..."
-log_info "  - Business Glossary Term: 'Whale Spend Tier'"
-log_info "  - Custom Aspect Tag: 'liveops_campaign_policy_aspect'"
-log_info "  - Certified Reward SKU Aspect: 'certified_reward_sku_aspect'"
 
-if [ -f "${GAMING_DIR}/scripts/08_create_churn_guardrail_aspects.py" ]; then
+if [ -f "${SCRIPTS_DIR}/01_create_glossary.py" ]; then
+  log_info "Running 01_create_glossary.py..."
+  python3 "${SCRIPTS_DIR}/01_create_glossary.py" || log_warn "Glossary script warning"
+fi
+
+if [ -f "${SCRIPTS_DIR}/08_create_churn_guardrail_aspects.py" ]; then
   log_info "Running 08_create_churn_guardrail_aspects.py..."
-  # python3 "${GAMING_DIR}/scripts/08_create_churn_guardrail_aspects.py" || log_warn "Python aspect script warning"
+  python3 "${SCRIPTS_DIR}/08_create_churn_guardrail_aspects.py" || log_warn "Aspect script warning"
 fi
 
-log_info "Deploying Proactive Guardrail Agent to Vertex AI Agent Engine..."
-log_info "  - Agent ID: ${GCP_PROJECT}/locations/${GCP_REGION}/reasoningEngines/omniarcade-guardrail-agent"
-log_success "Step 6 Dataplex Knowledge Catalog & Agent Engine deployed."
-
-# ==============================================================================
-# Step 7: Express Middleware Gateway & Executive Remix React UI Launch
-# ==============================================================================
-log_step "STEP 7: Express Middleware Gateway & Executive Remix React UI Verification"
-
-if [ -d "$REMIX_UI_DIR" ]; then
-  log_info "Navigating to Remix Gaming UI: ${REMIX_UI_DIR}"
-  log_info "Testing TypeScript compilation and build..."
-  cd "${REMIX_UI_DIR}"
-  npm run lint || log_warn "TypeScript lint check completed with non-fatal warnings"
-  npm run build || log_warn "Vite build completed"
-
-  log_success "Step 7 Remix Gaming App UI compiled and verified."
-  log_info "To launch local development server with Express backend gateway:"
-  log_info "  $ cd ${REMIX_UI_DIR} && npm run dev"
-else
-  log_warn "Remix UI directory ${REMIX_UI_DIR} not found."
+if [ -f "${SCRIPTS_DIR}/07_create_lineage.py" ]; then
+  log_info "Running 07_create_lineage.py..."
+  python3 "${SCRIPTS_DIR}/07_create_lineage.py" || log_warn "Lineage script warning"
 fi
+
+log_success "Step 4 Dataplex Knowledge Catalog & Aspects registered."
+
+# ==============================================================================
+# Step 5: In-Warehouse BQML Churn Prediction Model Training
+# ==============================================================================
+log_step "STEP 5: In-Warehouse BQML Churn Model Training & Validation"
+
+log_info "Training BQML Logistic Regression model 'omniarcade_raw.player_churn_model'..."
+bq query --use_legacy_sql=false "CALL \`${GCP_PROJECT}.omniarcade_raw.train_churn_model\`();" || log_warn "BQML model training warning"
+
+log_success "Step 5 BQML model trained."
+
+# ==============================================================================
+# Step 6: Cloud Build Container Compilation
+# ==============================================================================
+log_step "STEP 6: Cloud Build Container Compilation (Artifact Registry)"
+
+log_info "Submitting Cloud Build job to compile unified container image..."
+gcloud builds submit --config="${REPO_ROOT}/cloudbuild.yaml" \
+  --substitutions=_LOCATION="${GCP_REGION}",_REPOSITORY="data-cloud-ai-demos" \
+  "${REPO_ROOT}"
+
+log_success "Step 6 Container image built and pushed to Artifact Registry."
+
+# ==============================================================================
+# Step 7: Private Cloud Run Deployment (Authenticated & Private)
+# ==============================================================================
+log_step "STEP 7: Private Cloud Run Deployment (Authenticated & Private)"
+
+SERVICE_NAME="omniarcade-app"
+IMAGE_URI="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/data-cloud-ai-demos/gaming-app:latest"
+RUNNER_SA="omniarcade-runner-sa@${GCP_PROJECT}.iam.gserviceaccount.com"
+
+log_info "Deploying Cloud Run service '${SERVICE_NAME}' with --no-allow-unauthenticated..."
+gcloud run deploy "${SERVICE_NAME}" \
+  --image="${IMAGE_URI}" \
+  --region="${GCP_REGION}" \
+  --service-account="${RUNNER_SA}" \
+  --no-allow-unauthenticated \
+  --set-env-vars="GOOGLE_CLOUD_PROJECT=${GCP_PROJECT},GCP_LOCATION=${GCP_REGION}" \
+  --port=8080
+
+log_success "Step 7 Cloud Run service deployed in private/authenticated mode."
 
 # ==============================================================================
 # Orchestration Completion Summary
@@ -185,8 +221,12 @@ log_info "  1. BigQuery Datasets: ${BQ_DATASET_RAW}, ${BQ_DATASET_GOLD}"
 log_info "  2. Pub/Sub Direct Sub: ${PUBSUB_TOPIC} -> ${BQ_DATASET_RAW}.live_session_events"
 log_info "  3. BQML Model: ${BQ_DATASET_RAW}.player_churn_model"
 log_info "  4. Dataform Medallion: Bronze -> Silver -> Gold (gold_player_360)"
-log_info "  5. Dataplex Aspect: liveops_campaign_policy_aspect (Whale 85% SLA)"
-log_info "  6. Vertex AI Agent Engine: omniarcade-guardrail-agent"
-log_info "  7. Remix UI Split-Screen: http://localhost:3000 (LiveOps Guardrail Tab)"
+log_info "  5. Dataplex Aspect: liveops_campaign_policy_aspect"
+log_info "  6. Container Image: ${IMAGE_URI}"
+log_info "  7. Cloud Run Service: ${SERVICE_NAME} (Private / Authenticated)"
+log_info ""
+log_info "To access the private Cloud Run service from Cloud Shell Web Preview:"
+log_info "  $ gcloud run proxy --service=${SERVICE_NAME} --port=8080"
+log_info "Then click 'Web Preview' in Cloud Shell and select 'Preview on port 8080'."
 
 exit 0

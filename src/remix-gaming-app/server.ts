@@ -48,11 +48,16 @@ const precachedOffers = new Map<string, any>();
  */
 function broadcastSSE(eventType: string, data: any) {
   const payload = `event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`;
-  sseClients.forEach((client) => {
+  sseClients = sseClients.filter((client) => {
     try {
+      if (client.res.writableEnded || client.res.destroyed) {
+        return false;
+      }
       client.res.write(payload);
+      return true;
     } catch (err) {
-      console.error(`[SSE Hub] Failed writing to client ${client.id}:`, err);
+      console.error(`[SSE Hub] Failed writing to client ${client.id}, removing:`, err);
+      return false;
     }
   });
 }

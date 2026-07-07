@@ -22,17 +22,17 @@ const MOCK_REVENUE_DATA = [
   { name: "Pixel Battle Royale", revenue: 85, target: 80 },
 ];
 
-const MOCK_OCCUPANCY_DATA = [
-  { facility: "US-East Lobby", occupancy: 92, staff: 85 },
-  { facility: "EU-West Lobby", occupancy: 78, staff: 80 },
-  { facility: "US-West Lobby", occupancy: 65, staff: 60 },
-  { facility: "APAC Lobby", occupancy: 42, staff: 50 },
+const MOCK_LOBBY_CONCURRENCY = [
+  { region: "US-East Lobby", occupancy: 92, activeServers: 85 },
+  { region: "EU-West Lobby", occupancy: 78, activeServers: 80 },
+  { region: "US-West Lobby", occupancy: 65, activeServers: 60 },
+  { region: "APAC Lobby", occupancy: 42, activeServers: 50 },
 ];
 
-const MOCK_SURGEON_DATA = [
-  { surgeon: "Exploit Watch", procedure: "Anti-cheat", cases: 42, alloy_sync: true },
-  { surgeon: "Match Balancer", procedure: "Infrastructure", cases: 38, alloy_sync: true },
-  { surgeon: "LTV Engine", procedure: "Promotions", cases: 15, alloy_sync: false },
+const MOCK_GAME_OPS_DATA = [
+  { agent: "Exploit Watch", task: "Anti-cheat", incidents: 42, alloy_sync: true },
+  { agent: "Match Balancer", task: "Infrastructure", incidents: 38, alloy_sync: true },
+  { agent: "LTV Engine", task: "Promotions", incidents: 15, alloy_sync: false },
 ];
 
 export interface ChatStep {
@@ -49,7 +49,7 @@ interface Message {
   stepper?: ChatStep[];
 }
 
-export function HospitalAdmin({ isOpen, onToggle }: { isOpen: boolean; onToggle: () => void }) {
+export function GamingAssistant({ isOpen, onToggle }: { isOpen: boolean; onToggle: () => void }) {
   const [messages, setMessages] = useState<Message[]>([
     { 
       role: "bot", 
@@ -185,9 +185,9 @@ export function HospitalAdmin({ isOpen, onToggle }: { isOpen: boolean; onToggle:
               <p className="text-xs text-slate-500 font-light">US-East Lobby and EU-West Lobby are currently holding peak player loads (&gt;80%).</p>
               <div className="h-40 bg-white p-3 rounded-2xl border border-slate-100">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={MOCK_OCCUPANCY_DATA} layout="vertical">
+                  <BarChart data={MOCK_LOBBY_CONCURRENCY} layout="vertical">
                     <XAxis type="number" hide />
-                    <YAxis dataKey="facility" type="category" stroke="#94a3b8" fontSize={8} axisLine={false} tickLine={false} width={80} />
+                    <YAxis dataKey="region" type="category" stroke="#94a3b8" fontSize={8} axisLine={false} tickLine={false} width={80} />
                     <Bar dataKey="occupancy" fill="#10b981" radius={[0, 4, 4, 0]} name="Lobby Occupancy %" />
                   </BarChart>
                 </ResponsiveContainer>

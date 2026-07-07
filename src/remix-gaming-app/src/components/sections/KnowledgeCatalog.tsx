@@ -20,7 +20,7 @@ import {
   Zap
 } from "lucide-react";
 import { collection, query, getDocs, orderBy } from "firebase/firestore";
-import { db } from "../../services/firebase";
+import { db, isUsingFirebaseMock } from "../../services/firebase";
 import { cn } from "../../lib/utils";
 
 interface Asset {
@@ -84,6 +84,18 @@ export function KnowledgeCatalog({ initialSearch = "" }: { initialSearch?: strin
 
   useEffect(() => {
     async function fetchAssets() {
+      if (isUsingFirebaseMock) {
+        setAssets([
+          { id: 'gdpr-privacy', title: 'European GDPR Player Privacy Sandbox Directive', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Compliance', updatedAt: '2026-05-18T12:00:00Z', source: 'Corporate Governance', description: 'Mandatory standard for player PII masking across direct Jingle play files and active multiplayer lobbies.' },
+          { id: 'ops-scorecard', title: 'Q2 Game Operations Network Performance Scorecard', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Operations', updatedAt: '2026-05-18T10:00:00Z', source: 'AlloyDB', description: 'Real-time performance latency, active server tick ratios, and matchmaking queue performance derived from live server pools.' },
+          { id: 'revenue-strategy', title: 'Snowflake Strategic In-Game Monetization Strategy', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Finance', updatedAt: '2026-05-19T08:00:00Z', source: 'Snowflake', description: 'LTV cohort growth targets, store category parameters, and in-app purchase price elasticities.' },
+          { id: 's3-telemetry', title: 'AWS S3 Play Telemetry Archives & Audits', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Logistics', updatedAt: '2026-05-17T15:00:00Z', source: 'AWS S3', description: 'Legacy historical play logs, old build game resources, and cold storage matchmaking records.' },
+          { id: 'looker-dashboards', title: 'Semantic Looker Cohort Model Definitions', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Governance', updatedAt: '2026-05-18T09:00:00Z', source: 'Looker', description: 'Standard metric dimensions (DAU, ARPU, LTV) definitions and schema mappings for Jingle executive reporting.' }
+        ]);
+        setLoading(false);
+        return;
+      }
+
       try {
         const q = query(collection(db, "reports"), orderBy("updatedAt", "desc"));
         const querySnapshot = await getDocs(q);

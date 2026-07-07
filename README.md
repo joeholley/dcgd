@@ -10,49 +10,93 @@ This repository reconciles three game analytics projects into a single, unified 
 
 ## 🚀 One-Step Automated Deployment
 
-To deploy the entire end-to-end platform (Terraform -> Pub/Sub -> Dataform -> BQML -> Dataplex -> Agent -> UI), execute the master deployment runbook:
+To deploy the entire end-to-end platform (Terraform -> Pub/Sub -> Dataform -> BQML -> Dataplex -> Cloud Build -> Private Cloud Run), execute the master deployment runbook:
 
 ```bash
-# 1. Authenticate with Google Cloud Application Default Credentials (ADC)
+# 1. Set your target GCP Project ID and region
+gcloud config set project YOUR_PROJECT_ID
+export GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID
+export GCP_LOCATION=us-central1
+
+# 2. Authenticate with Google Cloud Application Default Credentials (ADC)
 gcloud auth application-default login
 
-# 2. Run the master deployment runbook
+# 3. Run the master deployment runbook
 bash docs/deploy-demo.sh
+```
+
+### Accessing the Private Cloud Run Application
+
+The deployment script builds container images via **Cloud Build** and deploys the unified application to **Cloud Run** in authenticated/private mode (`--no-allow-unauthenticated`).
+
+To view the application from Google Cloud Shell:
+
+```bash
+# 1. Start the gcloud run proxy on port 8080
+gcloud run proxy --service=omniarcade-app --port=8080
+
+# 2. In Google Cloud Shell, click 'Web Preview' -> 'Preview on port 8080'
 ```
 
 ---
 
-## 💻 Manual Deployment & Running Locally
+## 💻 Manual Step-by-Step Deployment
 
 If you prefer to run or test individual components manually:
 
 ### Step 1: Provision Core Infrastructure (Terraform)
+> **Note**: Required GCP APIs (`pubsub`, `bigquery`, `dataplex`, `datalineage`, `dataform`, `run`, `cloudbuild`, `aiplatform`) and the Cloud Run runner service account (`omniarcade-runner-sa`) are automatically enabled and created when `industry_target=games` is set.
+
 ```bash
 cd src/retail-data-and-ai-demo/infrastructure/terraform
 terraform init
-terraform apply -var="industry_target=games" -auto-approve
+terraform apply -var="project_id=YOUR_PROJECT_ID" -var="industry_target=games" -auto-approve
 ```
 
-### Step 2: Run Dataform Pipeline & Dataplex Aspect Registration
-```bash
-cd src/gamingdatademo/dataform
-dataform run --vars=industry:games
+### Step 2: Configure & Run Governance & Dataform Pipeline
 
+```bash
+cd src/gamingdatademo/scripts
+
+# Create config.json (or rely on GOOGLE_CLOUD_PROJECT & GCP_LOCATION env vars)
+cat <<EOF > config.json
+{
+  "project_id": "YOUR_PROJECT_ID",
+  "project_number": "YOUR_PROJECT_NUMBER",
+  "region": "us-central1",
+  "multi_region": "us"
+}
+EOF
+
+# Run Dataform pipeline
+cd ../dataform
+npx --yes @dataform/cli run . --vars=project_id:YOUR_PROJECT_ID,industry:games
+
+# Register Dataplex Glossaries & Aspect Tags
 cd ../scripts
 python3 01_create_glossary.py
 python3 08_create_churn_guardrail_aspects.py
 python3 07_create_lineage.py
 ```
 
-### Step 3: Start Executive Remix Gaming UI Gateway
-> **Note**: Create `src/remix-gaming-app/firebase-applet-config.json` (see `src/remix-gaming-app/firebase-applet-config.json.example` or `src/remix-gaming-app/README.md` for format and Firebase Console instructions).
+### Step 3: Build & Deploy Container to Private Cloud Run
 
 ```bash
-cd src/remix-gaming-app
-npm install
-npm run dev
+# Build unified container image via Cloud Build
+gcloud builds submit --config=cloudbuild.yaml \
+  --substitutions=_LOCATION=us-central1,_REPOSITORY=data-cloud-ai-demos .
+
+# Deploy to Cloud Run (Private/Authenticated mode)
+gcloud run deploy omniarcade-app \
+  --image="us-central1-docker.pkg.dev/YOUR_PROJECT_ID/data-cloud-ai-demos/gaming-app:latest" \
+  --region=us-central1 \
+  --service-account="omniarcade-runner-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --no-allow-unauthenticated \
+  --port=8080
+
+# Proxy & Access via Cloud Shell Web Preview
+gcloud run proxy --service=omniarcade-app --port=8080
 ```
-Open **`http://localhost:3000`** in your browser and select **LiveOps Guardrail** from the navigation sidebar.
 
 ---
 
