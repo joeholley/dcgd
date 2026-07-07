@@ -126,6 +126,23 @@ log_info "  - GCP Project ID: ${GCP_PROJECT}"
 log_info "  - GCP Project Number: ${GCP_PROJECT_NUMBER}"
 log_info "  - GCP Region: ${GCP_REGION}"
 log_info "  - Telemetry Pub/Sub Topic: ${PUBSUB_TOPIC}"
+
+log_info "Enabling foundational GCP APIs (Cloud Resource Manager & Service Usage)..."
+gcloud services enable \
+  cloudresourcemanager.googleapis.com \
+  serviceusage.googleapis.com \
+  iam.googleapis.com \
+  artifactregistry.googleapis.com \
+  bigquery.googleapis.com \
+  pubsub.googleapis.com \
+  run.googleapis.com \
+  cloudbuild.googleapis.com \
+  dataform.googleapis.com \
+  dataplex.googleapis.com \
+  datalineage.googleapis.com \
+  aiplatform.googleapis.com \
+  --project="${GCP_PROJECT}"
+
 log_success "Step 0 Pre-flight checks completed."
 
 # ==============================================================================
