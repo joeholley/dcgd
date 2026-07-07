@@ -192,6 +192,17 @@ log_step "STEP 3: Dataform Medallion Pipeline Execution (Bronze -> Silver -> Gol
 DATAFORM_DIR="${GAMING_DIR}/dataform"
 if [ -d "$DATAFORM_DIR" ]; then
   log_info "Compiling and running Dataform Medallion models in ${DATAFORM_DIR}..."
+
+  # Auto-generate .df-credentials.json if missing to allow CLI execution via ADC
+  if [ ! -f "${DATAFORM_DIR}/.df-credentials.json" ]; then
+    cat <<EOF > "${DATAFORM_DIR}/.df-credentials.json"
+{
+  "projectId": "${GCP_PROJECT}",
+  "location": "us"
+}
+EOF
+  fi
+
   if command -v dataform &> /dev/null; then
     dataform run "${DATAFORM_DIR}" --vars=project_id:${GCP_PROJECT},industry:games || log_warn "Dataform execution completed with warnings"
   elif command -v npx &> /dev/null; then
