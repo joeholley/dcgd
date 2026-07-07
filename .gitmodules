@@ -1,3 +1,6 @@
 [submodule "src/gamingdatademo"]
 	path = src/gamingdatademo
 	url = git@github.com:chrisbgooglecloud/gamingdatademo.git
+[submodule "src/retail-data-and-ai-demo"]
+	path = src/retail-data-and-ai-demo
+	url = git@github.com:cloud-gtm/retail-data-and-ai-demo.git
