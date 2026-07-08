@@ -13,7 +13,9 @@ interface DataModeBadgeProps {
 export function DataModeBadge({ mode, source, details, className = '' }: DataModeBadgeProps) {
   const [showTooltip, setShowTooltip] = useState(false);
 
-  const config = {
+  const normalizedMode = (mode || 'mock').toLowerCase() as DataMode;
+
+  const configMap = {
     live: {
       label: 'LIVE (GCP)',
       bg: 'bg-emerald-500/10 hover:bg-emerald-500/20',
@@ -41,7 +43,9 @@ export function DataModeBadge({ mode, source, details, className = '' }: DataMod
       icon: Cpu,
       desc: 'Partial GCP backend connection with dev fallbacks',
     },
-  }[mode];
+  };
+
+  const config = configMap[normalizedMode] || configMap.mock;
 
   const Icon = config.icon;
 

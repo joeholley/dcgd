@@ -26,8 +26,29 @@ export function FlaskSection({
   const [key, setKey] = useState(0);
 
   useEffect(() => {
+    let active = true;
     setLoading(true);
     setError(false);
+
+    // Perform an explicit HTTP probe to detect 502/404 proxy responses from Flask backend
+    fetch(path, { method: 'HEAD' })
+      .then(res => {
+        if (!active) return;
+        if (!res.ok && res.status >= 500) {
+          setError(true);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setError(true);
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
   }, [path, key]);
 
   const handleRefresh = () => {

@@ -328,7 +328,7 @@ export function Diagnostics() {
         <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 font-mono">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Total Sections</p>
           <div className="flex items-baseline justify-between">
-            <span className="text-3xl font-bold text-white">15</span>
+            <span className="text-3xl font-bold text-white">{sections.length}</span>
             <span className="text-xs text-slate-500">9 React / 6 Flask</span>
           </div>
         </div>
@@ -337,7 +337,7 @@ export function Diagnostics() {
           <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider mb-1">Live GCP Connected</p>
           <div className="flex items-baseline justify-between">
             <span className="text-3xl font-bold text-emerald-400">{liveCount}</span>
-            <span className="text-xs text-emerald-500/80">{(liveCount / 15 * 100).toFixed(0)}% Live</span>
+            <span className="text-xs text-emerald-500/80">{sections.length > 0 ? (liveCount / sections.length * 100).toFixed(0) : 0}% Live</span>
           </div>
         </div>
 
@@ -379,7 +379,7 @@ export function Diagnostics() {
 
               <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px] font-mono">
                 <span className="text-slate-500">Latency: <strong className="text-slate-300">{svc.latencyMs}ms</strong></span>
-                <span className="text-emerald-400 font-semibold">{svc.status}</span>
+                <span className={`font-semibold ${svc.status === 'LIVE' ? 'text-emerald-400' : svc.status === 'FALLBACK' ? 'text-amber-400' : 'text-red-400'}`}>{svc.status}</span>
               </div>
             </div>
           ))}

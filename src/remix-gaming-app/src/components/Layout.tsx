@@ -103,15 +103,42 @@ export function Layout({
     return text;
   };
 
-  const navItems = [
-    { id: "overview" as Section, label: "Gaming Overview", icon: Network },
-    { id: "operations" as Section, label: "Game Performance", icon: LayoutDashboard },
-    { id: "workflows" as Section, label: "Gameplay Agents", icon: Zap },
-    { id: "guardrail" as Section, label: "LiveOps Guardrail", icon: ShieldCheck },
-    { id: "campaigns" as Section, label: "Campaign Engine", icon: Megaphone },
-    { id: "catalog" as Section, label: "Telemetry Catalog", icon: Search },
-    { id: "observatory" as Section, label: "API Observatory", icon: Activity },
-    { id: "gcp-health" as Section, label: "GCP Health & Status", icon: CloudCheck },
+  const navCategories = [
+    {
+      title: "Executive & Analytics",
+      items: [
+        { id: "overview" as Section, label: "Gaming Overview", icon: Network },
+        { id: "operations" as Section, label: "Game Performance", icon: LayoutDashboard },
+        { id: "executive-portfolio" as Section, label: "Executive Portfolio (Flask)", icon: Layers },
+        { id: "catalog" as Section, label: "Telemetry Catalog", icon: Search },
+      ],
+    },
+    {
+      title: "LiveOps & Automation",
+      items: [
+        { id: "guardrail" as Section, label: "LiveOps Guardrail", icon: ShieldCheck },
+        { id: "campaigns" as Section, label: "Campaign Engine", icon: Megaphone },
+        { id: "difficulty-balancer" as Section, label: "Difficulty Balancer (Flask)", icon: Zap },
+        { id: "marketing-swarm" as Section, label: "Marketing Swarm (Flask)", icon: Bot },
+      ],
+    },
+    {
+      title: "Agent & AI Workspace",
+      items: [
+        { id: "workflows" as Section, label: "Gameplay Agents", icon: Zap },
+        { id: "agent-comparison" as Section, label: "Agent Comparison (Flask)", icon: Bot },
+        { id: "lineage-graph" as Section, label: "Data Lineage Graph (Flask)", icon: Network },
+      ],
+    },
+    {
+      title: "Observability & Diagnostics",
+      items: [
+        { id: "observatory" as Section, label: "API Observatory", icon: Activity },
+        { id: "toxicity" as Section, label: "Trust & Safety (Flask)", icon: ShieldCheck },
+        { id: "gcp-health" as Section, label: "GCP System Health", icon: CloudCheck },
+        { id: "diagnostics" as Section, label: "System Diagnostics", icon: Activity },
+      ],
+    },
   ];
 
   return (
@@ -197,47 +224,41 @@ export function Layout({
 
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
-        <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0">
-          <div className="p-6">
-            <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-4">{t("Navigation")}</p>
-            <nav className="space-y-1">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = activeSection === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => onSectionChange(item.id)}
-                    className={cn(
-                      "w-full flex items-center gap-3 px-3 py-2 rounded transition-all duration-200 group text-sm font-medium",
-                      isActive 
-                        ? "bg-slate-800 text-white border border-slate-700 shadow-sm" 
-                        : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
-                    )}
-                  >
-                    <Icon className={cn("w-4 h-4", isActive ? "text-blue-400" : "text-slate-500 group-hover:text-slate-300")} />
-                    <span>{t(item.label)}</span>
-                  </button>
-                );
-              })}
-
-              <a
-                href="/agent-comparison"
-                target="_blank"
-                rel="noreferrer"
-                className="w-full flex items-center gap-3 px-3 py-2 rounded transition-all duration-200 text-sm font-medium text-blue-400 hover:text-blue-300 hover:bg-slate-800/50 mt-3 border border-blue-500/20 bg-blue-500/5"
-              >
-                <Bot className="w-4 h-4 text-blue-400" />
-                <span>Agent Comparison UI ↗</span>
-              </a>
-            </nav>
+        <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 overflow-y-auto">
+          <div className="p-4 space-y-6">
+            {navCategories.map((cat) => (
+              <div key={cat.title}>
+                <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-2 px-3">{t(cat.title)}</p>
+                <nav className="space-y-0.5">
+                  {cat.items.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = activeSection === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => onSectionChange(item.id)}
+                        className={cn(
+                          "w-full flex items-center gap-2.5 px-3 py-1.5 rounded transition-all duration-200 group text-xs font-medium text-left",
+                          isActive 
+                            ? "bg-slate-800 text-white border border-slate-700 shadow-sm font-semibold" 
+                            : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+                        )}
+                      >
+                        <Icon className={cn("w-3.5 h-3.5 shrink-0", isActive ? "text-blue-400" : "text-slate-500 group-hover:text-slate-300")} />
+                        <span className="truncate">{t(item.label)}</span>
+                      </button>
+                    );
+                  })}
+                </nav>
+              </div>
+            ))}
           </div>
 
-          <div className="mt-auto p-6 space-y-6">
-            <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700 font-mono">
+          <div className="mt-auto p-4 space-y-4">
+            <div className="p-3 rounded-xl bg-slate-800/50 border border-slate-700 font-mono">
               <p className="text-[10px] uppercase text-slate-500 font-bold mb-1">{t("Unit Econ")}</p>
               <div className="flex justify-between items-end">
-                <span className="text-xl font-light text-white">$0.0004</span>
+                <span className="text-lg font-light text-white">$0.0004</span>
                 <span className="text-[9px] text-slate-500 uppercase">avg/q</span>
               </div>
             </div>

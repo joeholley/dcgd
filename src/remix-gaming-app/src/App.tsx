@@ -9,8 +9,26 @@ import { Operations } from "./components/sections/Operations";
 import { CampaignEngine, Country, LanguageSetting } from "./components/sections/CampaignEngine";
 import { LiveOpsGuardrail } from "./components/sections/LiveOpsGuardrail";
 import { GCPHealth } from "./components/sections/GCPHealth";
+import { Diagnostics } from "./components/sections/Diagnostics";
+import { FlaskSection } from "./components/sections/FlaskSection";
+import { DemoEventProvider } from "./context/DemoEventContext";
 
-export type Section = "overview" | "operations" | "workflows" | "catalog" | "observatory" | "campaigns" | "guardrail" | "gcp-health";
+export type Section = 
+  | "overview" 
+  | "operations" 
+  | "executive-portfolio"
+  | "catalog" 
+  | "guardrail" 
+  | "campaigns" 
+  | "difficulty-balancer"
+  | "marketing-swarm"
+  | "workflows" 
+  | "agent-comparison"
+  | "lineage-graph"
+  | "observatory" 
+  | "toxicity"
+  | "gcp-health" 
+  | "diagnostics";
 
 export default function App() {
   const [activeSection, setActiveSection] = useState<Section>("overview");
@@ -34,40 +52,110 @@ export default function App() {
   };
 
   return (
-    <div className="relative h-screen bg-[#F8FAFC] overflow-hidden">
-      <Layout 
-        activeSection={activeSection} 
-        onSectionChange={handleSectionChange}
-        country={country}
-        setCountry={setCountry}
-        languageSetting={languageSetting}
-        setLanguageSetting={setLanguageSetting}
-      >
-        {activeSection === "overview" && (
-          <Overview 
-            onSectionChange={handleSectionChange} 
-            country={country}
-            languageSetting={languageSetting}
-          />
-        )}
-        {activeSection === "operations" && <Operations />}
-        {activeSection === "workflows" && <AgenticWorkflows />}
-        {activeSection === "guardrail" && <LiveOpsGuardrail />}
-        {activeSection === "catalog" && <KnowledgeCatalog initialSearch={initialCatalogSearch} />}
-        {activeSection === "observatory" && <ITObservatory />}
-        {activeSection === "gcp-health" && <GCPHealth />}
-        {activeSection === "campaigns" && (
-          <CampaignEngine 
-            country={country}
-            setCountry={setCountry}
-            languageSetting={languageSetting}
-            setLanguageSetting={setLanguageSetting}
-          />
-        )}
-      </Layout>
+    <DemoEventProvider activeSection={activeSection} setActiveSection={handleSectionChange}>
+      <div className="relative h-screen bg-[#F8FAFC] overflow-hidden">
+        <Layout 
+          activeSection={activeSection} 
+          onSectionChange={handleSectionChange}
+          country={country}
+          setCountry={setCountry}
+          languageSetting={languageSetting}
+          setLanguageSetting={setLanguageSetting}
+        >
+          {/* Executive & Analytics */}
+          {activeSection === "overview" && (
+            <Overview 
+              onSectionChange={handleSectionChange} 
+              country={country}
+              languageSetting={languageSetting}
+            />
+          )}
+          {activeSection === "operations" && <Operations />}
+          {activeSection === "executive-portfolio" && (
+            <FlaskSection 
+              title="Executive Portfolio & KPIs"
+              subtitle="C-Suite Executive Dashboard & Player Lifetime Value Analytics"
+              path="/executive.html"
+              dataMode="hybrid"
+              dataBank="omniarcade_gold.gold_player_360"
+              description="Executive view of high-value players (whales/dolphins), churn risks, and regional ARPU/DAU."
+            />
+          )}
+          {activeSection === "catalog" && <KnowledgeCatalog initialSearch={initialCatalogSearch} />}
 
-      {/* Persistent PineCore AI Assistant */}
-      <GamingAssistant isOpen={assistantOpen} onToggle={() => setAssistantOpen(!assistantOpen)} />
-    </div>
+          {/* LiveOps & Automation */}
+          {activeSection === "guardrail" && <LiveOpsGuardrail />}
+          {activeSection === "campaigns" && (
+            <CampaignEngine 
+              country={country}
+              setCountry={setCountry}
+              languageSetting={languageSetting}
+              setLanguageSetting={setLanguageSetting}
+            />
+          )}
+          {activeSection === "difficulty-balancer" && (
+            <FlaskSection 
+              title="Game Difficulty Balancer"
+              subtitle="Level Bottleneck Analysis & Match-3 Move Optimization Solver"
+              path="/difficulty.html"
+              dataMode="live"
+              dataBank="Flask Difficulty Solver API"
+              description="Analyzes Level 2 completion drop-offs and calculates recommended extra moves to optimize player retention."
+            />
+          )}
+          {activeSection === "marketing-swarm" && (
+            <FlaskSection 
+              title="Marketing Recovery Agent Swarm"
+              subtitle="Autonomous Multi-Agent Cluster for At-Risk Player Recovery"
+              path="/marketing_swarm_visualizer.html"
+              dataMode="live"
+              dataBank="Flask /api/marketing/simulate-cluster"
+              description="Visualizes autonomous agent collaboration to target high-churn whales with custom promotional offers."
+            />
+          )}
+
+          {/* Agent & AI Workspace */}
+          {activeSection === "workflows" && <AgenticWorkflows />}
+          {activeSection === "agent-comparison" && (
+            <FlaskSection 
+              title="Agent Comparison Workspace"
+              subtitle="KC-Guided vs Non-KC AI Gameplay Agent Trajectory Comparison"
+              path="/agent-comparison"
+              dataMode="live"
+              dataBank="Vertex AI Reasoning Engine + Flask-Sock WS"
+              description="Side-by-side execution trace comparing Dataplex Knowledge Catalog guided agents against raw LLM agents."
+            />
+          )}
+          {activeSection === "lineage-graph" && (
+            <FlaskSection 
+              title="Cross-Cloud Data Lineage"
+              subtitle="Dataplex End-to-End Data Lineage & Asset Governance Graph"
+              path="/graph_visualization.html"
+              dataMode="live"
+              dataBank="Dataplex Lineage API"
+              description="Interactive graph showing raw telemetry ingestion to gold analytical tables and BQML churn prediction model."
+            />
+          )}
+
+          {/* Observability & Diagnostics */}
+          {activeSection === "observatory" && <ITObservatory />}
+          {activeSection === "toxicity" && (
+            <FlaskSection 
+              title="Trust & Safety Observatory"
+              subtitle="Toxic Chat Detection, Anti-Cheat, & GIRA Incident Assessment"
+              path="/toxicity.html"
+              dataMode="hybrid"
+              dataBank="AlloyDB / GIRA Incident API"
+              description="Real-time toxic chat moderation stream, player ban execution, and automated safety incident reporting."
+            />
+          )}
+          {activeSection === "gcp-health" && <GCPHealth />}
+          {activeSection === "diagnostics" && <Diagnostics />}
+        </Layout>
+
+        {/* Persistent PineCore AI Assistant */}
+        <GamingAssistant isOpen={assistantOpen} onToggle={() => setAssistantOpen(!assistantOpen)} />
+      </div>
+    </DemoEventProvider>
   );
 }

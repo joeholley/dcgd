@@ -775,7 +775,20 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       overall_status: overallStatus,
       total_latency_ms: Date.now() - startTime,
       services,
+      gcp_services: [
+        { id: 'auth', name: 'Google Cloud OAuth / ADC', category: 'Authentication', status: authRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: authRes.status.toLowerCase() as 'live' | 'mock', details: authRes.details, latency_ms: authRes.latency_ms },
+        { id: 'bigquery', name: 'BigQuery Gold Feature Store', category: 'Data & Analytics', status: bqRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: bqRes.status.toLowerCase() as 'live' | 'mock', details: bqRes.details, latency_ms: bqRes.latency_ms },
+        { id: 'pubsub', name: 'Cloud Pub/Sub Streaming Ingest', category: 'Event Streaming', status: pubsubRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: pubsubRes.status.toLowerCase() as 'live' | 'mock', details: pubsubRes.details, latency_ms: pubsubRes.latency_ms },
+        { id: 'bqml', name: 'BigQuery ML (ML.PREDICT)', category: 'Predictive ML', status: bqmlRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: bqmlRes.status.toLowerCase() as 'live' | 'mock', details: bqmlRes.details, latency_ms: bqmlRes.latency_ms },
+        { id: 'dataplex', name: 'Dataplex Knowledge Catalog API', category: 'Governance & Catalog', status: dataplexRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: dataplexRes.status.toLowerCase() as 'live' | 'mock', details: dataplexRes.details, latency_ms: dataplexRes.latency_ms },
+        { id: 'vertex_agent', name: 'Vertex AI Reasoning Engine', category: 'Agent Infrastructure', status: vertexRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: vertexRes.status.toLowerCase() as 'live' | 'mock', details: vertexRes.details, latency_ms: vertexRes.latency_ms },
+      ]
     });
+  });
+
+  // 5b. Unified System Diagnostics Endpoint (/api/system/diagnostics)
+  app.get("/api/system/diagnostics", async (req: Request, res: Response) => {
+    return res.redirect("/api/system/gcp-health");
   });
 
   // --------------------------------------------------------------------------
