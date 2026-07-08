@@ -746,27 +746,81 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       );
     };
 
-    const [authRes, bqRes, pubsubRes, bqmlRes, dataplexRes, vertexRes] = await Promise.all([
+    const testBQTable = async (tableName: string, label: string) => {
+      const start = Date.now();
+      return withTimeout(
+        (async () => {
+          const rows = await executeCustomQuery(`SELECT 1 FROM \`${PROJECT_ID}.${tableName}\` LIMIT 1`);
+          if (rows) {
+            return { status: "LIVE" as const, details: `BigQuery Table '${tableName}' online (${label})`, latency_ms: Date.now() - start };
+          }
+          return { status: "MOCK" as const, details: `BigQuery Table '${tableName}' unreachable; dev fallback active (${label})`, latency_ms: Date.now() - start };
+        })(),
+        1500,
+        { status: "MOCK" as const, details: `BigQuery Table '${tableName}' probe timed out (1.5s); dev fallback active`, latency_ms: 1500 }
+      );
+    };
+
+    const [
+      authRes, 
+      pubsubRes, 
+      bqmlRes, 
+      dataplexRes, 
+      vertexRes,
+      bqPlayers,
+      bqSessions,
+      bqTransactions,
+      bqGoldP360,
+      bqRegional,
+      bqCampaigns,
+      bqLatency,
+      bqDifficulty
+    ] = await Promise.all([
       testAuth(),
-      testBigQuery(),
       testPubSub(),
       testBQML(),
       testDataplex(),
       testVertexAgent(),
+      testBQTable("omniarcade_raw.gcp_players", "Player Profiles & Tiers"),
+      testBQTable("omniarcade_raw.live_session_events", "Live Session Telemetry"),
+      testBQTable("omniarcade_raw.iap_transactions", "IAP Transaction Log"),
+      testBQTable("omniarcade_gold.gold_player_360", "Player 360 Feature Store"),
+      testBQTable("omniarcade_gold.gold_regional_kpis", "Regional Revenue & DAU"),
+      testBQTable("omniarcade_gold.gold_campaign_analytics", "Campaign ROI Analytics"),
+      testBQTable("omniarcade_silver.server_latency", "CCU & Server Latency"),
+      testBQTable("omniarcade_gold.gold_level_difficulty_funnel", "Level Completion Funnel")
     ]);
 
     const services = {
       auth: authRes,
-      bigquery: bqRes,
       pubsub: pubsubRes,
       bqml: bqmlRes,
       dataplex: dataplexRes,
       vertex_agent: vertexRes,
+      bq_gcp_players: bqPlayers,
+      bq_live_sessions: bqSessions,
+      bq_iap_transactions: bqTransactions,
+      bq_gold_player_360: bqGoldP360,
+      bq_gold_regional_kpis: bqRegional,
+      bq_gold_campaign_analytics: bqCampaigns,
+      bq_server_latency: bqLatency,
+      bq_difficulty_funnel: bqDifficulty
     };
 
     const isAllLive = Object.values(services).every((s) => s.status === "LIVE");
     const isAllMock = Object.values(services).every((s) => s.status === "MOCK");
     const overallStatus = isAllLive ? "ALL_LIVE" : isAllMock ? "OFFLINE_MOCK" : "HEALTHY_WITH_FALLBACKS";
+
+    const bqTables = [
+      { id: 'bq_players', name: 'BigQuery Table: omniarcade_raw.gcp_players', category: 'BigQuery Table', ...bqPlayers },
+      { id: 'bq_sessions', name: 'BigQuery Table: omniarcade_raw.live_session_events', category: 'BigQuery Table', ...bqSessions },
+      { id: 'bq_transactions', name: 'BigQuery Table: omniarcade_raw.iap_transactions', category: 'BigQuery Table', ...bqTransactions },
+      { id: 'bq_p360', name: 'BigQuery Table: omniarcade_gold.gold_player_360', category: 'BigQuery Table', ...bqGoldP360 },
+      { id: 'bq_regional', name: 'BigQuery Table: omniarcade_gold.gold_regional_kpis', category: 'BigQuery Table', ...bqRegional },
+      { id: 'bq_campaigns', name: 'BigQuery Table: omniarcade_gold.gold_campaign_analytics', category: 'BigQuery Table', ...bqCampaigns },
+      { id: 'bq_latency', name: 'BigQuery Table: omniarcade_silver.server_latency', category: 'BigQuery Table', ...bqLatency },
+      { id: 'bq_difficulty', name: 'BigQuery Table: omniarcade_gold.gold_level_difficulty_funnel', category: 'BigQuery Table', ...bqDifficulty },
+    ];
 
     return res.json({
       timestamp: new Date().toISOString(),
@@ -777,7 +831,7 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       services,
       gcp_services: [
         { id: 'auth', name: 'Google Cloud OAuth / ADC', category: 'Authentication', status: authRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: authRes.status.toLowerCase() as 'live' | 'mock', details: authRes.details, latency_ms: authRes.latency_ms },
-        { id: 'bigquery', name: 'BigQuery Gold Feature Store', category: 'Data & Analytics', status: bqRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: bqRes.status.toLowerCase() as 'live' | 'mock', details: bqRes.details, latency_ms: bqRes.latency_ms },
+        ...bqTables.map(t => ({ id: t.id, name: t.name, category: t.category, status: t.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: t.status.toLowerCase() as 'live' | 'mock', details: t.details, latency_ms: t.latency_ms })),
         { id: 'pubsub', name: 'Cloud Pub/Sub Streaming Ingest', category: 'Event Streaming', status: pubsubRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: pubsubRes.status.toLowerCase() as 'live' | 'mock', details: pubsubRes.details, latency_ms: pubsubRes.latency_ms },
         { id: 'bqml', name: 'BigQuery ML (ML.PREDICT)', category: 'Predictive ML', status: bqmlRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: bqmlRes.status.toLowerCase() as 'live' | 'mock', details: bqmlRes.details, latency_ms: bqmlRes.latency_ms },
         { id: 'dataplex', name: 'Dataplex Knowledge Catalog API', category: 'Governance & Catalog', status: dataplexRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: dataplexRes.status.toLowerCase() as 'live' | 'mock', details: dataplexRes.details, latency_ms: dataplexRes.latency_ms },

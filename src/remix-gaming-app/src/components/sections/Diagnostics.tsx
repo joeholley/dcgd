@@ -52,15 +52,23 @@ export function Diagnostics() {
   const [filterMode, setFilterMode] = useState<'ALL' | 'LIVE' | 'MOCK'>('ALL');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
 
+  const [expandedProbes, setExpandedProbes] = useState<Record<string, boolean>>({});
+  const [probeLogs, setProbeLogs] = useState<Record<string, Array<{ timestamp: string; status: 'ONLINE' | 'LIVE' | 'FALLBACK' | 'OFFLINE'; message: string; latencyMs: number }>>>({});
+
   const [gcpServices, setGcpServices] = useState<GCPServiceProbe[]>([
-    { id: 'auth', name: 'Application Default Credentials (ADC)', description: 'Google Cloud OAuth & IAM Authentication', status: 'ONLINE', mode: 'live', latencyMs: 14, details: 'Authenticated as GCP Service Account (omniarcade-demo)' },
-    { id: 'bigquery', name: 'BigQuery Gold Feature Store', description: 'omniarcade_gold datasets & gold_player_360', status: 'ONLINE', mode: 'live', latencyMs: 28, details: 'Dataset omniarcade_gold active (US Multi-region)' },
-    { id: 'pubsub', name: 'Cloud Pub/Sub Ingestion Topic', description: 'omniarcade-live-telemetry & BQ Direct Sub', status: 'ONLINE', mode: 'live', latencyMs: 16, details: 'Topic omniarcade-live-telemetry online' },
-    { id: 'bqml', name: 'BigQuery ML Churn Model', description: 'ML.PREDICT omniarcade_raw.player_churn_model', status: 'FALLBACK', mode: 'mock', latencyMs: 5, details: 'Using dynamic heuristic churn scoring in dev' },
-    { id: 'dataplex', name: 'Dataplex Knowledge Catalog APIs', description: 'Aspect Types, Business Glossaries & Lineage', status: 'ONLINE', mode: 'live', latencyMs: 32, details: 'Dataplex REST API & Aspect Registry online' },
-    { id: 'vertex', name: 'Vertex AI Reasoning Engine', description: 'ReasoningEngine omniarcade-guardrail-agent', status: 'ONLINE', mode: 'live', latencyMs: 44, details: 'Vertex AI ADK Agent Engine active' },
-    { id: 'firestore', name: 'Firestore / Firebase State Store', description: 'Campaign Engine CRUD & Offer Audit Trail', status: 'FALLBACK', mode: 'mock', latencyMs: 8, details: 'Running in-memory local backend mock' },
-    { id: 'flask', name: 'Internal Flask App Proxy (:5000)', description: 'TCP Net Socket & HTTP Reverse Proxying', status: 'ONLINE', mode: 'live', latencyMs: 12, details: 'Flask 127.0.0.1:5000 proxy active' }
+    { id: 'auth', name: 'Google Cloud OAuth / ADC', description: 'Google Cloud OAuth & IAM Authentication', status: 'LIVE', mode: 'live', latencyMs: 14, details: 'Authenticated via ADC for project omniarcade-demo' },
+    { id: 'bq_players', name: 'BigQuery Table: omniarcade_raw.gcp_players', description: 'Player Profiles & Spend Tiers', status: 'FALLBACK', mode: 'mock', latencyMs: 12, details: 'Table omniarcade_raw.gcp_players unreachable; dev fallback active' },
+    { id: 'bq_sessions', name: 'BigQuery Table: omniarcade_raw.live_session_events', description: 'Live Session Telemetry Stream', status: 'FALLBACK', mode: 'mock', latencyMs: 15, details: 'Table omniarcade_raw.live_session_events unreachable; dev fallback active' },
+    { id: 'bq_transactions', name: 'BigQuery Table: omniarcade_raw.iap_transactions', description: 'In-App Purchase Transactions', status: 'FALLBACK', mode: 'mock', latencyMs: 10, details: 'Table omniarcade_raw.iap_transactions unreachable; dev fallback active' },
+    { id: 'bq_p360', name: 'BigQuery Table: omniarcade_gold.gold_player_360', description: 'Player 360 Feature Store & LTV', status: 'FALLBACK', mode: 'mock', latencyMs: 14, details: 'Table omniarcade_gold.gold_player_360 unreachable; dev fallback active' },
+    { id: 'bq_regional', name: 'BigQuery Table: omniarcade_gold.gold_regional_kpis', description: 'Regional Revenue & DAU Analytics', status: 'FALLBACK', mode: 'mock', latencyMs: 11, details: 'Table omniarcade_gold.gold_regional_kpis unreachable; dev fallback active' },
+    { id: 'bq_campaigns', name: 'BigQuery Table: omniarcade_gold.gold_campaign_analytics', description: 'Campaign ROI & Conversion Tracking', status: 'FALLBACK', mode: 'mock', latencyMs: 13, details: 'Table omniarcade_gold.gold_campaign_analytics unreachable; dev fallback active' },
+    { id: 'bq_latency', name: 'BigQuery Table: omniarcade_silver.server_latency', description: 'CCU, Ping Latency & FPS', status: 'FALLBACK', mode: 'mock', latencyMs: 9, details: 'Table omniarcade_silver.server_latency unreachable; dev fallback active' },
+    { id: 'bq_difficulty', name: 'BigQuery Table: omniarcade_gold.gold_level_difficulty_funnel', description: 'Level Completion & Failure Funnel', status: 'FALLBACK', mode: 'mock', latencyMs: 12, details: 'Table omniarcade_gold.gold_level_difficulty_funnel unreachable; dev fallback active' },
+    { id: 'pubsub', name: 'Cloud Pub/Sub Streaming Ingest', description: 'omniarcade-live-telemetry & BQ Direct Sub', status: 'FALLBACK', mode: 'mock', latencyMs: 16, details: 'Pub/Sub topic omniarcade-live-telemetry active (Dev Mock)' },
+    { id: 'bqml', name: 'BigQuery ML (ML.PREDICT)', description: 'ML.PREDICT omniarcade_raw.player_churn_model', status: 'FALLBACK', mode: 'mock', latencyMs: 5, details: 'Dynamic heuristic churn scoring active in dev fallback' },
+    { id: 'dataplex', name: 'Dataplex Knowledge Catalog API', description: 'Aspect Types, Business Glossaries & Lineage', status: 'FALLBACK', mode: 'mock', latencyMs: 32, details: 'Dataplex REST API aspect registry active (Dev Fallback)' },
+    { id: 'vertex', name: 'Vertex AI Reasoning Engine', description: 'ReasoningEngine omniarcade-guardrail-agent', status: 'FALLBACK', mode: 'mock', latencyMs: 44, details: 'Vertex AI ADK Agent Engine active (Dev Fallback)' }
   ]);
 
   const [sections, setSections] = useState<SectionDiagnostic[]>([
@@ -256,6 +264,21 @@ export function Diagnostics() {
         const data = await res.json();
         if (data.gcp_services && Array.isArray(data.gcp_services)) {
           setGcpServices(data.gcp_services);
+          const nowStr = new Date().toLocaleTimeString();
+          setProbeLogs(prev => {
+            const updated = { ...prev };
+            data.gcp_services.forEach((svc: GCPServiceProbe) => {
+              const prevLogs = updated[svc.id] || [];
+              const newEntry = {
+                timestamp: nowStr,
+                status: svc.status,
+                message: svc.details || `${svc.name} probe active`,
+                latencyMs: svc.latencyMs
+              };
+              updated[svc.id] = [...prevLogs, newEntry];
+            });
+            return updated;
+          });
         }
       }
     } catch (err) {
@@ -358,31 +381,97 @@ export function Diagnostics() {
         </div>
       </div>
 
-      {/* GCP Backend Core Services Grid */}
+      {/* GCP Backend Infrastructure Probes (Full-Width List with Health Log History) */}
       <div>
-        <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-4 flex items-center gap-2">
-          <Database className="w-4 h-4 text-blue-400" />
-          Google Cloud Infrastructure Probes
-        </h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+            <Database className="w-4 h-4 text-blue-400" />
+            Google Cloud Infrastructure & BigQuery Table Probes ({gcpServices.length})
+          </h3>
+          <span className="text-xs text-slate-500 font-mono">Click probe to view health log history</span>
+        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {gcpServices.map(svc => (
-            <div
-              key={svc.id}
-              className="p-4 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 transition-all space-y-3"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <h4 className="text-xs font-bold text-white leading-snug">{svc.name}</h4>
-                <DataModeBadge mode={svc.mode} />
-              </div>
-              <p className="text-[11px] text-slate-400 line-clamp-2">{svc.description}</p>
+        <div className="flex flex-col gap-3 w-full">
+          {gcpServices.map(svc => {
+            const isExpanded = expandedProbes[svc.id] || false;
+            const history = probeLogs[svc.id] || [
+              { timestamp: new Date().toLocaleTimeString(), status: svc.status, message: svc.details || `${svc.name} probe active`, latencyMs: svc.latencyMs }
+            ];
+            const latestLog = history[history.length - 1];
 
-              <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px] font-mono">
-                <span className="text-slate-500">Latency: <strong className="text-slate-300">{svc.latencyMs}ms</strong></span>
-                <span className={`font-semibold ${svc.status === 'LIVE' ? 'text-emerald-400' : svc.status === 'FALLBACK' ? 'text-amber-400' : 'text-red-400'}`}>{svc.status}</span>
+            return (
+              <div
+                key={svc.id}
+                className="w-full p-4 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 transition-all space-y-3"
+              >
+                {/* Header row */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-3 h-3 rounded-full shrink-0 ${svc.status === 'LIVE' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                    <div>
+                      <h4 className="text-sm font-bold text-white font-mono">{svc.name}</h4>
+                      <p className="text-xs text-slate-400 font-sans">{svc.description}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <DataModeBadge mode={svc.mode} />
+                    <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${svc.status === 'LIVE' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'}`}>
+                      {svc.status} ({svc.latencyMs}ms)
+                    </span>
+                  </div>
+                </div>
+
+                {/* Latest Log / Terminal Window */}
+                <div className="bg-slate-950 rounded-lg p-3 border border-slate-800/80 font-mono text-xs text-slate-300 flex flex-col gap-2">
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 border-b border-slate-800/60 pb-1.5">
+                    <span className="flex items-center gap-1.5">
+                      <Terminal className="w-3.5 h-3.5 text-blue-400" />
+                      Probe Health Check Output
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setExpandedProbes(prev => ({ ...prev, [svc.id]: !prev[svc.id] }))}
+                      className="text-blue-400 hover:text-blue-300 font-semibold cursor-pointer flex items-center gap-1 text-[11px]"
+                    >
+                      {isExpanded ? 'Hide History ▲' : `View Health History (${history.length} logs) ▼`}
+                    </button>
+                  </div>
+
+                  {/* Single Latest Log */}
+                  {!isExpanded && (
+                    <div className="flex items-center justify-between text-xs text-slate-300 py-0.5">
+                      <span className="truncate pr-4 font-mono text-slate-300">
+                        <span className="text-slate-500">[{latestLog.timestamp}]</span>{' '}
+                        <strong className={latestLog.status === 'LIVE' ? 'text-emerald-400' : 'text-amber-400'}>
+                          [{latestLog.status}]
+                        </strong>{' '}
+                        {latestLog.message}
+                      </span>
+                      <span className="text-[10px] text-slate-500 shrink-0 font-mono">{latestLog.latencyMs}ms</span>
+                    </div>
+                  )}
+
+                  {/* Expanded Scrollable History List */}
+                  {isExpanded && (
+                    <div className="max-h-48 overflow-y-auto space-y-1.5 pr-2 pt-1 font-mono text-xs">
+                      {history.map((log, idx) => (
+                        <div key={idx} className="flex items-start justify-between border-b border-slate-800/40 pb-1 text-slate-300">
+                          <span className="break-all">
+                            <span className="text-slate-500">[{log.timestamp}]</span>{' '}
+                            <strong className={log.status === 'LIVE' ? 'text-emerald-400' : 'text-amber-400'}>
+                              [{log.status}]
+                            </strong>{' '}
+                            {log.message}
+                          </span>
+                          <span className="text-[10px] text-slate-500 shrink-0 ml-2 font-mono">{log.latencyMs}ms</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
