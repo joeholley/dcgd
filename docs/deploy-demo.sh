@@ -316,22 +316,32 @@ if [ "$RUN_INFRA" = true ]; then
   log_step "STEP 4: Dataplex Aspect Tags & Business Glossary Registration"
 
   SCRIPTS_DIR="${GAMING_DIR}/scripts"
-  log_info "Registering Dataplex Business Glossaries & Aspect Tags..."
+  log_info "Registering Dataplex Business Glossaries, Aspect Tags, & Lineage in parallel..."
+
+  PIDS=()
 
   if [ -f "${SCRIPTS_DIR}/01_create_glossary.py" ]; then
-    log_info "Running 01_create_glossary.py..."
-    python3 "${SCRIPTS_DIR}/01_create_glossary.py" || log_warn "Glossary script warning"
+    log_info "Launching 01_create_glossary.py (background)..."
+    python3 "${SCRIPTS_DIR}/01_create_glossary.py" &
+    PIDS+=($!)
   fi
 
   if [ -f "${SCRIPTS_DIR}/08_create_churn_guardrail_aspects.py" ]; then
-    log_info "Running 08_create_churn_guardrail_aspects.py..."
-    python3 "${SCRIPTS_DIR}/08_create_churn_guardrail_aspects.py" || log_warn "Aspect script warning"
+    log_info "Launching 08_create_churn_guardrail_aspects.py (background)..."
+    python3 "${SCRIPTS_DIR}/08_create_churn_guardrail_aspects.py" &
+    PIDS+=($!)
   fi
 
   if [ -f "${SCRIPTS_DIR}/07_create_lineage.py" ]; then
-    log_info "Running 07_create_lineage.py..."
-    python3 "${SCRIPTS_DIR}/07_create_lineage.py" || log_warn "Lineage script warning"
+    log_info "Launching 07_create_lineage.py (background)..."
+    python3 "${SCRIPTS_DIR}/07_create_lineage.py" &
+    PIDS+=($!)
   fi
+
+  # Wait for all background Dataplex registration jobs to finish
+  for pid in "${PIDS[@]}"; do
+    wait "$pid" || log_warn "Dataplex task pid $pid finished with warnings."
+  done
 
   log_success "Step 4 Dataplex Knowledge Catalog & Aspects registered."
 else
