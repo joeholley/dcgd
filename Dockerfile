@@ -22,10 +22,11 @@ RUN apt-get update && apt-get install -y curl gnupg && \
 WORKDIR /app
 
 # Copy dependency files first to maximize pip install layer caching
-COPY src/gamingdatademo/pyproject.toml src/gamingdatademo/website-live/requirements.txt ./gamingdatademo/website-live/
+COPY src/gamingdatademo/pyproject.toml ./gamingdatademo/pyproject.toml
+COPY src/gamingdatademo/website-live/requirements.txt ./gamingdatademo/website-live/requirements.txt
 RUN pip install --no-cache-dir \
     -r ./gamingdatademo/website-live/requirements.txt \
-    ./gamingdatademo/website-live/..
+    ./gamingdatademo
 
 # Copy full gamingdatademo source code & install in editable/package mode
 COPY src/gamingdatademo/ ./gamingdatademo/
