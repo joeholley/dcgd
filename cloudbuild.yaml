@@ -2,10 +2,19 @@
 # Cloud Build Configuration: Build & Store Image in Artifact Registry (Without Deploying)
 
 steps:
-  # Step 1: Build the unified Docker container image
+  # Step 0: Pull existing image for layer caching (ignore failure on initial build)
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - 'docker pull ${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:${_TAG} || true'
+
+  # Step 1: Build the unified Docker container image using previously built layers
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
+      - '--cache-from'
+      - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:${_TAG}'
       - '-t'
       - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:${_TAG}'
       - '.'

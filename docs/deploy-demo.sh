@@ -446,7 +446,7 @@ if [ "$RUN_DEPLOY" = true ]; then
   log_info "    Service Name: ${SERVICE_NAME} (Private / Authenticated)"
   log_info ""
   log_info "To access the private Cloud Run service from Cloud Shell Web Preview:"
-  log_info "  $ gcloud run services proxy --service=${SERVICE_NAME} --port=8080 --region=${GCP_REGION}"
+  log_info "  $ gcloud run services proxy ${SERVICE_NAME} --port=8080 --region=${GCP_REGION}"
   log_info "Then click 'Web Preview' in Cloud Shell and select 'Preview on port 8080'."
 else
   log_info "  - Cloud Run Service: SKIPPED"

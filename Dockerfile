@@ -21,10 +21,15 @@ RUN apt-get update && apt-get install -y curl gnupg && \
 
 WORKDIR /app
 
-# Copy gamingdatademo source & install Python dependencies
-COPY src/gamingdatademo/pyproject.toml src/gamingdatademo/uv.lock* src/gamingdatademo/
+# Copy dependency files first to maximize pip install layer caching
+COPY src/gamingdatademo/pyproject.toml src/gamingdatademo/website-live/requirements.txt ./gamingdatademo/website-live/
+RUN pip install --no-cache-dir \
+    -r ./gamingdatademo/website-live/requirements.txt \
+    ./gamingdatademo/website-live/..
+
+# Copy full gamingdatademo source code & install in editable/package mode
 COPY src/gamingdatademo/ ./gamingdatademo/
-RUN pip install --no-cache-dir -e ./gamingdatademo
+RUN pip install --no-cache-dir --no-deps -e ./gamingdatademo
 
 # Copy built remix-gaming-app dist, node_modules, and package.json
 COPY --from=node-builder /app/remix-gaming-app/dist ./remix-gaming-app/dist
