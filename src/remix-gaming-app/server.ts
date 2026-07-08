@@ -1,5 +1,7 @@
 import express, { Request, Response } from "express";
 import path from "path";
+import http from "http";
+import net from "net";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { GoogleAuth } from "google-auth-library";
@@ -14,6 +16,46 @@ import {
 } from "./src/services/bigquery";
 
 dotenv.config();
+
+const FLASK_PORT = Number(process.env.PYTHON_PORT) || 5000;
+
+/**
+ * Proxy HTTP requests to internal Python Flask app (gamingdatademo on port 5000)
+ */
+function proxyToFlask(req: Request, res: Response, targetPath?: string) {
+  const urlPath = targetPath ?? req.url;
+  const options: http.RequestOptions = {
+    hostname: "127.0.0.1",
+    port: FLASK_PORT,
+    path: urlPath,
+    method: req.method,
+    headers: {
+      ...req.headers,
+      host: `127.0.0.1:${FLASK_PORT}`,
+    },
+  };
+
+  const proxyReq = http.request(options, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode || 500, proxyRes.headers);
+    proxyRes.pipe(res, { end: true });
+  });
+
+  proxyReq.on("error", (err) => {
+    console.error("[Flask Proxy Error]:", err.message);
+    if (!res.headersSent) {
+      res.status(502).json({ error: "Failed to connect to internal gamingdatademo service on port 5000" });
+    }
+  });
+
+  if (req.body && Object.keys(req.body).length > 0 && req.method !== "GET" && req.method !== "HEAD") {
+    const bodyData = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+    proxyReq.write(bodyData);
+    proxyReq.end();
+  } else {
+    req.pipe(proxyReq, { end: true });
+  }
+}
+
 
 // GCP Configuration using Application Default Credentials (ADC)
 const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT || "omniarcade-demo";
@@ -535,6 +577,60 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
   });
 
   // --------------------------------------------------------------------------
+  // 6. Reverse Proxy Routes to Internal Python Service (gamingdatademo / 127.0.0.1:5000)
+  // --------------------------------------------------------------------------
+  const flaskHtmlPages = [
+    "/executive.html",
+    "/architecture.html",
+    "/difficulty.html",
+    "/toxicity.html",
+    "/graph_visualization.html",
+    "/marketing_swarm_visualizer.html",
+    "/marketing_workflow_mockup.html",
+  ];
+
+  const flaskStaticAssets = [
+    "/styles.css",
+    "/visualization.js",
+    "/chat.js",
+    "/static-responses.json",
+  ];
+
+  // 6a. Dedicated proxy entrypoint routes for gamingdatademo UI
+  app.use(["/agent-comparison", "/gamingdatademo"], (req: Request, res: Response) => {
+    let subPath = req.originalUrl.replace(/^\/(agent-comparison|gamingdatademo)/, "");
+    if (!subPath || subPath === "") subPath = "/";
+    proxyToFlask(req, res, subPath);
+  });
+
+  // 6b. Flask API Endpoints
+  app.use([
+    "/api/config",
+    "/api/table-info",
+    "/api/term-info",
+    "/api/difficulty-stats",
+    "/api/simulate",
+    "/api/marketing",
+    "/api/executive",
+  ], (req: Request, res: Response) => {
+    proxyToFlask(req, res);
+  });
+
+  // 6c. Flask HTML Pages & Static Assets
+  app.use((req: Request, res: Response, next) => {
+    const p = req.path;
+    if (
+      flaskHtmlPages.includes(p) ||
+      flaskStaticAssets.includes(p) ||
+      p.startsWith("/icons/") ||
+      p.startsWith("/static/")
+    ) {
+      return proxyToFlask(req, res);
+    }
+    next();
+  });
+
+  // --------------------------------------------------------------------------
   // Vite Middleware / Static File Serving
   // --------------------------------------------------------------------------
   if (process.env.NODE_ENV !== "production") {
@@ -553,11 +649,39 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
 
   const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`[OmniArcade Backend Gateway] Running on http://localhost:${PORT}`);
+    console.log(`  - Agent Comparison UI (gamingdatademo): http://localhost:${PORT}/agent-comparison`);
     console.log(`  - Telemetry Stream: POST /api/telemetry/stream`);
     console.log(`  - SSE Guardrail Hub: GET /api/guardrail/events`);
     console.log(`  - Dataplex Search Proxy: GET /api/catalog/search`);
     console.log(`  - Dataplex Rule Discovery: POST /api/catalog/rules/discover`);
     console.log(`  - Vertex AI Agent Chat: POST /api/chat`);
+  });
+
+  // --------------------------------------------------------------------------
+  // WebSocket Upgrade Proxy for /api/ws (Flask sock)
+  // --------------------------------------------------------------------------
+  server.on("upgrade", (req, socket, head) => {
+    if (req.url?.startsWith("/api/ws")) {
+      const targetSocket = net.connect(FLASK_PORT, "127.0.0.1", () => {
+        targetSocket.write(
+          `${req.method} ${req.url} HTTP/${req.httpVersion}\r\n` +
+          Object.entries(req.headers)
+            .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`)
+            .join("\r\n") +
+          "\r\n\r\n"
+        );
+        if (head && head.length > 0) {
+          targetSocket.write(head);
+        }
+        targetSocket.pipe(socket);
+        socket.pipe(targetSocket);
+      });
+
+      targetSocket.on("error", (err) => {
+        console.error("[WebSocket Proxy Error]:", err.message);
+        socket.destroy();
+      });
+    }
   });
 
   server.on("error", (err: any) => {
@@ -572,3 +696,4 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
 startServer().catch((err) => {
   console.error("[OmniArcade Backend Gateway] Server startup error:", err);
 });
+
