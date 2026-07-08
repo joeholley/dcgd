@@ -52,7 +52,7 @@ The platform connects cross-cloud telemetry (e.g., Snowflake, AlloyDB, BigQuery,
             ├── CampaignEngine.tsx     # Player marketing campaign builder
             ├── KnowledgeCatalog.tsx   # Telemetry & dataset catalog search
             ├── ITObservatory.tsx      # API metrics & observatory monitoring
-            └── HospitalAdmin.tsx      # Floating Gemini AI assistant drawer
+            └── GamingAssistant.tsx     # Floating Gemini AI assistant drawer
 ```
 
 ---
@@ -77,4 +77,4 @@ The platform connects cross-cloud telemetry (e.g., Snowflake, AlloyDB, BigQuery,
 * [CampaignEngine.tsx](../../src/remix-gaming-app/src/components/sections/CampaignEngine.tsx): Target player cohort campaign manager equipped with localized messaging templates and AI budget reallocation logic.
 * [KnowledgeCatalog.tsx](../../src/remix-gaming-app/src/components/sections/KnowledgeCatalog.tsx): Catalog search for cross-cloud datasets (BigQuery, Snowflake, AlloyDB, S3).
 * [ITObservatory.tsx](../../src/remix-gaming-app/src/components/sections/ITObservatory.tsx): Real-time API throughput monitoring, status distribution, and response time charts.
-* [HospitalAdmin.tsx](../../src/remix-gaming-app/src/components/sections/HospitalAdmin.tsx): Floating widget interface connecting to `/api/chat` to provide AI-assisted insights on demand.
+* [GamingAssistant.tsx](../../src/remix-gaming-app/src/components/sections/GamingAssistant.tsx): Floating widget interface connecting to `/api/chat` to provide AI-assisted insights on demand.

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { Country, LanguageSetting } from "./CampaignEngine";
 import { 
   Database, 
   Cloud, 
@@ -66,8 +67,6 @@ const CONNECTORS: Connector[] = [
     search: "AlloyDB" 
   },
 ];
-
-import { Country, LanguageSetting } from "./CampaignEngine";
 
 const OVERVIEW_TRANSLATIONS: Record<string, Record<Country, string>> = {
   "Intelligent Player Analytics for": {

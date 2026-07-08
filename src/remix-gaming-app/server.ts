@@ -7,12 +7,12 @@ import dotenv from "dotenv";
 import { GoogleAuth } from "google-auth-library";
 import { PubSub } from "@google-cloud/pubsub";
 import { BigQuery } from "@google-cloud/bigquery";
-import { PredictionServiceClient } from "@google-cloud/aiplatform";
 import { 
   queryPlayer360, 
   queryRegionalKPIs, 
   queryCampaignAnalytics, 
-  executeCustomQuery 
+  executeCustomQuery,
+  checkBigQueryHealth 
 } from "./src/services/bigquery";
 
 dotenv.config();
@@ -24,15 +24,22 @@ const FLASK_PORT = Number(process.env.PYTHON_PORT) || 5000;
  */
 function proxyToFlask(req: Request, res: Response, targetPath?: string) {
   const urlPath = targetPath ?? req.url;
+  const reqHeaders = { ...req.headers, host: `127.0.0.1:${FLASK_PORT}` };
+
+  let bodyData: string | Buffer | null = null;
+  if (req.body !== undefined && req.method !== "GET" && req.method !== "HEAD") {
+    bodyData = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+    reqHeaders["content-length"] = Buffer.byteLength(bodyData).toString();
+  } else {
+    delete reqHeaders["content-length"];
+  }
+
   const options: http.RequestOptions = {
     hostname: "127.0.0.1",
     port: FLASK_PORT,
     path: urlPath,
     method: req.method,
-    headers: {
-      ...req.headers,
-      host: `127.0.0.1:${FLASK_PORT}`,
-    },
+    headers: reqHeaders,
   };
 
   const proxyReq = http.request(options, (proxyRes) => {
@@ -47,12 +54,11 @@ function proxyToFlask(req: Request, res: Response, targetPath?: string) {
     }
   });
 
-  if (req.body && Object.keys(req.body).length > 0 && req.method !== "GET" && req.method !== "HEAD") {
-    const bodyData = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+  if (bodyData !== null) {
     proxyReq.write(bodyData);
     proxyReq.end();
   } else {
-    req.pipe(proxyReq, { end: true });
+    proxyReq.end();
   }
 }
 
@@ -71,19 +77,33 @@ const auth = new GoogleAuth({
 
 const pubsubClient = new PubSub({ projectId: PROJECT_ID });
 const bigqueryClient = new BigQuery({ projectId: PROJECT_ID });
-const aiplatformClient = new PredictionServiceClient({
-  apiEndpoint: `${LOCATION}-aiplatform.googleapis.com`,
-});
 
-// SSE Clients Registry
+// SSE Clients Registry with explicit cleanup and error handling
 interface SSEClient {
   id: string;
   res: Response;
 }
 let sseClients: SSEClient[] = [];
 
-// Pre-cached policy offers cache: Map<playerId, OfferPayload>
+function removeSSEClient(clientId: string) {
+  const initialCount = sseClients.length;
+  sseClients = sseClients.filter((c) => c.id !== clientId);
+  if (sseClients.length < initialCount) {
+    console.log(`[SSE Hub] Removed dead client: ${clientId}. Remaining: ${sseClients.length}`);
+  }
+}
+
+// Pre-cached policy offers cache: Map<playerId, OfferPayload> with capped size
+const MAX_PRECACHED_OFFERS = 500;
 const precachedOffers = new Map<string, any>();
+
+function setPrecachedOffer(playerId: string, offer: any) {
+  if (precachedOffers.size >= MAX_PRECACHED_OFFERS) {
+    const oldestKey = precachedOffers.keys().next().value;
+    if (oldestKey) precachedOffers.delete(oldestKey);
+  }
+  precachedOffers.set(playerId, offer);
+}
 
 /**
  * Helper to broadcast events to all connected Server-Sent Events (SSE) clients
@@ -105,6 +125,27 @@ function broadcastSSE(eventType: string, data: any) {
 }
 
 /**
+ * Helper to execute an async promise with a strict timeout and fallback
+ * Prevents unhandled promise rejections and dangling timers.
+ */
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  let timer: NodeJS.Timeout;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), timeoutMs);
+  });
+
+  try {
+    const result = await Promise.race([
+      promise.catch(() => fallback),
+      timeoutPromise
+    ]);
+    return result;
+  } finally {
+    clearTimeout(timer!);
+  }
+}
+
+/**
  * Asynchronous Dataplex Policy Verification & Offer Pre-Caching
  * Triggered when BQML churn risk score crosses 50%.
  */
@@ -116,7 +157,6 @@ async function verifyDataplexPolicyAndPrecache(
   console.log(`[Dataplex Pre-Caching] Triggering policy verification for player ${playerId} with churn score ${(churnScore * 100).toFixed(1)}%`);
 
   try {
-    // 1. Simulate or perform Dataplex Aspect Verification REST call (08_create_churn_guardrail_aspects.py rules)
     const client = await auth.getClient().catch(() => null);
     const token = client ? (await client.getAccessToken()).token : null;
     
@@ -139,8 +179,8 @@ async function verifyDataplexPolicyAndPrecache(
       latency_ms: 12,
     };
 
-    // Pre-cache the offer
-    precachedOffers.set(playerId, certifiedOffer);
+    // Pre-cache the offer safely
+    setPrecachedOffer(playerId, certifiedOffer);
 
     // Broadcast pre-cache confirmation via SSE
     broadcastSSE("policy_precached", {
@@ -187,7 +227,7 @@ async function startServer() {
         event_type = "boss_fail",
         consecutive_deaths = 3,
         session_duration_seconds = 420,
-      } = req.body;
+      } = req.body || {};
 
       // Format strict snake_case JSON payload with ISO-8601 UTC timestamp
       const telemetryPayload = {
@@ -202,11 +242,15 @@ async function startServer() {
       console.log(`[Telemetry Gateway] Received payload for player: ${player_id}`, telemetryPayload);
 
       // 1. Publish payload to Cloud Pub/Sub topic `omniarcade-live-telemetry`
-      let pubsubMessageId = null;
+      let pubsubMessageId: string | null = null;
       try {
         const topic = pubsubClient.topic(PUBSUB_TOPIC_NAME);
         const dataBuffer = Buffer.from(JSON.stringify(telemetryPayload));
-        pubsubMessageId = await topic.publishMessage({ data: dataBuffer });
+        pubsubMessageId = await withTimeout(
+          topic.publishMessage({ data: dataBuffer }),
+          1500,
+          `mock_msg_${Date.now()}`
+        );
         console.log(`[Pub/Sub] Published message ${pubsubMessageId} to topic ${PUBSUB_TOPIC_NAME}`);
       } catch (pubsubErr: any) {
         console.warn(`[Pub/Sub] Topic publish fallback (running offline/mock): ${pubsubErr.message}`);
@@ -252,7 +296,6 @@ async function startServer() {
           predictedChurnScore = Math.min(0.99, Math.max(0.05, deathWeight + eventWeight + durationWeight));
         }
       } catch (bqErr: any) {
-        // Fallback scoring formula
         const deathWeight = Math.min(0.65, Number(consecutive_deaths) * 0.22);
         const eventWeight = event_type === "boss_fail" ? 0.20 : event_type === "mission_quit" ? 0.25 : 0.05;
         predictedChurnScore = Math.min(0.99, Math.max(0.05, deathWeight + eventWeight));
@@ -261,12 +304,17 @@ async function startServer() {
       predictedChurnScore = Math.round(predictedChurnScore * 100) / 100;
       const churnRiskLevel = predictedChurnScore >= 0.80 ? "CRITICAL" : predictedChurnScore >= 0.50 ? "HIGH" : predictedChurnScore >= 0.30 ? "MEDIUM" : "LOW";
 
-      // 3. Asynchronous Pre-Caching Check (threshold >= 50%) - Non-blocking background execution
+      // 3. Asynchronous Pre-Caching Check (threshold >= 50%)
+      // If score is >= 0.85, await precaching so the triggered offer is immediately available for SSE
       let precachedOffer = precachedOffers.get(player_id);
       if (predictedChurnScore >= 0.50 && !precachedOffer) {
-        verifyDataplexPolicyAndPrecache(player_id, predictedChurnScore, playerTier).catch((err) => {
-          console.warn("[Dataplex Pre-Caching] Async background trigger failed:", err.message);
-        });
+        if (predictedChurnScore >= 0.85) {
+          precachedOffer = await verifyDataplexPolicyAndPrecache(player_id, predictedChurnScore, playerTier);
+        } else {
+          verifyDataplexPolicyAndPrecache(player_id, predictedChurnScore, playerTier).catch((err) => {
+            console.warn("[Dataplex Pre-Caching] Async background trigger failed:", err.message);
+          });
+        }
       }
 
       // 4. Measure execution latency after calculation
@@ -285,7 +333,7 @@ async function startServer() {
         timestamp: telemetryPayload.timestamp,
         latency_ms: executionLatencyMs,
         offer_precached: !!precachedOffer,
-        offer: predictedChurnScore >= 0.85 ? precachedOffer : null,
+        offer: predictedChurnScore >= 0.85 ? (precachedOffer || null) : null,
       };
 
       // Stream updated churn score & potential guardrail offer via SSE
@@ -315,7 +363,7 @@ async function startServer() {
       });
     } catch (error: any) {
       console.error("[Telemetry Gateway] Server Error:", error);
-      return res.status(500).json({ error: error.message });
+      return res.status(500).json({ error: error?.message || "Internal server error" });
     }
   });
 
@@ -327,6 +375,7 @@ async function startServer() {
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
     res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("X-Accel-Buffering", "no");
 
     const clientId = `client_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     const newClient: SSEClient = { id: clientId, res };
@@ -342,19 +391,24 @@ async function startServer() {
       try {
         if (res.writableEnded || res.destroyed) {
           clearInterval(heartbeatInterval);
+          removeSSEClient(clientId);
           return;
         }
         res.write(`: heartbeat ping ${new Date().toISOString()}\n\n`);
       } catch (err) {
         clearInterval(heartbeatInterval);
+        removeSSEClient(clientId);
       }
     }, 15000);
 
-    req.on("close", () => {
+    const cleanup = () => {
       clearInterval(heartbeatInterval);
-      sseClients = sseClients.filter((client) => client.id !== clientId);
-      console.log(`[SSE Hub] Client disconnected: ${clientId}. Remaining clients: ${sseClients.length}`);
-    });
+      removeSSEClient(clientId);
+    };
+
+    req.on("close", cleanup);
+    req.on("error", cleanup);
+    res.on("error", cleanup);
   });
 
   // --------------------------------------------------------------------------
@@ -364,9 +418,8 @@ async function startServer() {
     const query = (req.query.q as string || "").toLowerCase();
     
     try {
-      // Get OAuth2 Access Token via Application Default Credentials
-      const client = await auth.getClient();
-      const accessToken = (await client.getAccessToken()).token;
+      const client = await auth.getClient().catch(() => null);
+      const accessToken = client ? (await client.getAccessToken()).token : null;
 
       // Real Dataplex REST API Search Proxy Call
       if (accessToken) {
@@ -380,7 +433,8 @@ async function startServer() {
 
         if (apiRes && apiRes.ok) {
           const data = await apiRes.json();
-          return res.json(data);
+          const rawEntries = data.results || data.entries || [];
+          return res.json({ entries: rawEntries, total_results: rawEntries.length });
         }
       }
     } catch (err: any) {
@@ -438,7 +492,7 @@ async function startServer() {
   // Automatic Rule Discovery Sandbox Endpoint
   app.post("/api/catalog/rules/discover", async (req: Request, res: Response) => {
     try {
-      const { rule_text } = req.body;
+      const { rule_text } = req.body || {};
       if (!rule_text) {
         return res.status(400).json({ error: "rule_text parameter is required" });
       }
@@ -472,7 +526,7 @@ FILTER USING (spend_tier = 'Whale' AND churn_risk_score >= 0.50);
 
       return res.json({ success: true, rule: discoveredRule });
     } catch (err: any) {
-      return res.status(500).json({ error: err.message });
+      return res.status(500).json({ error: err?.message || "Failed to discover rule" });
     }
   });
 
@@ -486,7 +540,7 @@ FILTER USING (spend_tier = 'Whale' AND churn_risk_score >= 0.50);
 
       // Try calling Vertex AI Agent Engine via ADC authentication
       try {
-        const client = await auth.getClient();
+        const client = await auth.getClient().catch(() => null);
         const accessToken = client ? (await client.getAccessToken()).token : null;
 
         if (accessToken) {
@@ -502,7 +556,12 @@ FILTER USING (spend_tier = 'Whale' AND churn_risk_score >= 0.50);
 
           if (agentRes && agentRes.ok) {
             const agentData = await agentRes.json();
-            return res.json({ text: agentData.output || agentData.text });
+            const replyText = typeof agentData.output === "string" 
+              ? agentData.output 
+              : agentData.output?.text || agentData.text || "";
+            if (replyText) {
+              return res.json({ text: replyText });
+            }
           }
         }
       } catch (agentErr: any) {
@@ -524,7 +583,7 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       return res.json({ text: reply });
     } catch (error: any) {
       console.error("[Chat API Error]:", error);
-      res.status(500).json({ error: error.message || "Failed to process chat query" });
+      res.status(500).json({ error: error?.message || "Failed to process chat query" });
     }
   });
 
@@ -542,7 +601,7 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       res.json({ success: true, count: records.length, data: records });
     } catch (err: any) {
       console.error("[Analytics API Error - Player360]:", err);
-      res.status(500).json({ error: err.message || "Player360 query failed" });
+      res.status(500).json({ error: err?.message || "Player360 query failed" });
     }
   });
 
@@ -557,7 +616,7 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       res.json({ success: true, count: records.length, data: records });
     } catch (err: any) {
       console.error("[Analytics API Error - Regional]:", err);
-      res.status(500).json({ error: err.message || "Regional KPIs query failed" });
+      res.status(500).json({ error: err?.message || "Regional KPIs query failed" });
     }
   });
 
@@ -572,8 +631,151 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       res.json({ success: true, count: records.length, data: records });
     } catch (err: any) {
       console.error("[Analytics API Error - Campaigns]:", err);
-      res.status(500).json({ error: err.message || "Campaign analytics query failed" });
+      res.status(500).json({ error: err?.message || "Campaign analytics query failed" });
     }
+  });
+
+  // --------------------------------------------------------------------------
+  // 5b. Unified GCP System Health & Diagnostics Endpoint (/api/system/gcp-health)
+  // --------------------------------------------------------------------------
+  app.get("/api/system/gcp-health", async (req: Request, res: Response) => {
+    const startTime = Date.now();
+
+    // 1. Test Google Auth / ADC
+    const testAuth = async () => {
+      const start = Date.now();
+      return withTimeout(
+        (async () => {
+          const client = await auth.getClient();
+          const token = client ? (await client.getAccessToken()).token : null;
+          if (token) {
+            return { status: "LIVE" as const, details: `ADC Authenticated for project '${PROJECT_ID}'`, latency_ms: Date.now() - start };
+          }
+          return { status: "MOCK" as const, details: "ADC active without explicit access token", latency_ms: Date.now() - start };
+        })(),
+        2000,
+        { status: "MOCK" as const, details: "ADC Auth timeout/fallback", latency_ms: 2000 }
+      );
+    };
+
+    // 2. Test BigQuery Gold Tables
+    const testBigQuery = async () => {
+      return withTimeout(
+        checkBigQueryHealth(),
+        2000,
+        { status: "MOCK" as const, details: "BigQuery health check timed out (2s); using synthetic data", latency_ms: 2000 }
+      );
+    };
+
+    // 3. Test Cloud Pub/Sub Topic
+    const testPubSub = async () => {
+      const start = Date.now();
+      return withTimeout(
+        (async () => {
+          const topic = pubsubClient.topic(PUBSUB_TOPIC_NAME);
+          const [exists] = await topic.exists();
+          if (exists) {
+            return { status: "LIVE" as const, details: `Topic '${PUBSUB_TOPIC_NAME}' active`, latency_ms: Date.now() - start };
+          }
+          return { status: "MOCK" as const, details: `Topic '${PUBSUB_TOPIC_NAME}' missing; using mock queue`, latency_ms: Date.now() - start };
+        })(),
+        2000,
+        { status: "MOCK" as const, details: "Pub/Sub probe timed out (2s); using mock queue", latency_ms: 2000 }
+      );
+    };
+
+    // 4. Test BQML ML.PREDICT Model
+    const testBQML = async () => {
+      const start = Date.now();
+      return withTimeout(
+        (async () => {
+          const bqRows = await executeCustomQuery(
+            `SELECT * FROM ML.PREDICT(MODEL \`${PROJECT_ID}.${BQML_MODEL_NAME}\`, (SELECT 'test_player' AS player_id, 3 AS consecutive_deaths, 420 AS session_duration_seconds, 'boss_fail' AS event_type))`
+          );
+          if (bqRows && bqRows.length > 0) {
+            return { status: "LIVE" as const, details: `BQML model '${BQML_MODEL_NAME}' online`, latency_ms: Date.now() - start };
+          }
+          return { status: "MOCK" as const, details: "BQML model query returned empty; using dynamic heuristic scoring", latency_ms: Date.now() - start };
+        })(),
+        2000,
+        { status: "MOCK" as const, details: "BQML probe timed out (2s); using dynamic heuristic scoring", latency_ms: 2000 }
+      );
+    };
+
+    // 5. Test Dataplex Knowledge Catalog REST API
+    const testDataplex = async () => {
+      const start = Date.now();
+      return withTimeout(
+        (async () => {
+          const client = await auth.getClient().catch(() => null);
+          const accessToken = client ? (await client.getAccessToken()).token : null;
+          if (!accessToken) {
+            return { status: "MOCK" as const, details: "Dataplex access token unavailable; using offline catalog aspect registry", latency_ms: Date.now() - start };
+          }
+          const dataplexUrl = `https://dataplex.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/entryGroups/@default/entries:search?query=test`;
+          const apiRes = await fetch(dataplexUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+          if (apiRes && apiRes.ok) {
+            return { status: "LIVE" as const, details: `Dataplex Knowledge Catalog API online (${LOCATION})`, latency_ms: Date.now() - start };
+          }
+          return { status: "MOCK" as const, details: `Dataplex API returned status ${apiRes.status}; using offline aspect registry`, latency_ms: Date.now() - start };
+        })(),
+        2000,
+        { status: "MOCK" as const, details: "Dataplex probe timed out (2s); using offline aspect registry", latency_ms: 2000 }
+      );
+    };
+
+    // 6. Test Vertex AI Agent Engine
+    const testVertexAgent = async () => {
+      const start = Date.now();
+      return withTimeout(
+        (async () => {
+          const client = await auth.getClient().catch(() => null);
+          const accessToken = client ? (await client.getAccessToken()).token : null;
+          if (!accessToken) {
+            return { status: "MOCK" as const, details: "Vertex AI access token unavailable; using static AI assistant fallback", latency_ms: Date.now() - start };
+          }
+          const agentUrl = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/reasoningEngines/${AGENT_ENGINE_ID}`;
+          const agentRes = await fetch(agentUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+          if (agentRes && agentRes.ok) {
+            return { status: "LIVE" as const, details: `Vertex AI Agent Engine '${AGENT_ENGINE_ID}' online`, latency_ms: Date.now() - start };
+          }
+          return { status: "MOCK" as const, details: `Reasoning Engine unreachable (HTTP ${agentRes.status}); using static AI assistant fallback`, latency_ms: Date.now() - start };
+        })(),
+        2000,
+        { status: "MOCK" as const, details: "Vertex AI Agent probe timed out (2s); using static AI assistant fallback", latency_ms: 2000 }
+      );
+    };
+
+    const [authRes, bqRes, pubsubRes, bqmlRes, dataplexRes, vertexRes] = await Promise.all([
+      testAuth(),
+      testBigQuery(),
+      testPubSub(),
+      testBQML(),
+      testDataplex(),
+      testVertexAgent(),
+    ]);
+
+    const services = {
+      auth: authRes,
+      bigquery: bqRes,
+      pubsub: pubsubRes,
+      bqml: bqmlRes,
+      dataplex: dataplexRes,
+      vertex_agent: vertexRes,
+    };
+
+    const isAllLive = Object.values(services).every((s) => s.status === "LIVE");
+    const isAllMock = Object.values(services).every((s) => s.status === "MOCK");
+    const overallStatus = isAllLive ? "ALL_LIVE" : isAllMock ? "OFFLINE_MOCK" : "HEALTHY_WITH_FALLBACKS";
+
+    return res.json({
+      timestamp: new Date().toISOString(),
+      project_id: PROJECT_ID,
+      region: LOCATION,
+      overall_status: overallStatus,
+      total_latency_ms: Date.now() - startTime,
+      services,
+    });
   });
 
   // --------------------------------------------------------------------------
@@ -587,6 +789,7 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
     "/graph_visualization.html",
     "/marketing_swarm_visualizer.html",
     "/marketing_workflow_mockup.html",
+    "/health.html",
   ];
 
   const flaskStaticAssets = [
@@ -681,12 +884,17 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
         console.error("[WebSocket Proxy Error]:", err.message);
         socket.destroy();
       });
+
+      socket.on("error", (err) => {
+        console.error("[WebSocket Client Socket Error]:", err.message);
+        targetSocket.destroy();
+      });
     }
   });
 
   server.on("error", (err: any) => {
     if (err.code === "EADDRINUSE") {
-      console.error(`[OmniArcade Backend Gateway] Error: Port ${PORT} is already in use. Use a different port or stop the existing process (e.g. PORT=3001 node dist/server.cjs).`);
+      console.error(`[OmniArcade Backend Gateway] Error: Port ${PORT} is already in use. Use a different port or stop the existing process.`);
     } else {
       console.error("[OmniArcade Backend Gateway] Server error:", err);
     }
@@ -696,4 +904,3 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
 startServer().catch((err) => {
   console.error("[OmniArcade Backend Gateway] Server startup error:", err);
 });
-

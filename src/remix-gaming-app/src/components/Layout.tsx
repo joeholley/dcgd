@@ -9,7 +9,8 @@ import {
   User,
   Bot,
   Megaphone,
-  ShieldCheck
+  ShieldCheck,
+  CloudCheck
 } from "lucide-react";
 import { Section } from "../App";
 import { cn } from "../lib/utils";
@@ -110,6 +111,7 @@ export function Layout({
     { id: "campaigns" as Section, label: "Campaign Engine", icon: Megaphone },
     { id: "catalog" as Section, label: "Telemetry Catalog", icon: Search },
     { id: "observatory" as Section, label: "API Observatory", icon: Activity },
+    { id: "gcp-health" as Section, label: "GCP Health & Status", icon: CloudCheck },
   ];
 
   return (

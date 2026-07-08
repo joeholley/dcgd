@@ -1,8 +1,8 @@
 {
   "entities": {
     "Report": {
-      "title": "Hospital Report",
-      "description": "Metadata for hospital operational and compliance reports",
+      "title": "OmniArcade Report",
+      "description": "Metadata for gaming operational and compliance reports",
       "type": "object",
       "properties": {
         "title": { "type": "string", "description": "The display name of the report" },
@@ -47,7 +47,7 @@
   "firestore": {
     "/reports/{reportId}": {
       "schema": "Report",
-      "description": "Collection of hospital reports and policy documents"
+      "description": "Collection of gaming reports and policy documents"
     },
     "/campaigns/{campaignId}": {
       "schema": "Campaign",

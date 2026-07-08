@@ -34,7 +34,7 @@ The Express Server Gateway (`server.ts`) proxies all `/agent-comparison/*` and `
 ```mermaid
 graph LR
     subgraph Frontend UI (remix-gaming-app / Cloud Run Port 8080)
-        UI_AI[PineCore AI Assistant: HospitalAdmin.tsx]
+        UI_AI[OmniArcade AI Assistant: GamingAssistant.tsx]
         UI_CATALOG[Knowledge Catalog: KnowledgeCatalog.tsx]
         UI_OVERVIEW[Overview Dashboard: Overview.tsx]
         UI_OPS[Operations & Latency: Operations.tsx]
@@ -105,7 +105,7 @@ graph LR
 
 ---
 
-### 2. 💬 PineCore Floating AI Assistant ([HospitalAdmin.tsx](remix-gaming-app/overview.md#L55))
+### 2. 💬 OmniArcade Floating AI Assistant ([GamingAssistant.tsx](remix-gaming-app/overview.md#L55))
 * **Frontend Component**: Floating chatbot drawer widget.
 * **Express Route**: `/api/chat` in `server.ts`.
 * **Target GCP Service**: **Vertex AI Agent Engine (`google-adk`)** with Model Context Protocol (MCP) tools.
@@ -170,7 +170,7 @@ graph LR
 | :--- | :--- | :--- | :--- |
 | **LiveOps Guardrail** | [LiveOpsGuardrail.tsx](churn-guardrail-plan.md) | Cloud Pub/Sub $\rightarrow$ BQ Direct Sub $\rightarrow$ BQML `ML.PREDICT` $\rightarrow$ Spanner/Firestore | Streaming game telemetry, predictive ML churn probability, dynamic offer pop-ups ($0.99 Shield Pack). |
 | **Agent Comparison Workspace** | Header Tab / `/agent-comparison` | `gamingdatademo` Flask Service (`127.0.0.1:5000`) | Side-by-side Basic, Scaled, and KC Agent query step streaming and point-cloud animations. |
-| **AI Assistant** | [HospitalAdmin.tsx](remix-gaming-app/overview.md#L55) | Vertex AI Agent Engine + Dataplex MCP | Natural language QA, schema resolution, SQL query results. |
+| **AI Assistant** | [GamingAssistant.tsx](remix-gaming-app/overview.md#L55) | Vertex AI Agent Engine + Dataplex MCP | Natural language QA, schema resolution, SQL query results. |
 | **Catalog Explorer & Auto-Discovery** | [KnowledgeCatalog.tsx](remix-gaming-app/overview.md#L53) | Dataplex Knowledge Catalog APIs | Glossaries, aspect tags, quality scores, lineage, and Automatic Rule Discovery Sandbox. |
 | **Executive Overview** | [Overview.tsx](remix-gaming-app/overview.md#L49) | BigQuery Gold (`gold_player_360`) | Regional revenue, MAU, player spend tiers (*Whales/Minnows*). |
 | **Operations Telemetry** | [Operations.tsx](remix-gaming-app/overview.md#L50) | BigQuery Silver (`server_latency`) + `/api/simulate/difficulty-spike` | Real-time concurrent active users (CCU), server region capacity, difficulty spike simulation. |
@@ -192,5 +192,5 @@ graph LR
    - Create a lightweight API client service (`src/services/bigquery.ts`) in the Remix app to execute parameterized queries against `omniarcade_gold` feature tables for `Overview.tsx` and `Operations.tsx`.
 
 3. **PineCore AI UI Stepper & Pre-Caching**:
-   - Update `HospitalAdmin.tsx` state to parse and display multi-step progress events from the KC Agent stream.
+   - Update `GamingAssistant.tsx` state to parse and display multi-step progress events from the KC Agent stream.
    - Asynchronously pre-cache Dataplex policy checks in `server.ts` when BQML churn score crosses 50% for <300ms pop-up execution.

@@ -50,6 +50,7 @@ RUN_DEPLOY=true
 MODE_SET=false
 
 usage() {
+  local exit_code="${1:-0}"
   cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
 
@@ -68,7 +69,7 @@ Examples:
   $(basename "$0") --skip-infra
   $(basename "$0") -b -d
 EOF
-  exit 0
+  exit "$exit_code"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -110,11 +111,11 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     -h|--help)
-      usage
+      usage 0
       ;;
     *)
       log_error "Unknown option: $1"
-      usage
+      usage 1
       ;;
   esac
 done

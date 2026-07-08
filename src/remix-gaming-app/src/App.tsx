@@ -8,8 +8,9 @@ import { AgenticWorkflows } from "./components/sections/AgenticWorkflows";
 import { Operations } from "./components/sections/Operations";
 import { CampaignEngine, Country, LanguageSetting } from "./components/sections/CampaignEngine";
 import { LiveOpsGuardrail } from "./components/sections/LiveOpsGuardrail";
+import { GCPHealth } from "./components/sections/GCPHealth";
 
-export type Section = "overview" | "operations" | "workflows" | "catalog" | "observatory" | "campaigns" | "guardrail";
+export type Section = "overview" | "operations" | "workflows" | "catalog" | "observatory" | "campaigns" | "guardrail" | "gcp-health";
 
 export default function App() {
   const [activeSection, setActiveSection] = useState<Section>("overview");
@@ -54,6 +55,7 @@ export default function App() {
         {activeSection === "guardrail" && <LiveOpsGuardrail />}
         {activeSection === "catalog" && <KnowledgeCatalog initialSearch={initialCatalogSearch} />}
         {activeSection === "observatory" && <ITObservatory />}
+        {activeSection === "gcp-health" && <GCPHealth />}
         {activeSection === "campaigns" && (
           <CampaignEngine 
             country={country}

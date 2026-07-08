@@ -42,7 +42,7 @@ service cloud.firestore {
 
     // Reports collection
     match /reports/{reportId} {
-      allow read: if true; // Publicly accessible reports for Baptist Health DNS
+      allow read: if true; // Publicly accessible reports for OmniArcade
       allow create: if isSignedIn() && isValidReport(request.resource.data);
       allow update: if isSignedIn() && isValidReport(request.resource.data);
       allow delete: if isSignedIn();

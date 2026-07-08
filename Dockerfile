@@ -24,13 +24,11 @@ WORKDIR /app
 # Copy dependency files first to maximize pip install layer caching
 COPY src/gamingdatademo/pyproject.toml ./gamingdatademo/pyproject.toml
 COPY src/gamingdatademo/website-live/requirements.txt ./gamingdatademo/website-live/requirements.txt
-RUN pip install --no-cache-dir \
-    -r ./gamingdatademo/website-live/requirements.txt \
-    ./gamingdatademo
+RUN pip install --no-cache-dir -r ./gamingdatademo/website-live/requirements.txt
 
-# Copy full gamingdatademo source code & install in editable/package mode
+# Copy full gamingdatademo source code & install package
 COPY src/gamingdatademo/ ./gamingdatademo/
-RUN pip install --no-cache-dir --no-deps -e ./gamingdatademo
+RUN pip install --no-cache-dir ./gamingdatademo
 
 # Copy built remix-gaming-app dist, node_modules, and package.json
 COPY --from=node-builder /app/remix-gaming-app/dist ./remix-gaming-app/dist
@@ -46,3 +44,4 @@ ENV NODE_ENV=production
 EXPOSE 8080
 
 ENTRYPOINT ["/app/entrypoint.sh"]
+CMD []

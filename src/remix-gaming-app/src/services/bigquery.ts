@@ -52,22 +52,61 @@ const bqClient = new BigQuery({
 
 /**
  * Executes a parameterized SQL query against BigQuery with automatic fallback data.
+ * Returns null if query fails due to connection or dataset unavailability, allowing
+ * caller to distinguish between query failure and an empty result set (0 rows).
  */
 export async function executeCustomQuery<T = any>(
   sqlQuery: string,
   params: Record<string, any> = {}
-): Promise<T[]> {
+): Promise<T[] | null> {
   try {
     const options = {
       query: sqlQuery,
       params,
-      location: process.env.BIGQUERY_LOCATION || 'US',
+      location: process.env.BIGQUERY_LOCATION || process.env.GCP_LOCATION || 'us-central1',
     };
     const [rows] = await bqClient.query(options);
-    return rows as T[];
+    return (rows as T[]) || [];
   } catch (error) {
     console.warn(`[BigQuery Service] Query execution falling back to simulated gold dataset due to: ${(error as Error).message}`);
-    return [];
+    return null;
+  }
+}
+
+/**
+ * Checks live connection to BigQuery for health diagnostics.
+ */
+export async function checkBigQueryHealth(): Promise<{
+  status: 'LIVE' | 'MOCK';
+  details: string;
+  latency_ms: number;
+}> {
+  const start = Date.now();
+  try {
+    const options = {
+      query: `SELECT 1 AS alive`,
+      location: process.env.BIGQUERY_LOCATION || process.env.GCP_LOCATION || 'us-central1',
+    };
+    const [rows] = await bqClient.query(options);
+    const latency = Date.now() - start;
+    if (rows && rows.length > 0) {
+      return {
+        status: 'LIVE',
+        details: `Connected to dataset '${datasetId}' in project '${projectId}'`,
+        latency_ms: latency,
+      };
+    }
+    return {
+      status: 'MOCK',
+      details: 'Query returned empty result; using mock dataset',
+      latency_ms: latency,
+    };
+  } catch (err: any) {
+    return {
+      status: 'MOCK',
+      details: `BigQuery query failed (${err?.message || 'connection error'}); using mock dataset`,
+      latency_ms: Date.now() - start,
+    };
   }
 }
 
@@ -78,16 +117,17 @@ export async function queryPlayer360(
   playerId?: string,
   limit: number = 20
 ): Promise<Player360Record[]> {
+  const safeLimit = Math.max(1, Math.min(100, Math.floor(limit)));
   const query = playerId
-    ? `SELECT * FROM \`${projectId}.${datasetId}.gold_player_360\` WHERE player_id = @playerId LIMIT @limit`
-    : `SELECT * FROM \`${projectId}.${datasetId}.gold_player_360\` ORDER BY ltv_dollars DESC LIMIT @limit`;
+    ? `SELECT * FROM \`${projectId}.${datasetId}.gold_player_360\` WHERE player_id = @playerId LIMIT CAST(@limit AS INT64)`
+    : `SELECT * FROM \`${projectId}.${datasetId}.gold_player_360\` ORDER BY ltv_dollars DESC LIMIT CAST(@limit AS INT64)`;
 
-  const queryParams: Record<string, any> = { limit };
+  const queryParams: Record<string, any> = { limit: safeLimit };
   if (playerId) queryParams.playerId = playerId;
 
   try {
     const rows = await executeCustomQuery<Player360Record>(query, queryParams);
-    if (rows && rows.length > 0) {
+    if (rows !== null) {
       return rows;
     }
   } catch (err) {
@@ -154,7 +194,7 @@ export async function queryPlayer360(
     }
   ];
 
-  return playerId ? mockData.filter(p => p.player_id === playerId) : mockData.slice(0, limit);
+  return playerId ? mockData.filter(p => p.player_id === playerId) : mockData.slice(0, safeLimit);
 }
 
 /**
@@ -164,16 +204,17 @@ export async function queryRegionalKPIs(
   region?: string,
   limit: number = 10
 ): Promise<RegionalKPIRecord[]> {
+  const safeLimit = Math.max(1, Math.min(100, Math.floor(limit)));
   const query = region
-    ? `SELECT * FROM \`${projectId}.${datasetId}.gold_regional_kpis\` WHERE region = @region LIMIT @limit`
-    : `SELECT * FROM \`${projectId}.${datasetId}.gold_regional_kpis\` ORDER BY dau DESC LIMIT @limit`;
+    ? `SELECT * FROM \`${projectId}.${datasetId}.gold_regional_kpis\` WHERE region = @region LIMIT CAST(@limit AS INT64)`
+    : `SELECT * FROM \`${projectId}.${datasetId}.gold_regional_kpis\` ORDER BY dau DESC LIMIT CAST(@limit AS INT64)`;
 
-  const queryParams: Record<string, any> = { limit };
+  const queryParams: Record<string, any> = { limit: safeLimit };
   if (region) queryParams.region = region;
 
   try {
     const rows = await executeCustomQuery<RegionalKPIRecord>(query, queryParams);
-    if (rows && rows.length > 0) {
+    if (rows !== null) {
       return rows;
     }
   } catch (err) {
@@ -217,7 +258,7 @@ export async function queryRegionalKPIs(
     }
   ];
 
-  return region ? mockData.filter(r => r.region.toLowerCase().includes(region.toLowerCase())) : mockData.slice(0, limit);
+  return region ? mockData.filter(r => r.region.toLowerCase().includes(region.toLowerCase())) : mockData.slice(0, safeLimit);
 }
 
 /**
@@ -227,16 +268,17 @@ export async function queryCampaignAnalytics(
   campaignId?: string,
   limit: number = 10
 ): Promise<CampaignAnalyticsRecord[]> {
+  const safeLimit = Math.max(1, Math.min(100, Math.floor(limit)));
   const query = campaignId
-    ? `SELECT * FROM \`${projectId}.${datasetId}.gold_campaign_analytics\` WHERE campaign_id = @campaignId LIMIT @limit`
-    : `SELECT * FROM \`${projectId}.${datasetId}.gold_campaign_analytics\` ORDER BY incremental_revenue_dollars DESC LIMIT @limit`;
+    ? `SELECT * FROM \`${projectId}.${datasetId}.gold_campaign_analytics\` WHERE campaign_id = @campaignId LIMIT CAST(@limit AS INT64)`
+    : `SELECT * FROM \`${projectId}.${datasetId}.gold_campaign_analytics\` ORDER BY incremental_revenue_dollars DESC LIMIT CAST(@limit AS INT64)`;
 
-  const queryParams: Record<string, any> = { limit };
+  const queryParams: Record<string, any> = { limit: safeLimit };
   if (campaignId) queryParams.campaignId = campaignId;
 
   try {
     const rows = await executeCustomQuery<CampaignAnalyticsRecord>(query, queryParams);
-    if (rows && rows.length > 0) {
+    if (rows !== null) {
       return rows;
     }
   } catch (err) {
@@ -271,5 +313,5 @@ export async function queryCampaignAnalytics(
     }
   ];
 
-  return campaignId ? mockData.filter(c => c.campaign_id === campaignId) : mockData.slice(0, limit);
+  return campaignId ? mockData.filter(c => c.campaign_id === campaignId) : mockData.slice(0, safeLimit);
 }
