@@ -86,7 +86,7 @@ export function LiveOpsGuardrail() {
     original_price: 4.99,
     discount_pct: 80,
     certified_by: "dataplex_policy_aspect",
-    policy_aspect_id: "liveops_campaign_policy_aspect",
+    policy_aspect_id: "liveops-campaign-policy-aspect",
     policy_status: "APPROVED",
     max_allowed_discount: 0.85,
     player_tier: "Whale",

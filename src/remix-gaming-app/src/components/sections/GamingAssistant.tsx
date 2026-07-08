@@ -86,7 +86,7 @@ export function GamingAssistant({ isOpen, onToggle }: { isOpen: boolean; onToggl
     // Initialize Multi-Step Stepper Progress
     const initialSteps: ChatStep[] = [
       { id: 1, title: "Dataplex Schema Search", detail: "Searching Dataplex Knowledge Catalog entries...", status: "in_progress" },
-      { id: 2, title: "Aspect Tag Verification", detail: "Verifying liveops_campaign_policy_aspect compliance...", status: "pending" },
+      { id: 2, title: "Aspect Tag Verification", detail: "Verifying liveops-campaign-policy-aspect compliance...", status: "pending" },
       { id: 3, title: "BigQuery SQL Execution", detail: "Executing gold_player_360 query via ADC...", status: "pending" },
     ];
     setActiveSteps(initialSteps);
@@ -95,7 +95,7 @@ export function GamingAssistant({ isOpen, onToggle }: { isOpen: boolean; onToggl
     setTimeout(() => {
       setActiveSteps([
         { id: 1, title: "Dataplex Schema Search", detail: "Dataplex search completed (found 3 matches).", status: "completed" },
-        { id: 2, title: "Aspect Tag Verification", detail: "Verifying liveops_campaign_policy_aspect compliance...", status: "in_progress" },
+        { id: 2, title: "Aspect Tag Verification", detail: "Verifying liveops-campaign-policy-aspect compliance...", status: "in_progress" },
         { id: 3, title: "BigQuery SQL Execution", detail: "Executing gold_player_360 query via ADC...", status: "pending" },
       ]);
     }, 400);
@@ -129,7 +129,7 @@ export function GamingAssistant({ isOpen, onToggle }: { isOpen: boolean; onToggl
             <div className="space-y-4">
               <h4 className="font-bold text-slate-800 text-sm">Dataplex Policy Verification Report</h4>
               <p className="text-xs text-slate-500 font-light leading-relaxed">
-                Verified aspect tag <code className="text-blue-600 bg-blue-50 px-1 py-0.5 rounded">liveops_campaign_policy_aspect</code> on target table <code className="text-slate-700 bg-slate-100 px-1 py-0.5 rounded">omniarcade_gold.gold_player_360</code>:
+                Verified aspect tag <code className="text-blue-600 bg-blue-50 px-1 py-0.5 rounded">liveops-campaign-policy-aspect</code> on target table <code className="text-slate-700 bg-slate-100 px-1 py-0.5 rounded">omniarcade_gold.gold_player_360</code>:
               </p>
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1 font-mono text-[11px]">
                 <div className="flex justify-between text-slate-600"><span>Target Tier:</span> <span className="font-bold text-blue-600">Whale ($500+ LTV)</span></div>

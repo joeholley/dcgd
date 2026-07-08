@@ -160,7 +160,7 @@ async function verifyDataplexPolicyAndPrecache(
     const client = await auth.getClient().catch(() => null);
     const token = client ? (await client.getAccessToken()).token : null;
     
-    // Certified Offer SKU verified against Dataplex aspect tags (liveops_campaign_policy_aspect)
+    // Certified Offer SKU verified against Dataplex aspect tags (liveops-campaign-policy-aspect)
     const certifiedOffer = {
       offer_id: `offer_frost_giant_${Date.now()}`,
       sku: "frost_giant_shield_pack",
@@ -170,7 +170,7 @@ async function verifyDataplexPolicyAndPrecache(
       original_price: 4.99,
       discount_pct: 80,
       certified_by: "dataplex_policy_aspect",
-      policy_aspect_id: "liveops_campaign_policy_aspect",
+      policy_aspect_id: "liveops-campaign-policy-aspect",
       policy_status: "APPROVED",
       max_allowed_discount: 0.85,
       player_tier: playerTier,
@@ -625,7 +625,7 @@ async function startServer() {
         title: "Dataplex Aspect: LiveOps Campaign Discount Policy",
         category: "Governance Aspect",
         source: "Dataplex Knowledge Catalog",
-        aspect_type: "projects/omniarcade-demo/locations/us-central1/aspectTypes/liveops_campaign_policy_aspect",
+        aspect_type: "projects/omniarcade-demo/locations/us-central1/aspectTypes/liveops-campaign-policy-aspect",
         rules: [
           { tier: "Whale", max_discount: 0.85, required_sku: "frost_giant_shield_pack" },
           { tier: "Dolphin", max_discount: 0.50, required_sku: "starter_pack_gold" },
@@ -680,9 +680,9 @@ async function startServer() {
       const discoveredRule = {
         rule_id: `rule_discovered_${Date.now()}`,
         input_text: rule_text,
-        dataplex_aspect_type: "liveops_campaign_policy_aspect",
+        dataplex_aspect_type: "liveops-campaign-policy-aspect",
         generated_aspect_schema: {
-          name: "projects/omniarcade-demo/locations/us-central1/aspectTypes/liveops_campaign_policy_aspect",
+          name: "projects/omniarcade-demo/locations/us-central1/aspectTypes/liveops-campaign-policy-aspect",
           fields: {
             player_tier: rule_text.toLowerCase().includes("whale") ? "Whale" : "All",
             max_discount_pct: rule_text.includes("80%") ? 80 : 50,
@@ -752,7 +752,7 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
 
 **Unified Lakehouse Data Insights:**
 - **BigQuery Gold Feature Table**: \`gold_player_360\` tracks real-time player LTV and churn risk scores.
-- **Dataplex Knowledge Catalog**: Business glossary term **Whale Spend** (LTV > $500) and aspect tag **liveops_campaign_policy_aspect** are verified and active.
+- **Dataplex Knowledge Catalog**: Business glossary term **Whale Spend** (LTV > $500) and aspect tag **liveops-campaign-policy-aspect** are verified and active.
 - **Real-Time Guardrail Action**: When player churn risk hits 50%, Dataplex pre-caches certified reward SKU \`$0.99 Frost Giant Shield Pack\`. At 85% churn score, the pop-up offer is executed via SSE in <300ms.
 
 *Data unified via Google Cloud Lakehouse (BigQuery, Pub/Sub, Dataplex, Vertex AI).*`;
