@@ -239,10 +239,11 @@ if [ "$RUN_INFRA" = true ]; then
     log_info "Running 'terraform init'..."
     terraform -chdir="${TF_DIR}" init -input=false
 
-    log_info "Executing 'terraform apply -var=\"project_id=${GCP_PROJECT}\" -var=\"industry_target=games\"'..."
+    log_info "Executing 'terraform apply -var=\"project_id=${GCP_PROJECT}\" -var=\"industry_target=games\" -var=\"bigquery_dataset_location=${GCP_REGION}\"'..."
     terraform -chdir="${TF_DIR}" apply -auto-approve \
       -var="project_id=${GCP_PROJECT}" \
-      -var="industry_target=games"
+      -var="industry_target=games" \
+      -var="bigquery_dataset_location=${GCP_REGION}"
 
     log_success "Step 1 Terraform infrastructure applied successfully."
   else
@@ -289,7 +290,7 @@ if [ "$RUN_INFRA" = true ]; then
       cat <<EOF > "${DATAFORM_DIR}/.df-credentials.json"
 {
   "projectId": "${GCP_PROJECT}",
-  "location": "us"
+  "location": "${GCP_REGION}"
 }
 EOF
     fi
@@ -355,7 +356,7 @@ if [ "$RUN_INFRA" = true ]; then
   log_step "STEP 5: In-Warehouse BQML Churn Model Training & Validation"
 
   log_info "Training BQML Logistic Regression model 'omniarcade_raw.player_churn_model'..."
-  bq query --use_legacy_sql=false "CALL \`${GCP_PROJECT}.omniarcade_raw.train_churn_model\`();" || log_warn "BQML model training warning"
+  bq query --location="${GCP_REGION}" --use_legacy_sql=false "CALL \`${GCP_PROJECT}.omniarcade_raw.train_churn_model\`();" || log_warn "BQML model training warning"
 
   log_success "Step 5 BQML model trained."
 else
@@ -419,7 +420,7 @@ if [ "$RUN_DEPLOY" = true ]; then
     --region="${GCP_REGION}" \
     --service-account="${RUNNER_SA}" \
     --no-allow-unauthenticated \
-    --set-env-vars="GOOGLE_CLOUD_PROJECT=${GCP_PROJECT},GCP_LOCATION=${GCP_REGION}" \
+    --set-env-vars="GOOGLE_CLOUD_PROJECT=${GCP_PROJECT},GCP_LOCATION=${GCP_REGION},BIGQUERY_LOCATION=${GCP_REGION}" \
     --port=8080
 
   log_success "Step 7 Cloud Run service deployed in private/authenticated mode."

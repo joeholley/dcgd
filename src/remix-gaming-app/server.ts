@@ -824,7 +824,8 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       return withTimeout(
         (async () => {
           const client = await auth.getClient();
-          const token = client ? (await client.getAccessToken()).token : null;
+          const tokenRes = await client.getAccessToken();
+          const token = typeof tokenRes === 'string' ? tokenRes : tokenRes?.token;
           if (token) {
             return { status: "LIVE" as const, details: `ADC Authenticated for project '${PROJECT_ID}'`, latency_ms: Date.now() - start };
           }
@@ -885,11 +886,12 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       return withTimeout(
         (async () => {
           const client = await auth.getClient().catch(() => null);
-          const accessToken = client ? (await client.getAccessToken()).token : null;
+          const tokenRes = client ? await client.getAccessToken().catch(() => null) : null;
+          const accessToken = typeof tokenRes === 'string' ? tokenRes : tokenRes?.token;
           if (!accessToken) {
             return { status: "MOCK" as const, details: "Dataplex access token unavailable; using offline catalog aspect registry", latency_ms: Date.now() - start };
           }
-          const dataplexUrl = `https://dataplex.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/entryGroups/@default/entries:search?query=test`;
+          const dataplexUrl = `https://dataplex.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/entryGroups`;
           const apiRes = await fetch(dataplexUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
           if (apiRes && apiRes.ok) {
             return { status: "LIVE" as const, details: `Dataplex Knowledge Catalog API online (${LOCATION})`, latency_ms: Date.now() - start };
