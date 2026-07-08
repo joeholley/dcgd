@@ -43,6 +43,82 @@ RETAIL_DIR="${REPO_ROOT}/src/retail-data-and-ai-demo"
 GAMING_DIR="${REPO_ROOT}/src/gamingdatademo"
 REMIX_UI_DIR="${REPO_ROOT}/src/remix-gaming-app"
 
+# Execution mode flags
+RUN_INFRA=true
+RUN_BUILD=true
+RUN_DEPLOY=true
+MODE_SET=false
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [OPTIONS]
+
+Master Deployment Orchestrator for Unified Gaming Data & AI Operations Platform.
+
+Options:
+  -b, --build-only      Only run Cloud Build container compilation (Step 6).
+  -d, --deploy-only     Only run Cloud Run service deployment (Step 7).
+  -s, --skip-infra      Skip infrastructure/pipeline steps (1-5), run Cloud Build & Cloud Run (Steps 6-7).
+  -a, --all             Run full deployment runbook (Steps 0-7) [Default].
+  -h, --help            Show this help message and exit.
+
+Examples:
+  $(basename "$0") --build-only
+  $(basename "$0") --deploy-only
+  $(basename "$0") --skip-infra
+  $(basename "$0") -b -d
+EOF
+  exit 0
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -b|--build-only)
+      if [ "$MODE_SET" = false ]; then
+        RUN_INFRA=false
+        RUN_BUILD=true
+        RUN_DEPLOY=false
+        MODE_SET=true
+      else
+        RUN_BUILD=true
+      fi
+      shift
+      ;;
+    -d|--deploy-only)
+      if [ "$MODE_SET" = false ]; then
+        RUN_INFRA=false
+        RUN_BUILD=false
+        RUN_DEPLOY=true
+        MODE_SET=true
+      else
+        RUN_DEPLOY=true
+      fi
+      shift
+      ;;
+    -s|--skip-infra)
+      RUN_INFRA=false
+      RUN_BUILD=true
+      RUN_DEPLOY=true
+      MODE_SET=true
+      shift
+      ;;
+    -a|--all)
+      RUN_INFRA=true
+      RUN_BUILD=true
+      RUN_DEPLOY=true
+      MODE_SET=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      ;;
+    *)
+      log_error "Unknown option: $1"
+      usage
+      ;;
+  esac
+done
+
 # Configuration variables
 GCP_PROJECT="${GOOGLE_CLOUD_PROJECT:-${GCP_PROJECT}}"
 if [ -z "$GCP_PROJECT" ]; then
@@ -69,6 +145,7 @@ GCP_PROJECT_NUMBER="$(gcloud projects describe "${GCP_PROJECT}" --format="value(
 log_step "STEP 0: Pre-flight Verification & Environment Sanity Check"
 
 log_info "Verifying required CLI utilities..."
+log_info "Execution plan: [Infra/Data Pipeline: ${RUN_INFRA}] | [Cloud Build: ${RUN_BUILD}] | [Cloud Run Deploy: ${RUN_DEPLOY}]"
 
 PREFLIGHT_FAILED=0
 
@@ -110,16 +187,20 @@ check_tool() {
 }
 
 check_tool "gcloud" "gcloud --version"
-check_tool "bq" "bq version"
-check_tool "terraform" "terraform version"
-check_tool "node" "node --version"
-check_tool "npm" "npm --version"
-check_tool "python3" "python3 --version"
+
+if [ "$RUN_INFRA" = true ]; then
+  check_tool "bq" "bq version"
+  check_tool "terraform" "terraform version"
+  check_tool "node" "node --version"
+  check_tool "npm" "npm --version"
+  check_tool "python3" "python3 --version"
+fi
 
 if [ "$PREFLIGHT_FAILED" -ne 0 ]; then
   log_error "Step 0 Pre-flight checks failed. Please install or fix missing/broken tools before continuing."
   exit 1
 fi
+
 
 log_info "Configuring GCP Project context..."
 log_info "  - GCP Project ID: ${GCP_PROJECT}"
@@ -148,33 +229,38 @@ log_success "Step 0 Pre-flight checks completed."
 # ==============================================================================
 # Step 1: Core Terraform Infrastructure Provisioning
 # ==============================================================================
-log_step "STEP 1: Core Terraform Infrastructure Provisioning"
+if [ "$RUN_INFRA" = true ]; then
+  log_step "STEP 1: Core Terraform Infrastructure Provisioning"
 
-TF_DIR="${RETAIL_DIR}/infrastructure/terraform"
-if [ -d "$TF_DIR" ]; then
-  log_info "Navigating to Terraform directory: ${TF_DIR}"
-  log_info "Running 'terraform init'..."
-  terraform -chdir="${TF_DIR}" init -input=false
+  TF_DIR="${RETAIL_DIR}/infrastructure/terraform"
+  if [ -d "$TF_DIR" ]; then
+    log_info "Navigating to Terraform directory: ${TF_DIR}"
+    log_info "Running 'terraform init'..."
+    terraform -chdir="${TF_DIR}" init -input=false
 
-  log_info "Executing 'terraform apply -var=\"project_id=${GCP_PROJECT}\" -var=\"industry_target=games\"'..."
-  terraform -chdir="${TF_DIR}" apply -auto-approve \
-    -var="project_id=${GCP_PROJECT}" \
-    -var="industry_target=games"
+    log_info "Executing 'terraform apply -var=\"project_id=${GCP_PROJECT}\" -var=\"industry_target=games\"'..."
+    terraform -chdir="${TF_DIR}" apply -auto-approve \
+      -var="project_id=${GCP_PROJECT}" \
+      -var="industry_target=games"
 
-  log_success "Step 1 Terraform infrastructure applied successfully."
+    log_success "Step 1 Terraform infrastructure applied successfully."
+  else
+    log_error "Terraform directory ${TF_DIR} not found."
+    exit 1
+  fi
 else
-  log_error "Terraform directory ${TF_DIR} not found."
-  exit 1
+  log_info "[SKIPPED] Step 1: Core Terraform Infrastructure Provisioning"
 fi
 
 # ==============================================================================
 # Step 2: Auto-Generate Dataplex Script Configuration
 # ==============================================================================
-log_step "STEP 2: Auto-Generate Dataplex Governance Configuration"
+if [ "$RUN_INFRA" = true ]; then
+  log_step "STEP 2: Auto-Generate Dataplex Governance Configuration"
 
-DATAPLEX_CONFIG="${GAMING_DIR}/scripts/config.json"
-log_info "Writing Dataplex script config to: ${DATAPLEX_CONFIG}"
-cat <<EOF > "${DATAPLEX_CONFIG}"
+  DATAPLEX_CONFIG="${GAMING_DIR}/scripts/config.json"
+  log_info "Writing Dataplex script config to: ${DATAPLEX_CONFIG}"
+  cat <<EOF > "${DATAPLEX_CONFIG}"
 {
   "project_id": "${GCP_PROJECT}",
   "project_number": "${GCP_PROJECT_NUMBER}",
@@ -182,148 +268,189 @@ cat <<EOF > "${DATAPLEX_CONFIG}"
   "multi_region": "us"
 }
 EOF
-log_success "Step 2 Configuration generated."
+  log_success "Step 2 Configuration generated."
+else
+  log_info "[SKIPPED] Step 2: Auto-Generate Dataplex Governance Configuration"
+fi
 
 # ==============================================================================
 # Step 3: Dataform Medallion Pipeline Execution
 # ==============================================================================
-log_step "STEP 3: Dataform Medallion Pipeline Execution (Bronze -> Silver -> Gold)"
+if [ "$RUN_INFRA" = true ]; then
+  log_step "STEP 3: Dataform Medallion Pipeline Execution (Bronze -> Silver -> Gold)"
 
-DATAFORM_DIR="${GAMING_DIR}/dataform"
-if [ -d "$DATAFORM_DIR" ]; then
-  log_info "Compiling and running Dataform Medallion models in ${DATAFORM_DIR}..."
+  DATAFORM_DIR="${GAMING_DIR}/dataform"
+  if [ -d "$DATAFORM_DIR" ]; then
+    log_info "Compiling and running Dataform Medallion models in ${DATAFORM_DIR}..."
 
-  # Auto-generate .df-credentials.json if missing to allow CLI execution via ADC
-  if [ ! -f "${DATAFORM_DIR}/.df-credentials.json" ]; then
-    cat <<EOF > "${DATAFORM_DIR}/.df-credentials.json"
+    # Auto-generate .df-credentials.json if missing to allow CLI execution via ADC
+    if [ ! -f "${DATAFORM_DIR}/.df-credentials.json" ]; then
+      cat <<EOF > "${DATAFORM_DIR}/.df-credentials.json"
 {
   "projectId": "${GCP_PROJECT}",
   "location": "us"
 }
 EOF
-  fi
+    fi
 
-  if command -v dataform &> /dev/null; then
-    dataform run "${DATAFORM_DIR}" --vars=project_id:${GCP_PROJECT},industry:games || log_warn "Dataform execution completed with warnings"
-  elif command -v npx &> /dev/null; then
-    npx --yes @dataform/cli run "${DATAFORM_DIR}" --vars=project_id:${GCP_PROJECT},industry:games || log_warn "Dataform execution completed with warnings"
+    if command -v dataform &> /dev/null; then
+      dataform run "${DATAFORM_DIR}" --vars=project_id:${GCP_PROJECT},industry:games || log_warn "Dataform execution completed with warnings"
+    elif command -v npx &> /dev/null; then
+      npx --yes @dataform/cli run "${DATAFORM_DIR}" --vars=project_id:${GCP_PROJECT},industry:games || log_warn "Dataform execution completed with warnings"
+    else
+      log_warn "Neither 'dataform' nor 'npx' found. Skipping Dataform execution."
+    fi
+    log_success "Step 3 Dataform Gold analytical tables built."
   else
-    log_warn "Neither 'dataform' nor 'npx' found. Skipping Dataform execution."
+    log_warn "Dataform directory ${DATAFORM_DIR} not found. Skipping live compilation."
   fi
-  log_success "Step 3 Dataform Gold analytical tables built."
 else
-  log_warn "Dataform directory ${DATAFORM_DIR} not found. Skipping live compilation."
+  log_info "[SKIPPED] Step 3: Dataform Medallion Pipeline Execution"
 fi
 
 # ==============================================================================
 # Step 4: Dataplex Aspect Tags & Business Glossary Registration
 # ==============================================================================
-log_step "STEP 4: Dataplex Aspect Tags & Business Glossary Registration"
+if [ "$RUN_INFRA" = true ]; then
+  log_step "STEP 4: Dataplex Aspect Tags & Business Glossary Registration"
 
-SCRIPTS_DIR="${GAMING_DIR}/scripts"
-log_info "Registering Dataplex Business Glossaries & Aspect Tags..."
+  SCRIPTS_DIR="${GAMING_DIR}/scripts"
+  log_info "Registering Dataplex Business Glossaries & Aspect Tags..."
 
-if [ -f "${SCRIPTS_DIR}/01_create_glossary.py" ]; then
-  log_info "Running 01_create_glossary.py..."
-  python3 "${SCRIPTS_DIR}/01_create_glossary.py" || log_warn "Glossary script warning"
+  if [ -f "${SCRIPTS_DIR}/01_create_glossary.py" ]; then
+    log_info "Running 01_create_glossary.py..."
+    python3 "${SCRIPTS_DIR}/01_create_glossary.py" || log_warn "Glossary script warning"
+  fi
+
+  if [ -f "${SCRIPTS_DIR}/08_create_churn_guardrail_aspects.py" ]; then
+    log_info "Running 08_create_churn_guardrail_aspects.py..."
+    python3 "${SCRIPTS_DIR}/08_create_churn_guardrail_aspects.py" || log_warn "Aspect script warning"
+  fi
+
+  if [ -f "${SCRIPTS_DIR}/07_create_lineage.py" ]; then
+    log_info "Running 07_create_lineage.py..."
+    python3 "${SCRIPTS_DIR}/07_create_lineage.py" || log_warn "Lineage script warning"
+  fi
+
+  log_success "Step 4 Dataplex Knowledge Catalog & Aspects registered."
+else
+  log_info "[SKIPPED] Step 4: Dataplex Aspect Tags & Business Glossary Registration"
 fi
-
-if [ -f "${SCRIPTS_DIR}/08_create_churn_guardrail_aspects.py" ]; then
-  log_info "Running 08_create_churn_guardrail_aspects.py..."
-  python3 "${SCRIPTS_DIR}/08_create_churn_guardrail_aspects.py" || log_warn "Aspect script warning"
-fi
-
-if [ -f "${SCRIPTS_DIR}/07_create_lineage.py" ]; then
-  log_info "Running 07_create_lineage.py..."
-  python3 "${SCRIPTS_DIR}/07_create_lineage.py" || log_warn "Lineage script warning"
-fi
-
-log_success "Step 4 Dataplex Knowledge Catalog & Aspects registered."
 
 # ==============================================================================
 # Step 5: In-Warehouse BQML Churn Prediction Model Training
 # ==============================================================================
-log_step "STEP 5: In-Warehouse BQML Churn Model Training & Validation"
+if [ "$RUN_INFRA" = true ]; then
+  log_step "STEP 5: In-Warehouse BQML Churn Model Training & Validation"
 
-log_info "Training BQML Logistic Regression model 'omniarcade_raw.player_churn_model'..."
-bq query --use_legacy_sql=false "CALL \`${GCP_PROJECT}.omniarcade_raw.train_churn_model\`();" || log_warn "BQML model training warning"
+  log_info "Training BQML Logistic Regression model 'omniarcade_raw.player_churn_model'..."
+  bq query --use_legacy_sql=false "CALL \`${GCP_PROJECT}.omniarcade_raw.train_churn_model\`();" || log_warn "BQML model training warning"
 
-log_success "Step 5 BQML model trained."
+  log_success "Step 5 BQML model trained."
+else
+  log_info "[SKIPPED] Step 5: In-Warehouse BQML Churn Model Training"
+fi
 
 # ==============================================================================
 # Step 6: Cloud Build Container Compilation
 # ==============================================================================
-log_step "STEP 6: Cloud Build Container Compilation (Artifact Registry)"
+if [ "$RUN_BUILD" = true ]; then
+  log_step "STEP 6: Cloud Build Container Compilation (Artifact Registry)"
 
-log_info "Ensuring Cloud Build service account permissions on Cloud Storage & Artifact Registry..."
-gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
-  --member="serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
-  --role="roles/storage.admin" --condition=None &>/dev/null || true
+  log_info "Ensuring Cloud Build service account permissions on Cloud Storage & Artifact Registry..."
+  gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
+    --member="serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+    --role="roles/storage.admin" --condition=None &>/dev/null || true
 
-gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
-  --member="serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
-  --role="roles/artifactregistry.writer" --condition=None &>/dev/null || true
+  gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
+    --member="serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+    --role="roles/artifactregistry.writer" --condition=None &>/dev/null || true
 
-gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
-  --member="serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
-  --role="roles/logging.logWriter" --condition=None &>/dev/null || true
+  gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
+    --member="serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+    --role="roles/logging.logWriter" --condition=None &>/dev/null || true
 
-gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
-  --member="serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
-  --role="roles/storage.admin" --condition=None &>/dev/null || true
+  gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
+    --member="serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
+    --role="roles/storage.admin" --condition=None &>/dev/null || true
 
-gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
-  --member="serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
-  --role="roles/artifactregistry.writer" --condition=None &>/dev/null || true
+  gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
+    --member="serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
+    --role="roles/artifactregistry.writer" --condition=None &>/dev/null || true
 
-gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
-  --member="serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
-  --role="roles/logging.logWriter" --condition=None &>/dev/null || true
+  gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
+    --member="serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
+    --role="roles/logging.logWriter" --condition=None &>/dev/null || true
 
-log_info "Submitting Cloud Build job to compile unified container image..."
-gcloud builds submit --config="${REPO_ROOT}/cloudbuild.yaml" \
-  --substitutions=_LOCATION="${GCP_REGION}",_REPOSITORY="data-cloud-ai-demos",_TAG="latest" \
-  "${REPO_ROOT}"
+  log_info "Submitting Cloud Build job to compile unified container image..."
+  gcloud builds submit --config="${REPO_ROOT}/cloudbuild.yaml" \
+    --substitutions=_LOCATION="${GCP_REGION}",_REPOSITORY="data-cloud-ai-demos",_TAG="latest" \
+    "${REPO_ROOT}"
 
-log_success "Step 6 Container image built and pushed to Artifact Registry."
+  log_success "Step 6 Container image built and pushed to Artifact Registry."
+else
+  log_info "[SKIPPED] Step 6: Cloud Build Container Compilation"
+fi
 
 # ==============================================================================
 # Step 7: Private Cloud Run Deployment (Authenticated & Private)
 # ==============================================================================
-log_step "STEP 7: Private Cloud Run Deployment (Authenticated & Private)"
-
 SERVICE_NAME="omniarcade-app"
 IMAGE_URI="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/data-cloud-ai-demos/gaming-app:latest"
 RUNNER_SA="omniarcade-runner-sa@${GCP_PROJECT}.iam.gserviceaccount.com"
 
-log_info "Deploying Cloud Run service '${SERVICE_NAME}' with --no-allow-unauthenticated..."
-gcloud run deploy "${SERVICE_NAME}" \
-  --image="${IMAGE_URI}" \
-  --region="${GCP_REGION}" \
-  --service-account="${RUNNER_SA}" \
-  --no-allow-unauthenticated \
-  --set-env-vars="GOOGLE_CLOUD_PROJECT=${GCP_PROJECT},GCP_LOCATION=${GCP_REGION}" \
-  --port=8080
+if [ "$RUN_DEPLOY" = true ]; then
+  log_step "STEP 7: Private Cloud Run Deployment (Authenticated & Private)"
 
-log_success "Step 7 Cloud Run service deployed in private/authenticated mode."
+  log_info "Deploying Cloud Run service '${SERVICE_NAME}' with --no-allow-unauthenticated..."
+  gcloud run deploy "${SERVICE_NAME}" \
+    --image="${IMAGE_URI}" \
+    --region="${GCP_REGION}" \
+    --service-account="${RUNNER_SA}" \
+    --no-allow-unauthenticated \
+    --set-env-vars="GOOGLE_CLOUD_PROJECT=${GCP_PROJECT},GCP_LOCATION=${GCP_REGION}" \
+    --port=8080
+
+  log_success "Step 7 Cloud Run service deployed in private/authenticated mode."
+else
+  log_info "[SKIPPED] Step 7: Private Cloud Run Deployment"
+fi
 
 # ==============================================================================
 # Orchestration Completion Summary
 # ==============================================================================
 echo -e "\n${BOLD}${GREEN}======================================================================${NC}"
-echo -e "${BOLD}${GREEN}   MASTER DEPLOYMENT ORCHESTRATION COMPLETE! ALL STEPS PASSED.${NC}"
+echo -e "${BOLD}${GREEN}   MASTER DEPLOYMENT ORCHESTRATION COMPLETE!${NC}"
 echo -e "${BOLD}${GREEN}======================================================================${NC}\n"
-log_info "Summary of Deployed Components:"
-log_info "  1. BigQuery Datasets: ${BQ_DATASET_RAW}, ${BQ_DATASET_GOLD}"
-log_info "  2. Pub/Sub Direct Sub: ${PUBSUB_TOPIC} -> ${BQ_DATASET_RAW}.live_session_events"
-log_info "  3. BQML Model: ${BQ_DATASET_RAW}.player_churn_model"
-log_info "  4. Dataform Medallion: Bronze -> Silver -> Gold (gold_player_360)"
-log_info "  5. Dataplex Aspect: liveops_campaign_policy_aspect"
-log_info "  6. Container Image: ${IMAGE_URI}"
-log_info "  7. Cloud Run Service: ${SERVICE_NAME} (Private / Authenticated)"
-log_info ""
-log_info "To access the private Cloud Run service from Cloud Shell Web Preview:"
-log_info "  $ gcloud run services proxy --service=${SERVICE_NAME} --port=8080 --region=${GCP_REGION}"
-log_info "Then click 'Web Preview' in Cloud Shell and select 'Preview on port 8080'."
+log_info "Summary of Execution:"
+if [ "$RUN_INFRA" = true ]; then
+  log_info "  - Infrastructure & Data: APPLIED"
+  log_info "    1. BigQuery Datasets: ${BQ_DATASET_RAW}, ${BQ_DATASET_GOLD}"
+  log_info "    2. Pub/Sub Direct Sub: ${PUBSUB_TOPIC} -> ${BQ_DATASET_RAW}.live_session_events"
+  log_info "    3. BQML Model: ${BQ_DATASET_RAW}.player_churn_model"
+  log_info "    4. Dataform Medallion: Bronze -> Silver -> Gold (gold_player_360)"
+  log_info "    5. Dataplex Aspect: liveops_campaign_policy_aspect"
+else
+  log_info "  - Infrastructure & Data: SKIPPED"
+fi
+
+if [ "$RUN_BUILD" = true ]; then
+  log_info "  - Cloud Build Container: COMPLETED"
+  log_info "    Container Image: ${IMAGE_URI}"
+else
+  log_info "  - Cloud Build Container: SKIPPED"
+fi
+
+if [ "$RUN_DEPLOY" = true ]; then
+  log_info "  - Cloud Run Service: DEPLOYED"
+  log_info "    Service Name: ${SERVICE_NAME} (Private / Authenticated)"
+  log_info ""
+  log_info "To access the private Cloud Run service from Cloud Shell Web Preview:"
+  log_info "  $ gcloud run services proxy --service=${SERVICE_NAME} --port=8080 --region=${GCP_REGION}"
+  log_info "Then click 'Web Preview' in Cloud Shell and select 'Preview on port 8080'."
+else
+  log_info "  - Cloud Run Service: SKIPPED"
+fi
 
 exit 0
+
