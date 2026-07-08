@@ -1,6 +1,7 @@
 import { motion } from "motion/react";
 import { Activity, ShieldCheck, Map, Terminal } from "lucide-react";
 import { AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { DataModeBadge } from "../DataModeBadge";
 
 const MOCK_QUERY_LOGS = [
   { time: "14:20:01", query: "join(alloydb_sessions, snowflake_ltv)", latency: 120, cost: 0.0004 },
@@ -76,13 +77,16 @@ export function ITObservatory() {
           </h3>
           <div className="space-y-6">
             {[
-              { label: "Google Cloud AlloyDB (Live)", val: 82, color: "bg-blue-600" },
-              { label: "Snowflake (Monetization)", val: 12, color: "bg-sky-400" },
-              { label: "AWS S3 (Archived Telemetry)", val: 6, color: "bg-orange-500" },
+              { label: "Google Cloud AlloyDB (Live)", val: 82, color: "bg-blue-600", mode: "hybrid" as const },
+              { label: "Snowflake (Monetization)", val: 12, color: "bg-sky-400", mode: "mock" as const },
+              { label: "AWS S3 (Archived Telemetry)", val: 6, color: "bg-orange-500", mode: "mock" as const },
             ].map(source => (
               <div key={source.label}>
-                <div className="flex justify-between text-[10px] font-bold mb-2 uppercase">
-                  <span className="text-slate-500">{source.label}</span>
+                <div className="flex justify-between items-center text-[10px] font-bold mb-2 uppercase">
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500">{source.label}</span>
+                    <DataModeBadge mode={source.mode} />
+                  </div>
                   <span className="text-slate-900 font-mono tracking-tighter">{source.val}%</span>
                 </div>
                 <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">

@@ -76,8 +76,8 @@ export default function App() {
               title="Executive Portfolio & KPIs"
               subtitle="C-Suite Executive Dashboard & Player Lifetime Value Analytics"
               path="/executive.html"
-              dataMode="hybrid"
-              dataBank="omniarcade_gold.gold_player_360"
+              dataMode="mock"
+              dataBank="Flask Simulation Engine (:5000)"
               description="Executive view of high-value players (whales/dolphins), churn risks, and regional ARPU/DAU."
             />
           )}
@@ -99,7 +99,7 @@ export default function App() {
               subtitle="Level Bottleneck Analysis & Match-3 Move Optimization Solver"
               path="/difficulty.html"
               dataMode="mock"
-              dataBank="Internal Dev Simulation (Flask :5000)"
+              dataBank="Flask Difficulty Solver API"
               description="Analyzes Level 2 completion drop-offs and calculates recommended extra moves to optimize player retention."
             />
           )}
@@ -109,7 +109,7 @@ export default function App() {
               subtitle="Autonomous Multi-Agent Cluster for At-Risk Player Recovery"
               path="/marketing_swarm_visualizer.html"
               dataMode="mock"
-              dataBank="Internal Dev Simulation (Flask :5000)"
+              dataBank="Flask /api/marketing/simulate-cluster"
               description="Visualizes autonomous agent collaboration to target high-churn whales with custom promotional offers."
             />
           )}
@@ -121,8 +121,8 @@ export default function App() {
               title="Agent Comparison Workspace"
               subtitle="KC-Guided vs Non-KC AI Gameplay Agent Trajectory Comparison"
               path="/agent-comparison"
-              dataMode="hybrid"
-              dataBank="Vertex AI Reasoning Engine + Dev Trace Stream"
+              dataMode="live"
+              dataBank="Vertex AI Reasoning Engine + Flask-Sock WS"
               description="Side-by-side execution trace comparing Dataplex Knowledge Catalog guided agents against raw LLM agents."
             />
           )}
@@ -132,7 +132,7 @@ export default function App() {
               subtitle="Dataplex End-to-End Data Lineage & Asset Governance Graph"
               path="/graph_visualization.html"
               dataMode="hybrid"
-              dataBank="Dataplex Lineage API + Dev Fallback"
+              dataBank="Dataplex Lineage API / Fallback Graph"
               description="Interactive graph showing raw telemetry ingestion to gold analytical tables and BQML churn prediction model."
             />
           )}
@@ -144,8 +144,8 @@ export default function App() {
               title="Trust & Safety Observatory"
               subtitle="Toxic Chat Detection, Anti-Cheat, & GIRA Incident Assessment"
               path="/toxicity.html"
-              dataMode="mock"
-              dataBank="Internal Toxicity Incident Simulator (Flask :5000)"
+              dataMode="hybrid"
+              dataBank="AlloyDB / GIRA Incident API"
               description="Real-time toxic chat moderation stream, player ban execution, and automated safety incident reporting."
             />
           )}

@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { 
   Network, 
@@ -95,6 +96,79 @@ export function Layout({
   languageSetting,
   setLanguageSetting
 }: LayoutProps) {
+    // Live Game Telemetry Simulator Control State & Handlers
+  const [simulator, setSimulator] = useState<{
+    isRunning: boolean;
+    currentCCU: number;
+    activeAnomaly: string | null;
+    totalEventsPublished: number;
+  }>({
+    isRunning: false,
+    currentCCU: 14280,
+    activeAnomaly: null,
+    totalEventsPublished: 0,
+  });
+
+  const fetchSimulatorStatus = async () => {
+    try {
+      const res = await fetch("/api/simulator/status");
+      if (res.ok) {
+        const data = await res.json();
+        setSimulator({
+          isRunning: !!data.isRunning,
+          currentCCU: data.currentCCU || 14280,
+          activeAnomaly: data.activeAnomaly || null,
+          totalEventsPublished: data.totalEventsPublished || 0,
+        });
+      }
+    } catch (err) {
+      console.warn("Simulator status fetch error:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchSimulatorStatus();
+    const interval = setInterval(fetchSimulatorStatus, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleToggleSimulator = async () => {
+    const endpoint = simulator.isRunning ? "/api/simulator/stop" : "/api/simulator/start";
+    try {
+      const res = await fetch(endpoint, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        setSimulator(prev => ({
+          ...prev,
+          isRunning: !!data.isRunning,
+          currentCCU: data.currentCCU || prev.currentCCU,
+          activeAnomaly: data.activeAnomaly !== undefined ? data.activeAnomaly : prev.activeAnomaly,
+        }));
+      }
+    } catch (err) {
+      console.warn("Simulator toggle error:", err);
+    }
+  };
+
+  const handleInjectAnomaly = async (type: string) => {
+    try {
+      const res = await fetch("/api/simulator/inject-anomaly", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSimulator(prev => ({
+          ...prev,
+          activeAnomaly: data.activeAnomaly || null,
+        }));
+      }
+    } catch (err) {
+      console.warn("Simulator anomaly injection error:", err);
+    }
+  };
+
   const t = (text: string): string => {
     if (languageSetting === "en" || !text) return text;
     if (LAYOUT_TRANSLATIONS[text] && LAYOUT_TRANSLATIONS[text][country]) {
@@ -150,6 +224,43 @@ export function Layout({
           <h1 className="text-sm sm:text-lg font-semibold tracking-tight">
             Jingle Games <span className="font-light opacity-80 hidden md:inline">{t("Player 360 Platform")}</span>
           </h1>
+        </div>
+
+        {/* Live Game Telemetry Simulator Control Bar */}
+        <div className="flex items-center gap-3 px-3.5 py-1.5 bg-slate-800/80 rounded-full border border-slate-700/60 shadow-inner font-mono text-xs shrink-0">
+          <button
+            type="button"
+            onClick={handleToggleSimulator}
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase transition-all cursor-pointer border",
+              simulator.isRunning
+                ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm shadow-emerald-500/20"
+                : "bg-slate-950 text-slate-400 border-slate-700 hover:text-slate-200"
+            )}
+          >
+            <span className={cn("w-2 h-2 rounded-full", simulator.isRunning ? "bg-emerald-400 animate-pulse" : "bg-slate-500")} />
+            <span>Simulator: {simulator.isRunning ? "ON" : "OFF"}</span>
+          </button>
+
+          <div className="flex items-center gap-1 text-slate-200 font-semibold text-[11px]">
+            <Activity className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+            <span>{simulator.currentCCU.toLocaleString()} CCU</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 border-l border-slate-700/80 pl-2.5">
+            <span className="text-[10px] text-slate-400 font-bold uppercase hidden sm:inline">Anomaly:</span>
+            <select
+              id="header-anomaly-selector"
+              value={simulator.activeAnomaly || "none"}
+              onChange={(e) => handleInjectAnomaly(e.target.value)}
+              className="bg-slate-950 border border-slate-700/60 text-[10px] font-semibold text-amber-300 px-2 py-0.5 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
+            >
+              <option value="none">Normal (No Anomaly)</option>
+              <option value="level_2_bottleneck">⚡ Level 2 Bottleneck</option>
+              <option value="high_churn_boss_deaths">💀 High-Churn Boss Death</option>
+              <option value="toxic_chat">☣️ Toxic Chat Outbreak</option>
+            </select>
+          </div>
         </div>
 
         {/* Global Regional Localization Controllers - VERY Prominent & Accessible on all tabs */}

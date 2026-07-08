@@ -1388,7 +1388,11 @@ export function CampaignEngine({
             <h2 className="text-3xl font-bold text-slate-800 tracking-tight font-sans">
               {t("Dynamic Campaign & Marketing Engine")}
             </h2>
-            <DataModeBadge mode="mock" source="In-Memory Dev Mock / Firestore" details="Local dev fallback with Firestore campaign state" />
+            <DataModeBadge 
+              mode={isUsingFirebaseMock ? "mock" : "live"} 
+              source={isUsingFirebaseMock ? "In-Memory Dev Mock" : "GCP Firestore (campaigns)"} 
+              details={isUsingFirebaseMock ? "Local dev fallback with Firestore campaign state" : "Connected to live GCP Firestore database"} 
+            />
           </div>
           <p className="text-slate-500 font-light text-sm italic">
             {t("Automated cohort-targeted messaging & cross-network delivery triggers: Google Ads • Google Marketing")}

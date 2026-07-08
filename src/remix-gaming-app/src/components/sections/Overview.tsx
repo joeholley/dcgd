@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Country, LanguageSetting } from "./CampaignEngine";
+import { DataModeBadge } from "../DataModeBadge";
 import { 
   Database, 
   Cloud, 
@@ -166,7 +167,10 @@ export function Overview({
                 <conn.icon className="w-6 h-6" />
               </div>
               <div className="space-y-2">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{conn.label}</span>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{conn.label}</span>
+                  <DataModeBadge mode={conn.label.includes("AlloyDB") ? "hybrid" : "mock"} />
+                </div>
                 <h4 className="text-lg font-bold text-slate-800 group-hover:text-blue-600 transition-colors uppercase tracking-tight">{t(conn.industryTitle)}</h4>
                 <p className="text-xs text-slate-400 font-light line-clamp-2">
                   {t("Data fetched from")} {conn.label} {t("governance layer.")}
@@ -206,7 +210,10 @@ export function Overview({
                     <selectedConnector.icon className="w-8 h-8" />
                   </div>
                   <div>
-                    <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">{selectedConnector.label} Integration</span>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">{selectedConnector.label} Integration</span>
+                      <DataModeBadge mode={selectedConnector.label.includes("AlloyDB") ? "hybrid" : "mock"} />
+                    </div>
                     <h3 className="text-3xl font-bold">{selectedConnector.industryTitle}</h3>
                   </div>
                 </div>

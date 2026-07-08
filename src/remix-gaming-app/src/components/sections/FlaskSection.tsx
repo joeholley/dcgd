@@ -16,7 +16,7 @@ export function FlaskSection({
   title,
   subtitle,
   path,
-  dataMode = 'live',
+  dataMode = 'mock',
   dataBank = 'gamingdatademo (Python Flask :5000)',
   description
 }: FlaskSectionProps) {

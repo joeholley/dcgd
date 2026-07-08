@@ -56,6 +56,7 @@ export function Diagnostics() {
   const [probeLogs, setProbeLogs] = useState<Record<string, Array<{ timestamp: string; status: 'ONLINE' | 'LIVE' | 'FALLBACK' | 'OFFLINE'; message: string; latencyMs: number }>>>({});
 
   const [gcpServices, setGcpServices] = useState<GCPServiceProbe[]>([
+    { id: 'simulator', name: 'Live Game Telemetry Simulator Engine', description: 'Real-time player session telemetry generator (CCU curve, event ticks & anomaly injection)', status: 'OFFLINE', mode: 'mock', latencyMs: 1, details: 'Simulator idle; toggle ON to publish live telemetry stream' },
     { id: 'auth', name: 'Google Cloud OAuth / ADC', description: 'Google Cloud OAuth & IAM Authentication', status: 'LIVE', mode: 'live', latencyMs: 14, details: 'Authenticated via ADC for project omniarcade-demo' },
     { id: 'bq_players', name: 'BigQuery Table: omniarcade_raw.gcp_players', description: 'Player Profiles & Spend Tiers', status: 'FALLBACK', mode: 'mock', latencyMs: 12, details: 'Table omniarcade_raw.gcp_players unreachable; dev fallback active' },
     { id: 'bq_sessions', name: 'BigQuery Table: omniarcade_raw.live_session_events', description: 'Live Session Telemetry Stream', status: 'FALLBACK', mode: 'mock', latencyMs: 15, details: 'Table omniarcade_raw.live_session_events unreachable; dev fallback active' },
@@ -255,6 +256,85 @@ export function Diagnostics() {
       ]
     }
   ]);
+
+    // Live Game Telemetry Simulator Control State & Handlers
+  const [simulator, setSimulator] = useState<{
+    isRunning: boolean;
+    currentCCU: number;
+    activeAnomaly: string | null;
+    totalEventsPublished: number;
+    eventRateHz: number;
+  }>({
+    isRunning: false,
+    currentCCU: 14280,
+    activeAnomaly: null,
+    totalEventsPublished: 0,
+    eventRateHz: 12,
+  });
+
+  const fetchSimulatorStatus = async () => {
+    try {
+      const res = await fetch('/api/simulator/status');
+      if (res.ok) {
+        const data = await res.json();
+        setSimulator({
+          isRunning: !!data.isRunning,
+          currentCCU: data.currentCCU || 14280,
+          activeAnomaly: data.activeAnomaly || null,
+          totalEventsPublished: data.totalEventsPublished || 0,
+          eventRateHz: data.eventRateHz || 12,
+        });
+      }
+    } catch (err) {
+      console.warn('Simulator status fetch error:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchSimulatorStatus();
+    const interval = setInterval(fetchSimulatorStatus, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleToggleSimulator = async () => {
+    const endpoint = simulator.isRunning ? '/api/simulator/stop' : '/api/simulator/start';
+    try {
+      const res = await fetch(endpoint, { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        setSimulator(prev => ({
+          ...prev,
+          isRunning: !!data.isRunning,
+          currentCCU: data.currentCCU || prev.currentCCU,
+          activeAnomaly: data.activeAnomaly !== undefined ? data.activeAnomaly : prev.activeAnomaly,
+          totalEventsPublished: data.totalEventsPublished || prev.totalEventsPublished,
+        }));
+        fetchDiagnostics();
+      }
+    } catch (err) {
+      console.warn('Simulator toggle error:', err);
+    }
+  };
+
+  const handleInjectAnomaly = async (type: string) => {
+    try {
+      const res = await fetch('/api/simulator/inject-anomaly', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSimulator(prev => ({
+          ...prev,
+          activeAnomaly: data.activeAnomaly || null,
+        }));
+        fetchDiagnostics();
+      }
+    } catch (err) {
+      console.warn('Simulator anomaly injection error:', err);
+    }
+  };
 
   const fetchDiagnostics = async () => {
     setLoading(true);

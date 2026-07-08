@@ -119,7 +119,7 @@ export function Operations() {
         <div>
           <div className="flex items-center gap-3">
             <h2 className="text-3xl font-bold text-slate-800 tracking-tight">Game Analytics Overview</h2>
-            <DataModeBadge mode="hybrid" source="Dev Stream / AlloyDB" details="Aggregated DAU, CCU, and Level completion telemetry" />
+            <DataModeBadge mode="mock" source="In-Memory Dev Mock / Static Telemetry" details="Simulated DAU, CCU, and level completion telemetry" />
           </div>
           <p className="text-slate-500 font-light mt-1 text-sm italic">Jingle Games Customer 360 • Live Telemetry Streams</p>
         </div>

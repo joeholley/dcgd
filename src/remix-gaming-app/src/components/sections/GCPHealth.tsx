@@ -121,7 +121,13 @@ export function GCPHealth() {
             <div className="w-10 h-10 rounded-xl bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400">
               <Activity className="w-5 h-5" />
             </div>
-            <div className="flex items-center gap-3"><h1 className="text-2xl font-bold tracking-tight">GCP Connection & Health Status</h1><DataModeBadge mode="live" source="GCP Diagnostic Probes" /></div>
+            <div className="flex items-center gap-3"><h1 className="text-2xl font-bold tracking-tight">GCP Connection & Health Status</h1><DataModeBadge 
+              mode={
+                healthData?.overall_status === 'ALL_LIVE' ? 'live' : 
+                healthData?.overall_status === 'HEALTHY_WITH_FALLBACKS' ? 'hybrid' : 'mock'
+              } 
+              source="GCP Diagnostic Probes" 
+            /></div>
           </div>
           <p className="text-slate-400 text-sm pl-13">
             Real-time diagnostic monitor evaluating Google Cloud resource connectivity and quiet fallback status.

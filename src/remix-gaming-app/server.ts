@@ -198,6 +198,120 @@ async function verifyDataplexPolicyAndPrecache(
   }
 }
 
+// --------------------------------------------------------------------------
+// Live Game & Telemetry Simulator Engine State & Background Loop
+// --------------------------------------------------------------------------
+interface SimulatorState {
+  isRunning: boolean;
+  activeAnomaly: string | null;
+  eventRateHz: number;
+  totalEventsPublished: number;
+  currentCCU: number;
+}
+
+function calculateCurrentCCU(): number {
+  const now = new Date();
+  const tSeconds = (now.getUTCHours() * 3600 + now.getUTCMinutes() * 60 + now.getUTCSeconds()) % 86400;
+  const sinVal = Math.sin((Math.PI * tSeconds) / 86400);
+  return Math.floor(1200 + 17300 * (sinVal * sinVal));
+}
+
+const simulatorState: SimulatorState = {
+  isRunning: true,
+  activeAnomaly: null,
+  eventRateHz: 1,
+  totalEventsPublished: 0,
+  currentCCU: calculateCurrentCCU(),
+};
+
+let simulatorTimer: NodeJS.Timeout | null = null;
+
+function runSimulationTick() {
+
+  try {
+    simulatorState.currentCCU = calculateCurrentCCU();
+
+    const eventTypes = [
+      "session_start", "match_start", "level_fail",
+      "boss_encounter", "boss_death", "iap_attempt", "toxic_chat"
+    ];
+    let eventType = eventTypes[Math.floor(Math.random() * eventTypes.length)];
+    let level = Math.floor(Math.random() * 10) + 1;
+    let consecutiveDeaths = Math.floor(Math.random() * 3);
+    let sessionDuration = Math.floor(Math.random() * 1800) + 60;
+    let toxicityScore = Math.round(Math.random() * 20) / 100;
+
+    if (simulatorState.activeAnomaly === "level_2_bottleneck") {
+      if (Math.random() < 0.75) {
+        eventType = "level_fail";
+        level = 2;
+        consecutiveDeaths = Math.floor(Math.random() * 3) + 2;
+      }
+    } else if (simulatorState.activeAnomaly === "high_churn_boss_deaths") {
+      if (Math.random() < 0.80) {
+        eventType = Math.random() < 0.6 ? "boss_death" : "level_fail";
+        consecutiveDeaths = Math.floor(Math.random() * 4) + 3;
+        sessionDuration = Math.floor(Math.random() * 3000) + 600;
+      }
+    } else if (simulatorState.activeAnomaly === "toxic_chat") {
+      if (Math.random() < 0.80) {
+        eventType = "toxic_chat";
+        toxicityScore = Math.round((0.75 + Math.random() * 0.24) * 100) / 100;
+      }
+    }
+
+    const playerId = `player_${Math.floor(Math.random() * 9000) + 1000}`;
+    const sessionId = `sess_${Date.now()}_${Math.floor(Math.random() * 900) + 100}`;
+    const timestamp = new Date().toISOString();
+
+    const telemetryPayload = {
+      session_id: sessionId,
+      player_id: playerId,
+      event_type: eventType,
+      level,
+      consecutive_deaths: consecutiveDeaths,
+      session_duration_seconds: sessionDuration,
+      current_ccu: simulatorState.currentCCU,
+      active_anomaly: simulatorState.activeAnomaly,
+      timestamp,
+    };
+
+    const deathWeight = Math.min(0.65, consecutiveDeaths * 0.22);
+    const eventWeight = eventType === "boss_fail" || eventType === "boss_death" ? 0.20 : 0.05;
+    const predictedChurnScore = Math.round(Math.min(0.99, Math.max(0.05, deathWeight + eventWeight)) * 100) / 100;
+    const churnRiskLevel = predictedChurnScore >= 0.80 ? "CRITICAL" : predictedChurnScore >= 0.50 ? "HIGH" : "LOW";
+
+    let pubsubMessageId = `sim_msg_${Date.now()}`;
+    try {
+      const topic = pubsubClient.topic(PUBSUB_TOPIC_NAME);
+      const dataBuffer = Buffer.from(JSON.stringify(telemetryPayload));
+      withTimeout(topic.publishMessage({ data: dataBuffer }), 1000, pubsubMessageId).catch(() => {});
+    } catch (e) {}
+
+    simulatorState.totalEventsPublished++;
+
+    const ssePayload = {
+      ...telemetryPayload,
+      predicted_churn_score: predictedChurnScore,
+      churn_risk_level: churnRiskLevel,
+      pubsub_message_id: pubsubMessageId,
+      total_events_published: simulatorState.totalEventsPublished,
+      current_ccu: simulatorState.currentCCU,
+      active_anomaly: simulatorState.activeAnomaly,
+    };
+
+    broadcastSSE("telemetry_update", ssePayload);
+  } catch (err) {
+    console.error("[Integrated Simulator] Tick error:", err);
+  }
+}
+
+function startIntegratedSimulatorLoop() {
+  if (simulatorTimer) clearInterval(simulatorTimer);
+  const intervalMs = Math.max(100, Math.floor(1000 / simulatorState.eventRateHz));
+  simulatorTimer = setInterval(runSimulationTick, intervalMs);
+}
+
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
@@ -213,6 +327,69 @@ async function startServer() {
       return res.sendStatus(200);
     }
     next();
+  });
+
+  // Start integrated background telemetry simulation loop
+  startIntegratedSimulatorLoop();
+
+  // --------------------------------------------------------------------------
+  // 0. Live Telemetry Simulator Control Endpoints
+  // --------------------------------------------------------------------------
+  app.post("/api/simulator/start", (_req: Request, res: Response) => {
+    simulatorState.isRunning = true;
+    console.log("[Simulator Gateway] Simulator STARTED");
+    return res.json({
+      success: true,
+      status: "RUNNING",
+      is_running: true,
+      current_ccu: simulatorState.currentCCU,
+      active_anomaly: simulatorState.activeAnomaly,
+      message: "Simulator successfully started"
+    });
+  });
+
+  app.post("/api/simulator/stop", (_req: Request, res: Response) => {
+    simulatorState.isRunning = false;
+    console.log("[Simulator Gateway] Simulator PAUSED");
+    return res.json({
+      success: true,
+      status: "PAUSED",
+      is_running: false,
+      current_ccu: simulatorState.currentCCU,
+      active_anomaly: simulatorState.activeAnomaly,
+      message: "Simulator successfully paused"
+    });
+  });
+
+  app.get("/api/simulator/status", (_req: Request, res: Response) => {
+    simulatorState.currentCCU = calculateCurrentCCU();
+    return res.json({
+      is_running: simulatorState.isRunning,
+      status: simulatorState.isRunning ? "RUNNING" : "PAUSED",
+      event_rate_hz: simulatorState.eventRateHz,
+      total_events_published: simulatorState.totalEventsPublished,
+      current_ccu: simulatorState.currentCCU,
+      active_anomaly: simulatorState.activeAnomaly
+    });
+  });
+
+  app.post("/api/simulator/inject-anomaly", (req: Request, res: Response) => {
+    const { anomaly_type } = req.body || {};
+    const validAnomalies = ["level_2_bottleneck", "high_churn_boss_deaths", "toxic_chat", null, ""];
+    if (!validAnomalies.includes(anomaly_type)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid anomaly_type. Valid values: level_2_bottleneck, high_churn_boss_deaths, toxic_chat, or null"
+      });
+    }
+
+    simulatorState.activeAnomaly = anomaly_type || null;
+    console.log(`[Simulator Gateway] Active anomaly set to: ${simulatorState.activeAnomaly}`);
+    return res.json({
+      success: true,
+      active_anomaly: simulatorState.activeAnomaly,
+      message: `Active anomaly set to '${simulatorState.activeAnomaly || "NONE"}'`
+    });
   });
 
   // --------------------------------------------------------------------------
@@ -791,12 +968,19 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       testBQTable("omniarcade_gold.gold_level_difficulty_funnel", "Level Completion Funnel")
     ]);
 
+    const simulatorRes = {
+      status: simulatorState.isRunning ? ("LIVE" as const) : ("MOCK" as const),
+      details: `Telemetry Simulator ${simulatorState.isRunning ? "RUNNING" : "PAUSED"} (${simulatorState.totalEventsPublished} events, ${simulatorState.currentCCU} CCU, anomaly: ${simulatorState.activeAnomaly || "NONE"})`,
+      latency_ms: 0
+    };
+
     const services = {
       auth: authRes,
       pubsub: pubsubRes,
       bqml: bqmlRes,
       dataplex: dataplexRes,
       vertex_agent: vertexRes,
+      simulator: simulatorRes,
       bq_gcp_players: bqPlayers,
       bq_live_sessions: bqSessions,
       bq_iap_transactions: bqTransactions,
@@ -836,6 +1020,7 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
         { id: 'bqml', name: 'BigQuery ML (ML.PREDICT)', category: 'Predictive ML', status: bqmlRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: bqmlRes.status.toLowerCase() as 'live' | 'mock', details: bqmlRes.details, latency_ms: bqmlRes.latency_ms },
         { id: 'dataplex', name: 'Dataplex Knowledge Catalog API', category: 'Governance & Catalog', status: dataplexRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: dataplexRes.status.toLowerCase() as 'live' | 'mock', details: dataplexRes.details, latency_ms: dataplexRes.latency_ms },
         { id: 'vertex_agent', name: 'Vertex AI Reasoning Engine', category: 'Agent Infrastructure', status: vertexRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: vertexRes.status.toLowerCase() as 'live' | 'mock', details: vertexRes.details, latency_ms: vertexRes.latency_ms },
+        { id: 'simulator', name: 'Live Game Telemetry Simulator Engine', category: 'Event Streaming & Simulation', status: simulatorState.isRunning ? 'LIVE' : 'FALLBACK', mode: simulatorState.isRunning ? 'live' : 'mock', details: simulatorRes.details, latency_ms: 0 }
       ]
     });
   });
