@@ -40,7 +40,7 @@ interface GCPServiceProbe {
   id: string;
   name: string;
   description: string;
-  status: 'ONLINE' | 'FALLBACK' | 'OFFLINE';
+  status: 'ONLINE' | 'LIVE' | 'FALLBACK' | 'OFFLINE';
   mode: DataMode;
   latencyMs: number;
   details: string;

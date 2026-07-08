@@ -22,6 +22,8 @@ import {
   Lock
 } from "lucide-react";
 import { cn } from "../../lib/utils";
+import { DataModeBadge } from "../DataModeBadge";
+import { useDemoEvent } from "../../context/DemoEventContext";
 
 interface TelemetryEvent {
   session_id: string;
@@ -277,6 +279,8 @@ export function LiveOpsGuardrail() {
   const gaugeCircumference = 2 * Math.PI * gaugeRadius;
   const strokeDashoffset = gaugeCircumference - (churnScore * gaugeCircumference);
 
+  const { triggerMarketingRecovery, activeGuardrailPolicy } = useDemoEvent();
+
   return (
     <div className="min-h-full bg-slate-950 text-slate-100 flex flex-col font-sans p-6 space-y-6">
       {/* Top Observatory Control Bar */}
@@ -288,10 +292,7 @@ export function LiveOpsGuardrail() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-xl font-bold tracking-tight text-white">LiveOps Guardrail Split-Screen View</h1>
-              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-mono uppercase tracking-wider flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                SSE Hub Active
-              </span>
+              <DataModeBadge mode="live" source="omniarcade-live-telemetry" details="Cloud Pub/Sub + BQML ML.PREDICT + Dataplex Aspect Verification" />
             </div>
             <p className="text-xs text-slate-400 font-light mt-0.5">
               Closed-loop Pub/Sub telemetry, BQML churn prediction, Dataplex aspect verification & &lt;300ms pop-up execution.
@@ -498,6 +499,21 @@ export function LiveOpsGuardrail() {
                       className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl shadow-emerald-500/20 transition-all cursor-pointer active:scale-95"
                     >
                       <ShoppingBag className="w-5 h-5" /> Accept & Purchase (${activeOffer.price})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        triggerMarketingRecovery({
+                          playerId: "player_cosmic_whale_42",
+                          churnProbability: churnScore || 0.87,
+                          payerTier: "Whale",
+                          recommendedOffer: activeOffer.title,
+                          timestamp: new Date().toISOString()
+                        });
+                      }}
+                      className="w-full py-2.5 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 text-purple-300 font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    >
+                      <Zap className="w-4 h-4 text-purple-400" /> Trigger Marketing Recovery Swarm ↗
                     </button>
                     <button
                       onClick={() => setShowOffer(false)}

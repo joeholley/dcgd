@@ -22,6 +22,8 @@ import {
 import { collection, query, getDocs, orderBy } from "firebase/firestore";
 import { db, isUsingFirebaseMock } from "../../services/firebase";
 import { cn } from "../../lib/utils";
+import { DataModeBadge } from "../DataModeBadge";
+import { useDemoEvent } from "../../context/DemoEventContext";
 
 interface Asset {
   id: string;
@@ -276,6 +278,8 @@ export function KnowledgeCatalog({ initialSearch = "" }: { initialSearch?: strin
     );
   }
 
+  const { applyPolicyToGuardrail } = useDemoEvent();
+
   return (
     <div className="min-h-full bg-white flex flex-col font-sans">
       {/* Top Header & Tab Navigation Bar */}
@@ -285,9 +289,12 @@ export function KnowledgeCatalog({ initialSearch = "" }: { initialSearch?: strin
             <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-blue-400 block mb-1">
               Dataplex Knowledge Catalog
             </span>
-            <h1 className="text-2xl font-extrabold tracking-tight text-white">
-              Governance & Automatic Rule Discovery
-            </h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-extrabold tracking-tight text-white">
+                Governance & Automatic Rule Discovery
+              </h1>
+              <DataModeBadge mode="live" source="Dataplex REST API" details="Dataplex REST API Aspect Registry & BQ RLS Policy Compiler" />
+            </div>
           </div>
 
           {/* Mode Switcher Tabs */}
@@ -633,9 +640,18 @@ export function KnowledgeCatalog({ initialSearch = "" }: { initialSearch?: strin
                       Generated BigQuery Row Access Policy SQL (Compiled)
                     </h3>
                   </div>
-                  <span className="px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-mono text-[10px] font-bold">
-                    BigQuery RLS Active
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => applyPolicyToGuardrail(discoveredRules[0].generated_bigquery_policy_sql)}
+                      className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-sans text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-md"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" /> Apply Policy to Guardrail ↗
+                    </button>
+                    <span className="px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-mono text-[10px] font-bold">
+                      BigQuery RLS Active
+                    </span>
+                  </div>
                 </div>
 
                 <pre className="p-5 rounded-2xl bg-slate-950 border border-slate-800 text-emerald-400 font-mono text-xs overflow-x-auto leading-relaxed">

@@ -18,6 +18,8 @@ import {
   Sparkles
 } from "lucide-react";
 import { cn } from "../../lib/utils";
+import { DataModeBadge } from "../DataModeBadge";
+import { useDemoEvent } from "../../context/DemoEventContext";
 import { 
   BarChart, 
   Bar, 
@@ -109,11 +111,16 @@ export function Operations() {
     { label: "New Installs", val: (1120 + dataSeed).toLocaleString(), change: "+8%", icon: TrendingUp, color: "text-amber-600", bg: "bg-amber-50" },
   ];
 
+  const { triggerDifficultySolver } = useDemoEvent();
+
   return (
     <div className="p-10 max-w-7xl mx-auto space-y-10">
       <header className="flex flex-col md:flex-row md:justify-between md:items-end gap-6">
         <div>
-          <h2 className="text-3xl font-bold text-slate-800 tracking-tight">Game Analytics Overview</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-3xl font-bold text-slate-800 tracking-tight">Game Analytics Overview</h2>
+            <DataModeBadge mode="hybrid" source="Dev Stream / AlloyDB" details="Aggregated DAU, CCU, and Level completion telemetry" />
+          </div>
           <p className="text-slate-500 font-light mt-1 text-sm italic">Jingle Games Customer 360 • Live Telemetry Streams</p>
         </div>
         <div className="flex gap-3">
@@ -136,6 +143,31 @@ export function Operations() {
           </button>
         </div>
       </header>
+
+      {/* Level 2 Completion Bottleneck Callout Banner */}
+      <div className="p-5 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4 font-sans">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-500 shrink-0">
+            <AlertTriangle className="w-5 h-5 animate-pulse" />
+          </div>
+          <div>
+            <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              Level 2 Completion Bottleneck Detected
+              <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-700 font-mono text-[10px]">12% Pass Rate</span>
+            </h4>
+            <p className="text-xs text-slate-600 mt-0.5">
+              Player drop-off spike on Frost Giant Citadel (Level 2). Average resets: 3.4 / player. Current move limit (15) insufficient for 82% of players.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => triggerDifficultySolver({ levelId: 2, failureRate: 0.88, currentMoves: 15, recommendedMoves: 22 })}
+          className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-xl shadow-md flex items-center gap-2 transition-all cursor-pointer shrink-0"
+        >
+          <Sparkles className="w-4 h-4" /> Launch Difficulty Balancer Solver ↗
+        </button>
+      </div>
 
       {/* Tabs */}
       <div className="flex border-b border-slate-200 gap-8">

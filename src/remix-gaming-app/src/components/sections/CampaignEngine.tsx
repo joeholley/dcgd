@@ -28,6 +28,8 @@ import {
 import { collection, query, getDocs, orderBy, addDoc, deleteDoc, doc } from "firebase/firestore";
 import { db, auth, isUsingFirebaseMock } from "../../services/firebase";
 import { cn } from "../../lib/utils";
+import { DataModeBadge } from "../DataModeBadge";
+import { useDemoEvent } from "../../context/DemoEventContext";
 
 enum OperationType {
   CREATE = 'create',
@@ -906,6 +908,7 @@ export function CampaignEngine({
   languageSetting: propLanguageSetting,
   setLanguageSetting: propSetLanguageSetting
 }: CampaignEngineProps = {}) {
+  const { latestChurnEvent } = useDemoEvent();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -1347,6 +1350,37 @@ export function CampaignEngine({
         </div>
       </div>
 
+      {/* LiveOps Churn Alert Notification Banner */}
+      {latestChurnEvent && (
+        <div className="p-5 rounded-2xl bg-purple-500/10 border border-purple-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4 font-sans text-left">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-400 shrink-0">
+              <Sparkles className="w-5 h-5 animate-pulse" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                LiveOps Guardrail Churn Alert Received
+                <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-700 font-mono text-[10px]">{(latestChurnEvent.churnProbability * 100).toFixed(0)}% Churn Risk</span>
+              </h4>
+              <p className="text-xs text-slate-600 mt-0.5">
+                Targeting high-churn {latestChurnEvent.payerTier} player <code>{latestChurnEvent.playerId}</code>. Pre-populating Campaign Engine with recommended offer: <strong>{latestChurnEvent.recommendedOffer}</strong>.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setCampaignName(`Recovery: ${latestChurnEvent.playerId}`);
+              setCustomMessage(`Special ${latestChurnEvent.payerTier} Offer for ${latestChurnEvent.playerId}: Claim ${latestChurnEvent.recommendedOffer} before expiration!`);
+              setBudget(3500);
+            }}
+            className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-xl shadow-md flex items-center gap-2 transition-all cursor-pointer shrink-0"
+          >
+            <Sparkles className="w-4 h-4" /> Auto-Fill Recovery Campaign
+          </button>
+        </div>
+      )}
+
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-slate-100 pb-8">
         <div className="text-left">
           <div className="flex items-center gap-3 mb-2">
@@ -1354,6 +1388,7 @@ export function CampaignEngine({
             <h2 className="text-3xl font-bold text-slate-800 tracking-tight font-sans">
               {t("Dynamic Campaign & Marketing Engine")}
             </h2>
+            <DataModeBadge mode="mock" source="In-Memory Dev Mock / Firestore" details="Local dev fallback with Firestore campaign state" />
           </div>
           <p className="text-slate-500 font-light text-sm italic">
             {t("Automated cohort-targeted messaging & cross-network delivery triggers: Google Ads • Google Marketing")}
