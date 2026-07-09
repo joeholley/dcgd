@@ -90,7 +90,7 @@ Master Deployment Orchestrator for Unified Gaming Data & AI Operations Platform.
 
 Options:
   -a, --all             Run full deployment runbook (Steps 0-8) [Default].
-  -s, --skip-infra      Skip infrastructure/pipeline steps (1-5), run ADK Agents, Cloud Build & Cloud Run (Steps 6-8).
+  -s, --skip-infra      Skip infrastructure & agent deployment steps (1-6), run Cloud Build & Cloud Run (Steps 7-8).
   -k, --kc-agent-only   Only deploy/push out latest KC ADK Agent code to Vertex AI Agent Engine (Step 6 for agent_kc).
   -g, --agent-only      Only run ADK Agent Engine deployment (Step 6).
   -b, --build-only      Only run Cloud Build container compilation (Step 7).
@@ -165,12 +165,13 @@ while [[ $# -gt 0 ]]; do
     -s|--skip-infra)
       if [ "$MODE_SET" = false ]; then
         RUN_INFRA=false
-        RUN_AGENTS=true
+        RUN_AGENTS=false
         RUN_BUILD=true
         RUN_DEPLOY=true
         MODE_SET=true
       else
         RUN_INFRA=false
+        RUN_AGENTS=false
       fi
       shift
       ;;
