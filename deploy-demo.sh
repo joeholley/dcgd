@@ -402,10 +402,78 @@ if [ "$RUN_INFRA" = true ]; then
   if [ -d "$DATAFORM_DIR" ]; then
     log_info "Compiling and running Dataform Medallion models in ${DATAFORM_DIR}..."
 
-    log_info "Ensuring all required BigQuery datasets exist in ${GCP_PROJECT} before Dataform execution..."
-    for ds in omniarcade_raw omniarcade_synthetic omniarcade_silver omniarcade_gold central_identity fps_studio mmo_studio mobile_studio sports_studio strategy_studio telemetry_bronze telemetry_silver telemetry_gold telemetry_dashboards telemetry_reference; do
-      bq mk --location="${GCP_REGION}" --dataset "${GCP_PROJECT}:${ds}" &>/dev/null || true
-    done
+    log_info "Ensuring source tables exist and are seeded before Dataform execution..."
+    bq query --location="${GCP_REGION}" --use_legacy_sql=false "
+      CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.central_identity.players\` (
+        user_id STRING,
+        username STRING,
+        email STRING,
+        locale STRING,
+        region_code STRING,
+        age_bracket STRING,
+        created_at TIMESTAMP,
+        signup_platform STRING,
+        last_login_ip STRING,
+        install_source STRING
+      );
+
+      INSERT INTO \`${GCP_PROJECT}.central_identity.players\`
+      (user_id, username, email, locale, region_code, age_bracket, created_at, signup_platform, last_login_ip, install_source)
+      SELECT
+        CONCAT('PLAY-', LPAD(CAST(id AS STRING), 8, '0')) AS user_id,
+        CONCAT('Player_', LPAD(CAST(id AS STRING), 5, '0')) AS username,
+        CONCAT('player_', CAST(id AS STRING), '@omniarcade.com') AS email,
+        'en-US' AS locale,
+        CASE MOD(id, 4) WHEN 0 THEN 'US' WHEN 1 THEN 'EU' WHEN 2 THEN 'APAC' ELSE 'LATAM' END AS region_code,
+        CASE MOD(id, 3) WHEN 0 THEN 'Adult' WHEN 1 THEN 'Teen' ELSE 'Minor' END AS age_bracket,
+        TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL CAST(id AS INT64) DAY) AS created_at,
+        CASE MOD(id, 3) WHEN 0 THEN 'Steam' WHEN 1 THEN 'Mobile' ELSE 'Console' END AS signup_platform,
+        '127.0.0.1' AS last_login_ip,
+        'Organic' AS install_source
+      FROM UNNEST(GENERATE_ARRAY(1, 1000)) AS id
+      WHERE NOT EXISTS (
+        SELECT 1 FROM \`${GCP_PROJECT}.central_identity.players\` LIMIT 1
+      );
+
+      INSERT INTO \`${GCP_PROJECT}.omniarcade_raw.gcp_players\`
+      (player_id, username, payer_tier, spend_tier, ltv_dollars, total_iap_spend, days_since_last_login, favorite_category, region_code, install_date)
+      SELECT
+        user_id AS player_id,
+        username,
+        CASE WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) = 0 THEN 'Whale' WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) < 3 THEN 'Dolphin' ELSE 'F2P' END AS payer_tier,
+        CASE WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) = 0 THEN 'Tier 1 ($500+)' WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) < 3 THEN 'Tier 2 ($50-\$500)' ELSE 'Tier 3 (<$50)' END AS spend_tier,
+        CASE WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) = 0 THEN 750.00 WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) < 3 THEN 120.00 ELSE 0.00 END AS ltv_dollars,
+        CASE WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) = 0 THEN 750.00 WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) < 3 THEN 120.00 ELSE 0.00 END AS total_iap_spend,
+        MOD(CAST(SUBSTR(user_id, 6) AS INT64), 30) AS days_since_last_login,
+        CASE MOD(CAST(SUBSTR(user_id, 6) AS INT64), 4) WHEN 0 THEN 'RPG' WHEN 1 THEN 'FPS' WHEN 2 THEN 'MOBA' ELSE 'Strategy' END AS favorite_category,
+        region_code,
+        DATE(created_at) AS install_date
+      FROM \`${GCP_PROJECT}.central_identity.players\`
+      WHERE user_id NOT IN (SELECT player_id FROM \`${GCP_PROJECT}.omniarcade_raw.gcp_players\`);
+
+      INSERT INTO \`${GCP_PROJECT}.omniarcade_raw.live_session_events\` (event_id, player_id, event_type, timestamp, session_duration_seconds, consecutive_deaths, quit_intent)
+      SELECT
+        CONCAT('EVT-', LPAD(CAST(id AS STRING), 8, '0')),
+        CONCAT('PLAY-', LPAD(CAST(MOD(id, 1000) + 1 AS STRING), 8, '0')),
+        CASE MOD(id, 3) WHEN 0 THEN 'boss_fail' WHEN 1 THEN 'level_complete' ELSE 'session_start' END,
+        TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL CAST(id AS INT64) MINUTE),
+        MOD(id, 3600),
+        MOD(id, 5),
+        IF(MOD(id, 4) = 0, TRUE, FALSE)
+      FROM UNNEST(GENERATE_ARRAY(1, 2000)) AS id
+      WHERE NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.omniarcade_raw.live_session_events\` LIMIT 1);
+
+      INSERT INTO \`${GCP_PROJECT}.omniarcade_raw.iap_transactions\` (transaction_id, player_id, item_id, amount_usd, timestamp, game_source)
+      SELECT
+        CONCAT('TXN-', LPAD(CAST(id AS STRING), 8, '0')),
+        CONCAT('PLAY-', LPAD(CAST(MOD(id, 1000) + 1 AS STRING), 8, '0')),
+        CONCAT('SKU-', LPAD(CAST(MOD(id, 50) + 1 AS STRING), 4, '0')),
+        CAST(ROUND(0.99 + 49.0 * RAND(), 2) AS NUMERIC),
+        TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL CAST(id AS INT64) HOUR),
+        'RPG'
+      FROM UNNEST(GENERATE_ARRAY(1, 5000)) AS id
+      WHERE NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.omniarcade_raw.iap_transactions\` LIMIT 1);
+    "
 
     # Always overwrite .df-credentials.json to enforce project and location (e.g. us-central1 vs US)
     cat <<EOF > "${DATAFORM_DIR}/.df-credentials.json"
