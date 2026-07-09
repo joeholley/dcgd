@@ -48,7 +48,7 @@ flowchart TD
 
 ## 1. Reusable Infrastructure, Data Assets, & ADK Agent Callout Matrix
 
-This backend implementation leverages existing infrastructure stood up by `src/retail-data-and-ai-demo` (Terraform/HCL), data assets created by `src/gamingdatademo` during the `docs/deploy-demo.sh` runbook, and the existing **ADK Agent** (`agent_kc`) in `src/gamingdatademo/agents/agent_kc`.
+This backend implementation leverages existing infrastructure stood up by `src/retail-data-and-ai-demo` (Terraform/HCL), data assets created by `src/gamingdatademo` during the `./deploy-demo.sh` runbook, and the existing **ADK Agent** (`agent_kc`) in `src/gamingdatademo/agents/agent_kc`.
 
 | Component / Asset | Source File / Deployment Step in `deploy-demo.sh` | Description & Reusability |
 | :--- | :--- | :--- |

@@ -47,7 +47,7 @@ log_step() {
 
 # Base paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="${SCRIPT_DIR}"
 RETAIL_DIR="${REPO_ROOT}/src/retail-data-and-ai-demo"
 GAMING_DIR="${REPO_ROOT}/src/gamingdatademo"
 REMIX_UI_DIR="${REPO_ROOT}/src/remix-gaming-app"
@@ -328,11 +328,17 @@ if [ "$RUN_INFRA" = true ]; then
       "omniarcade_gold:module.games[0].google_bigquery_dataset.omniarcade_gold"; do
         ds="${pair%%:*}"
         tf_target="${pair#*:}"
+        log_info "  Checking/importing dataset '${ds}' (${tf_target})..."
         terraform -chdir="${TF_DIR}" import \
           -var="project_id=${GCP_PROJECT}" \
           -var="industry_target=games" \
           -var="bigquery_dataset_location=${GCP_REGION}" \
-          "${tf_target}" "projects/${GCP_PROJECT}/datasets/${ds}" &>/dev/null || true
+          "${tf_target}" "projects/${GCP_PROJECT}/datasets/${ds}" 2>&1 | grep -E "Import successful|Resource created|Imported" || \
+        terraform -chdir="${TF_DIR}" import \
+          -var="project_id=${GCP_PROJECT}" \
+          -var="industry_target=games" \
+          -var="bigquery_dataset_location=${GCP_REGION}" \
+          "${tf_target}" "${GCP_PROJECT}:${ds}" 2>&1 | grep -E "Import successful|Resource created|Imported" || true
     done
 
     log_info "Executing 'terraform apply'..."
@@ -388,20 +394,23 @@ if [ "$RUN_INFRA" = true ]; then
   if [ -d "$DATAFORM_DIR" ]; then
     log_info "Compiling and running Dataform Medallion models in ${DATAFORM_DIR}..."
 
-    # Auto-generate .df-credentials.json if missing to allow CLI execution via ADC
-    if [ ! -f "${DATAFORM_DIR}/.df-credentials.json" ]; then
-      cat <<EOF > "${DATAFORM_DIR}/.df-credentials.json"
+    log_info "Ensuring all required BigQuery datasets exist in ${GCP_PROJECT} before Dataform execution..."
+    for ds in omniarcade_raw omniarcade_synthetic omniarcade_silver omniarcade_gold central_identity fps_studio mmo_studio mobile_studio sports_studio strategy_studio telemetry_bronze telemetry_silver telemetry_gold telemetry_dashboards telemetry_reference; do
+      bq mk --location="${GCP_REGION}" --dataset "${GCP_PROJECT}:${ds}" &>/dev/null || true
+    done
+
+    # Always overwrite .df-credentials.json to enforce project and location (e.g. us-central1 vs US)
+    cat <<EOF > "${DATAFORM_DIR}/.df-credentials.json"
 {
   "projectId": "${GCP_PROJECT}",
   "location": "${GCP_REGION}"
 }
 EOF
-    fi
 
     if command -v dataform &> /dev/null; then
-      dataform run "${DATAFORM_DIR}" --vars=project_id:${GCP_PROJECT},industry:games
+      dataform run "${DATAFORM_DIR}" --default-location="${GCP_REGION}" --vars=project_id:${GCP_PROJECT},industry:games
     elif command -v npx &> /dev/null; then
-      npx --yes @dataform/cli run "${DATAFORM_DIR}" --vars=project_id:${GCP_PROJECT},industry:games
+      npx --yes @dataform/cli run "${DATAFORM_DIR}" --default-location="${GCP_REGION}" --vars=project_id:${GCP_PROJECT},industry:games
     else
       log_error "Neither 'dataform' nor 'npx' CLI utility was found in PATH."
       exit 1

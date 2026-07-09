@@ -52,7 +52,7 @@ An enterprise React 19 + Express web application providing real-time game analyt
 To deploy the entire backend infrastructure, Dataform pipelines, BQML model, Dataplex tags, and unified UI in one command:
 ```bash
 # From repository root:
-bash docs/deploy-demo.sh
+bash ./deploy-demo.sh
 ```
 
 ### 3. Accessing the Private Cloud Run Deployment

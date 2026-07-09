@@ -25,7 +25,7 @@ Before running the deployment:
    sudo apt update && sudo apt install -y terraform
    ```
 3. **Automated API Bootstrapping**:
-   Step 0 of `docs/deploy-demo.sh` automatically pre-enables foundational GCP APIs (`cloudresourcemanager`, `serviceusage`, `iam`, `artifactregistry`, `bigquery`, `pubsub`, etc.) so that Terraform can manage project services without 403 permission errors on new GCP projects.
+   Step 0 of `./deploy-demo.sh` automatically pre-enables foundational GCP APIs (`cloudresourcemanager`, `serviceusage`, `iam`, `artifactregistry`, `bigquery`, `pubsub`, etc.) so that Terraform can manage project services without 403 permission errors on new GCP projects.
 
 ```bash
 # 1. Set your target GCP Project ID and region
@@ -37,7 +37,7 @@ export GCP_LOCATION=us-central1
 gcloud auth application-default login
 
 # 3. Run the master deployment runbook
-bash docs/deploy-demo.sh
+bash ./deploy-demo.sh
 ```
 
 ### Accessing the Private Cloud Run Application
