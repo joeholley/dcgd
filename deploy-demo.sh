@@ -441,18 +441,15 @@ if [ "$RUN_INFRA" = true ]; then
       );
 
       INSERT INTO \`${GCP_PROJECT}.omniarcade_raw.gcp_players\`
-      (player_id, username, payer_tier, spend_tier, ltv_dollars, total_iap_spend, days_since_last_login, favorite_category, region_code, install_date)
+      (player_id, payer_tier, total_iap_spend, days_since_last_login, favorite_category, created_at, region_code)
       SELECT
         user_id AS player_id,
-        username,
         CASE WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) = 0 THEN 'Whale' WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) < 3 THEN 'Dolphin' ELSE 'F2P' END AS payer_tier,
-        CASE WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) = 0 THEN 'Tier 1 ($500+)' WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) < 3 THEN 'Tier 2 ($50-\$500)' ELSE 'Tier 3 (<$50)' END AS spend_tier,
-        CASE WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) = 0 THEN 750.00 WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) < 3 THEN 120.00 ELSE 0.00 END AS ltv_dollars,
         CASE WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) = 0 THEN 750.00 WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) < 3 THEN 120.00 ELSE 0.00 END AS total_iap_spend,
         MOD(CAST(SUBSTR(user_id, 6) AS INT64), 30) AS days_since_last_login,
         CASE MOD(CAST(SUBSTR(user_id, 6) AS INT64), 4) WHEN 0 THEN 'RPG' WHEN 1 THEN 'FPS' WHEN 2 THEN 'MOBA' ELSE 'Strategy' END AS favorite_category,
-        region_code,
-        DATE(created_at) AS install_date
+        created_at,
+        region_code
       FROM \`${GCP_PROJECT}.central_identity.players\`
       WHERE user_id NOT IN (SELECT player_id FROM \`${GCP_PROJECT}.omniarcade_raw.gcp_players\`);
 
