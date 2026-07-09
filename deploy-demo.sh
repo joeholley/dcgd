@@ -314,6 +314,14 @@ if [ "$RUN_INFRA" = true ]; then
   TF_DIR="${RETAIL_DIR}/infrastructure/terraform"
   if [ -d "$TF_DIR" ]; then
     log_info "Navigating to Terraform directory: ${TF_DIR}"
+    # Clean up stale cross-project terraform.tfstate if switching GCP projects
+    if [ -f "${TF_DIR}/terraform.tfstate" ]; then
+      if ! grep -q "\"${GCP_PROJECT}\"" "${TF_DIR}/terraform.tfstate" 2>/dev/null; then
+        log_warn "Detected local terraform.tfstate from a different GCP project. Backing up and resetting state for fresh project '${GCP_PROJECT}'..."
+        mv "${TF_DIR}/terraform.tfstate" "${TF_DIR}/terraform.tfstate.bak.$(date +%s)"
+      fi
+    fi
+
     log_info "Running 'terraform init'..."
     terraform -chdir="${TF_DIR}" init -input=false
 
@@ -406,6 +414,9 @@ if [ "$RUN_INFRA" = true ]; then
   "location": "${GCP_REGION}"
 }
 EOF
+
+    # Remove legacy package.json if present (Dataform v3 rejects package.json when workflow_settings.yaml is used)
+    rm -f "${DATAFORM_DIR}/package.json"
 
     if command -v dataform &> /dev/null; then
       dataform run "${DATAFORM_DIR}" --default-location="${GCP_REGION}" --vars=project_id:${GCP_PROJECT},industry:games
