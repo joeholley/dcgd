@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   Zap, 
@@ -181,7 +181,10 @@ export function AgenticWorkflows() {
   const [currentStep, setCurrentStep] = useState<number>(0);
   const [results, setResults] = useState<Record<string, WorkflowResult>>({});
   const [approvedActions, setApprovedActions] = useState<Record<string, boolean>>({});
+  const [rejectedActions, setRejectedActions] = useState<Record<string, boolean>>({});
+  const [traceError, setTraceError] = useState<Record<string, string | null>>({});
   const [followUpResponse, setFollowUpResponse] = useState<Record<string, string | null>>({});
+  const traceContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Expanded card state per agent (keyed by agent ID)
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({
@@ -201,8 +204,28 @@ export function AgenticWorkflows() {
     "Dynamic Matchmaking Balance": false,
   });
 
+  const resetWfState = (wfId: string) => {
+    setApprovedActions((prev) => {
+      const next = { ...prev };
+      delete next[wfId];
+      return next;
+    });
+    setRejectedActions((prev) => {
+      const next = { ...prev };
+      delete next[wfId];
+      return next;
+    });
+    setResults((prev) => {
+      const next = { ...prev };
+      delete next[wfId];
+      return next;
+    });
+    setFollowUpResponse((prev) => ({ ...prev, [wfId]: null }));
+  };
+
   // Coupling logic handlers
   const handleToggleActive = (wfId: string) => {
+    resetWfState(wfId);
     setAgentActive((prev) => {
       const nextActive = !prev[wfId];
       // If turning Active OFF, force Autonomous OFF
@@ -214,6 +237,7 @@ export function AgenticWorkflows() {
   };
 
   const handleToggleAutonomous = (wfId: string) => {
+    resetWfState(wfId);
     setAgentAutonomous((prev) => {
       const nextAutonomous = !prev[wfId];
       // If turning Autonomous ON, force Active ON
@@ -271,13 +295,33 @@ export function AgenticWorkflows() {
     setExecutingId(id);
     setCurrentStep(0);
     setFollowUpResponse((prev) => ({ ...prev, [id]: null }));
-    // Clear previous results so re-evaluation step-by-step animation plays properly
     setResults((prev) => {
       const next = { ...prev };
       delete next[id];
       return next;
     });
     setExpandedCards((prev) => ({ ...prev, [id]: true }));
+
+    if (routingMode === "LIVE") {
+      fetch(`/api/guardrail/agent-trace?session_id=jg-session-9921&query=${encodeURIComponent(id)}&active=${agentActive[id]}&autonomous=${agentAutonomous[id]}`)
+        .then((res) => {
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+          }
+          return res.json();
+        })
+        .then(() => {
+          setTraceError((prev) => ({ ...prev, [id]: null }));
+        })
+        .catch((err) => {
+          setTraceError((prev) => ({
+            ...prev,
+            [id]: `Vertex AI Agent Trace endpoint failed (${err.message}). Displaying fallback trace with warning.`,
+          }));
+        });
+    } else {
+      setTraceError((prev) => ({ ...prev, [id]: null }));
+    }
   };
 
   useEffect(() => {
@@ -302,6 +346,9 @@ export function AgenticWorkflows() {
         [executingId]: workflowData[executingId]
       }));
       setExecutingId(null);
+    }
+    if (traceContainerRef.current) {
+      traceContainerRef.current.scrollTop = traceContainerRef.current.scrollHeight;
     }
   }, [executingId, currentStep]);
 
@@ -386,7 +433,7 @@ export function AgenticWorkflows() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.1 }}
               className={cn(
-                "bg-white rounded-[2rem] border transition-all duration-500 overflow-hidden",
+                "bg-white rounded-[2rem] border transition-all duration-500",
                 results[wf.id] ? "border-blue-100 shadow-xl shadow-blue-900/5" : "border-slate-100 shadow-sm"
               )}
             >
@@ -528,7 +575,7 @@ export function AgenticWorkflows() {
                                 <Info className="w-4 h-4 text-emerald-600 cursor-pointer" />
 
                                 {/* Hover Tooltip detailing policy decision rationale */}
-                                <div className="absolute top-full left-0 right-0 mt-2 p-4 rounded-xl bg-slate-900 text-white font-mono text-[11px] shadow-2xl opacity-0 group-hover:opacity-100 transition-all pointer-events-none z-30 border border-slate-700 space-y-1">
+                                <div className="absolute top-full left-0 right-0 mt-2 p-4 rounded-xl bg-slate-900 text-white font-mono text-[11px] shadow-2xl opacity-0 group-hover:opacity-100 transition-all z-30 border border-slate-700 space-y-1">
                                   <p className="font-bold text-emerald-400">[DATAPLEX POLICY COMPLIANCE VERIFIED]</p>
                                   <p>- Aspect Check: `liveops-campaign-policy-aspect` PASSED</p>
                                   <p>- Max Discount Boundary (85% limit) honored (Requested: 80%)</p>
@@ -542,15 +589,34 @@ export function AgenticWorkflows() {
                                 <p className="text-xs text-slate-600 leading-relaxed font-light">
                                   Manual approval required prior to injecting offer script into game telemetry stream.
                                 </p>
-                                {!approvedActions[wf.id] ? (
-                                  <button 
-                                    onClick={() => setApprovedActions(prev => ({ ...prev, [wf.id]: true }))}
-                                    className="w-full py-3.5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-blue-600/20"
-                                  >
-                                    <CheckCircle2 className="w-4 h-4" /> Approve & Inject Script
-                                  </button>
+                                {rejectedActions[wf.id] ? (
+                                  <div className="p-3 rounded-xl bg-rose-50 border border-rose-100 flex items-center gap-2 text-xs font-bold text-rose-800 font-mono">
+                                    <ShieldAlert className="w-4 h-4 text-rose-600" />
+                                    <span>Proposal Rejected & Dismissed.</span>
+                                  </div>
+                                ) : !approvedActions[wf.id] ? (
+                                  <div className="grid grid-cols-2 gap-2 font-mono">
+                                    <button 
+                                      onClick={() => {
+                                        setApprovedActions(prev => ({ ...prev, [wf.id]: true }));
+                                        setRejectedActions(prev => ({ ...prev, [wf.id]: false }));
+                                      }}
+                                      className="py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-blue-600/20"
+                                    >
+                                      <CheckCircle2 className="w-4 h-4" /> Approve & Inject
+                                    </button>
+                                    <button 
+                                      onClick={() => {
+                                        setRejectedActions(prev => ({ ...prev, [wf.id]: true }));
+                                        setApprovedActions(prev => ({ ...prev, [wf.id]: false }));
+                                      }}
+                                      className="py-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-[11px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                                    >
+                                      <ShieldAlert className="w-4 h-4 text-rose-600" /> Reject / Dismiss
+                                    </button>
+                                  </div>
                                 ) : (
-                                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center gap-2 text-xs font-bold text-emerald-800">
+                                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center gap-2 text-xs font-bold text-emerald-800 font-mono">
                                     <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                                     <span>Script Injected. Retention offer active.</span>
                                   </div>
@@ -603,7 +669,13 @@ export function AgenticWorkflows() {
                            * // TODO: [Backend Integration - Trace API] Replace canned log array with EventSource('/api/guardrail/agent-trace') or WebSocket stream from Vertex AI Reasoning Engine
                            * // TODO: [Backend Integration - Prompt Context] Inject live player context fetched from BigQuery gold_player_360 table into system prompt buffer
                            */}
-                          <div className="space-y-3 font-mono">
+                          {traceError[wf.id] && (
+                            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-600 font-mono text-[11px] flex items-center gap-2 mb-3">
+                              <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0" />
+                              <span>{traceError[wf.id]}</span>
+                            </div>
+                          )}
+                          <div ref={traceContainerRef} className="space-y-3 font-mono max-h-60 overflow-y-auto pr-1">
                             {workflowData[wf.id].thinking.map((step, idx) => (
                               <motion.div 
                                 key={idx}

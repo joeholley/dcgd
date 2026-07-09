@@ -59,6 +59,23 @@ if (broadcastChannel) {
       eventListeners.forEach((fn) => fn(telemetryEvent));
     }
   };
+} else if (typeof window !== "undefined") {
+  window.addEventListener("storage", (e) => {
+    if (e.key === STORAGE_KEY && e.newValue) {
+      const mode = e.newValue as RoutingMode;
+      currentMode = mode;
+      modeListeners.forEach((fn) => fn(mode));
+    } else if (e.key === "dcgd_telemetry_event_tmp" && e.newValue) {
+      try {
+        const parsed = JSON.parse(e.newValue);
+        if (parsed.telemetryEvent) {
+          eventListeners.forEach((fn) => fn(parsed.telemetryEvent));
+        }
+      } catch (err) {
+        // ignore parse error
+      }
+    }
+  });
 }
 
 export function getRoutingMode(): RoutingMode {
@@ -103,6 +120,10 @@ export async function sendSimulatorEvent(event: SimulatorTelemetryEvent): Promis
   // Broadcast locally to all open tabs / windows regardless of mode
   if (broadcastChannel) {
     broadcastChannel.postMessage({ type: "TELEMETRY_EVENT", telemetryEvent: payload });
+  } else if (typeof localStorage !== "undefined") {
+    try {
+      localStorage.setItem("dcgd_telemetry_event_tmp", JSON.stringify({ telemetryEvent: payload, t: Date.now() }));
+    } catch (_) {}
   }
   eventListeners.forEach((fn) => fn(payload));
 

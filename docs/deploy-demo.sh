@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Master Deployment Orchestrator Script: Unified Gaming Data & AI Operations Platform
-# Steps 0 to 7 Runbook (Terraform -> Dataform -> BQML -> Dataplex -> Cloud Build -> Cloud Run)
+# Steps 0 to 8 Runbook:
+#   Step 0: Pre-flight Verification & Environment Sanity Check
+#   Step 1: Core Terraform Infrastructure Provisioning
+#   Step 2: Auto-Generate Dataplex Governance Configuration
+#   Step 3: Dataform Medallion Pipeline Execution (Bronze -> Silver -> Gold)
+#   Step 4: Dataplex Aspect Tags & Business Glossary Registration
+#   Step 5: In-Warehouse BQML Churn Prediction Model Training
+#   Step 6: Vertex AI Agent Engine / ADK Agent Deployment
+#   Step 7: Cloud Build Container Compilation (Artifact Registry)
+#   Step 8: Private Cloud Run Service Deployment
 # ==============================================================================
 
 set -eo pipefail
@@ -43,32 +52,54 @@ RETAIL_DIR="${REPO_ROOT}/src/retail-data-and-ai-demo"
 GAMING_DIR="${REPO_ROOT}/src/gamingdatademo"
 REMIX_UI_DIR="${REPO_ROOT}/src/remix-gaming-app"
 
+# Global array to track background process PIDs for cleanup
+declare -a PIDS=()
+
+cleanup() {
+  local exit_code=$?
+  if [ ${#PIDS[@]} -gt 0 ]; then
+    log_warn "Cleaning up background processes (${PIDS[*]}) ..."
+    for pid in "${PIDS[@]}"; do
+      if kill -0 "$pid" 2>/dev/null; then
+        log_info "Terminating background process PID $pid ..."
+        kill "$pid" 2>/dev/null || true
+      fi
+    done
+  fi
+  if [ $exit_code -ne 0 ]; then
+    log_error "Deployment runbook exited with error (code $exit_code)."
+  fi
+  exit "$exit_code"
+}
+trap cleanup EXIT INT TERM
+
 # Execution mode flags
 RUN_INFRA=true
+RUN_AGENTS=true
 RUN_BUILD=true
 RUN_DEPLOY=true
 MODE_SET=false
 
 usage() {
   local exit_code="${1:-0}"
-  cat <<EOF
+  cat <<EOHELP
 Usage: $(basename "$0") [OPTIONS]
 
 Master Deployment Orchestrator for Unified Gaming Data & AI Operations Platform.
 
 Options:
-  -b, --build-only      Only run Cloud Build container compilation (Step 6).
-  -d, --deploy-only     Only run Cloud Run service deployment (Step 7).
-  -s, --skip-infra      Skip infrastructure/pipeline steps (1-5), run Cloud Build & Cloud Run (Steps 6-7).
-  -a, --all             Run full deployment runbook (Steps 0-7) [Default].
+  -a, --all             Run full deployment runbook (Steps 0-8) [Default].
+  -s, --skip-infra      Skip infrastructure/pipeline steps (1-5), run ADK Agents, Cloud Build & Cloud Run (Steps 6-8).
+  -b, --build-only      Only run Cloud Build container compilation (Step 7).
+  -d, --deploy-only     Only run Cloud Run service deployment (Step 8).
+  -g, --agent-only      Only run ADK Agent Engine deployment (Step 6).
   -h, --help            Show this help message and exit.
 
 Examples:
-  $(basename "$0") --build-only
-  $(basename "$0") --deploy-only
   $(basename "$0") --skip-infra
+  $(basename "$0") --agent-only
   $(basename "$0") -b -d
-EOF
+EOHELP
   exit "$exit_code"
 }
 
@@ -77,6 +108,7 @@ while [[ $# -gt 0 ]]; do
     -b|--build-only)
       if [ "$MODE_SET" = false ]; then
         RUN_INFRA=false
+        RUN_AGENTS=false
         RUN_BUILD=true
         RUN_DEPLOY=false
         MODE_SET=true
@@ -88,6 +120,7 @@ while [[ $# -gt 0 ]]; do
     -d|--deploy-only)
       if [ "$MODE_SET" = false ]; then
         RUN_INFRA=false
+        RUN_AGENTS=false
         RUN_BUILD=false
         RUN_DEPLOY=true
         MODE_SET=true
@@ -96,15 +129,33 @@ while [[ $# -gt 0 ]]; do
       fi
       shift
       ;;
+    -g|--agent-only|--agents-only)
+      if [ "$MODE_SET" = false ]; then
+        RUN_INFRA=false
+        RUN_AGENTS=true
+        RUN_BUILD=false
+        RUN_DEPLOY=false
+        MODE_SET=true
+      else
+        RUN_AGENTS=true
+      fi
+      shift
+      ;;
     -s|--skip-infra)
-      RUN_INFRA=false
-      RUN_BUILD=true
-      RUN_DEPLOY=true
-      MODE_SET=true
+      if [ "$MODE_SET" = false ]; then
+        RUN_INFRA=false
+        RUN_AGENTS=true
+        RUN_BUILD=true
+        RUN_DEPLOY=true
+        MODE_SET=true
+      else
+        RUN_INFRA=false
+      fi
       shift
       ;;
     -a|--all)
       RUN_INFRA=true
+      RUN_AGENTS=true
       RUN_BUILD=true
       RUN_DEPLOY=true
       MODE_SET=true
@@ -123,7 +174,7 @@ done
 # Configuration variables
 GCP_PROJECT="${GOOGLE_CLOUD_PROJECT:-${GCP_PROJECT}}"
 if [ -z "$GCP_PROJECT" ]; then
-  GCP_PROJECT="$(gcloud config get-value project 2>/dev/null || true)"
+  GCP_PROJECT="$(gcloud config get-value project 2>/dev/null)"
 fi
 
 if [ -z "$GCP_PROJECT" ]; then
@@ -137,8 +188,12 @@ PUBSUB_TOPIC="omniarcade-live-telemetry"
 BQ_DATASET_RAW="omniarcade_raw"
 BQ_DATASET_GOLD="omniarcade_gold"
 
-# Fetch project number
-GCP_PROJECT_NUMBER="$(gcloud projects describe "${GCP_PROJECT}" --format="value(projectNumber)" 2>/dev/null || echo "000000000000")"
+# Fetch project number strictly
+GCP_PROJECT_NUMBER="$(gcloud projects describe "${GCP_PROJECT}" --format="value(projectNumber)" 2>/dev/null)"
+if [ -z "$GCP_PROJECT_NUMBER" ]; then
+  log_error "Failed to retrieve project number for project '${GCP_PROJECT}'."
+  exit 1
+fi
 
 # ==============================================================================
 # Step 0: Pre-flight Verification & Environment Sanity Check
@@ -146,7 +201,7 @@ GCP_PROJECT_NUMBER="$(gcloud projects describe "${GCP_PROJECT}" --format="value(
 log_step "STEP 0: Pre-flight Verification & Environment Sanity Check"
 
 log_info "Verifying required CLI utilities..."
-log_info "Execution plan: [Infra/Data Pipeline: ${RUN_INFRA}] | [Cloud Build: ${RUN_BUILD}] | [Cloud Run Deploy: ${RUN_DEPLOY}]"
+log_info "Execution plan: [Infra/Data: ${RUN_INFRA}] | [ADK Agents: ${RUN_AGENTS}] | [Cloud Build: ${RUN_BUILD}] | [Cloud Run: ${RUN_DEPLOY}]"
 
 PREFLIGHT_FAILED=0
 
@@ -194,6 +249,9 @@ if [ "$RUN_INFRA" = true ]; then
   check_tool "terraform" "terraform version"
   check_tool "node" "node --version"
   check_tool "npm" "npm --version"
+fi
+
+if [ "$RUN_INFRA" = true ] || [ "$RUN_AGENTS" = true ]; then
   check_tool "python3" "python3 --version"
 fi
 
@@ -201,7 +259,6 @@ if [ "$PREFLIGHT_FAILED" -ne 0 ]; then
   log_error "Step 0 Pre-flight checks failed. Please install or fix missing/broken tools before continuing."
   exit 1
 fi
-
 
 log_info "Configuring GCP Project context..."
 log_info "  - GCP Project ID: ${GCP_PROJECT}"
@@ -239,7 +296,7 @@ if [ "$RUN_INFRA" = true ]; then
     log_info "Running 'terraform init'..."
     terraform -chdir="${TF_DIR}" init -input=false
 
-    log_info "Executing 'terraform apply -var=\"project_id=${GCP_PROJECT}\" -var=\"industry_target=games\" -var=\"bigquery_dataset_location=${GCP_REGION}\"'..."
+    log_info "Executing 'terraform apply'..."
     terraform -chdir="${TF_DIR}" apply -auto-approve \
       -var="project_id=${GCP_PROJECT}" \
       -var="industry_target=games" \
@@ -296,15 +353,17 @@ EOF
     fi
 
     if command -v dataform &> /dev/null; then
-      dataform run "${DATAFORM_DIR}" --vars=project_id:${GCP_PROJECT},industry:games || log_warn "Dataform execution completed with warnings"
+      dataform run "${DATAFORM_DIR}" --vars=project_id:${GCP_PROJECT},industry:games
     elif command -v npx &> /dev/null; then
-      npx --yes @dataform/cli run "${DATAFORM_DIR}" --vars=project_id:${GCP_PROJECT},industry:games || log_warn "Dataform execution completed with warnings"
+      npx --yes @dataform/cli run "${DATAFORM_DIR}" --vars=project_id:${GCP_PROJECT},industry:games
     else
-      log_warn "Neither 'dataform' nor 'npx' found. Skipping Dataform execution."
+      log_error "Neither 'dataform' nor 'npx' CLI utility was found in PATH."
+      exit 1
     fi
     log_success "Step 3 Dataform Gold analytical tables built."
   else
-    log_warn "Dataform directory ${DATAFORM_DIR} not found. Skipping live compilation."
+    log_error "Dataform directory ${DATAFORM_DIR} not found."
+    exit 1
   fi
 else
   log_info "[SKIPPED] Step 3: Dataform Medallion Pipeline Execution"
@@ -340,9 +399,19 @@ if [ "$RUN_INFRA" = true ]; then
   fi
 
   # Wait for all background Dataplex registration jobs to finish
+  DATAPLEX_FAILED=0
   for pid in "${PIDS[@]}"; do
-    wait "$pid" || log_warn "Dataplex task pid $pid finished with warnings."
+    if ! wait "$pid"; then
+      log_error "Dataplex registration background task PID $pid failed!"
+      DATAPLEX_FAILED=1
+    fi
   done
+  PIDS=()
+
+  if [ $DATAPLEX_FAILED -ne 0 ]; then
+    log_error "One or more Dataplex background registration tasks failed."
+    exit 1
+  fi
 
   log_success "Step 4 Dataplex Knowledge Catalog & Aspects registered."
 else
@@ -356,7 +425,7 @@ if [ "$RUN_INFRA" = true ]; then
   log_step "STEP 5: In-Warehouse BQML Churn Model Training & Validation"
 
   log_info "Training BQML Logistic Regression model 'omniarcade_raw.player_churn_model'..."
-  bq query --location="${GCP_REGION}" --use_legacy_sql=false "CALL \`${GCP_PROJECT}.omniarcade_raw.train_churn_model\`();" || log_warn "BQML model training warning"
+  bq query --location="${GCP_REGION}" --use_legacy_sql=false "CALL \\`${GCP_PROJECT}.omniarcade_raw.train_churn_model\\`();"
 
   log_success "Step 5 BQML model trained."
 else
@@ -364,55 +433,92 @@ else
 fi
 
 # ==============================================================================
-# Step 6: Cloud Build Container Compilation
+# Step 6: Vertex AI Agent Engine / ADK Agent Deployment
+# ==============================================================================
+if [ "$RUN_AGENTS" = true ]; then
+  log_step "STEP 6: Vertex AI Agent Engine / ADK Agent Deployment"
+
+  AGENT_DEPLOY_SCRIPT="${GAMING_DIR}/agents/deploy_agents.sh"
+  if [ -f "$AGENT_DEPLOY_SCRIPT" ]; then
+    log_info "Executing ADK agent deployment script: ${AGENT_DEPLOY_SCRIPT}..."
+    GOOGLE_CLOUD_PROJECT="${GCP_PROJECT}" GOOGLE_CLOUD_LOCATION="${GCP_REGION}" bash "$AGENT_DEPLOY_SCRIPT" all
+    log_success "Step 6 Vertex AI Agent Engine / ADK Agents deployed successfully."
+  else
+    log_error "Agent deployment script ${AGENT_DEPLOY_SCRIPT} not found."
+    exit 1
+  fi
+else
+  log_info "[SKIPPED] Step 6: Vertex AI Agent Engine / ADK Agent Deployment"
+fi
+
+# ==============================================================================
+# Step 7: Cloud Build Container Compilation
 # ==============================================================================
 if [ "$RUN_BUILD" = true ]; then
-  log_step "STEP 6: Cloud Build Container Compilation (Artifact Registry)"
+  log_step "STEP 7: Cloud Build Container Compilation (Artifact Registry)"
 
-  log_info "Ensuring Cloud Build service account permissions on Cloud Storage & Artifact Registry..."
+  log_info "Verifying Artifact Registry repository 'data-cloud-ai-demos' in ${GCP_REGION}..."
+  if ! gcloud artifacts repositories describe "data-cloud-ai-demos" --location="${GCP_REGION}" --project="${GCP_PROJECT}" &>/dev/null; then
+    log_warn "Artifact Registry repository 'data-cloud-ai-demos' not found. Creating..."
+    gcloud artifacts repositories create "data-cloud-ai-demos" \
+      --repository-format=docker \
+      --location="${GCP_REGION}" \
+      --description="Docker repository for AI Demos" \
+      --project="${GCP_PROJECT}"
+  fi
+
+  log_info "Ensuring Cloud Build & Compute service account IAM permissions..."
   gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
     --member="serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
-    --role="roles/storage.admin" --condition=None &>/dev/null || true
+    --role="roles/storage.admin" --condition=None
 
   gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
     --member="serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
-    --role="roles/artifactregistry.writer" --condition=None &>/dev/null || true
+    --role="roles/artifactregistry.writer" --condition=None
 
   gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
     --member="serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
-    --role="roles/logging.logWriter" --condition=None &>/dev/null || true
+    --role="roles/logging.logWriter" --condition=None
 
   gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
     --member="serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
-    --role="roles/storage.admin" --condition=None &>/dev/null || true
+    --role="roles/storage.admin" --condition=None
 
   gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
     --member="serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
-    --role="roles/artifactregistry.writer" --condition=None &>/dev/null || true
+    --role="roles/artifactregistry.writer" --condition=None
 
   gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
     --member="serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
-    --role="roles/logging.logWriter" --condition=None &>/dev/null || true
+    --role="roles/logging.logWriter" --condition=None
 
   log_info "Submitting Cloud Build job to compile unified container image..."
   gcloud builds submit --config="${REPO_ROOT}/cloudbuild.yaml" \
     --substitutions=_LOCATION="${GCP_REGION}",_REPOSITORY="data-cloud-ai-demos",_TAG="latest" \
     "${REPO_ROOT}"
 
-  log_success "Step 6 Container image built and pushed to Artifact Registry."
+  log_success "Step 7 Container image built and pushed to Artifact Registry."
 else
-  log_info "[SKIPPED] Step 6: Cloud Build Container Compilation"
+  log_info "[SKIPPED] Step 7: Cloud Build Container Compilation"
 fi
 
 # ==============================================================================
-# Step 7: Private Cloud Run Deployment (Authenticated & Private)
+# Step 8: Private Cloud Run Deployment (Authenticated & Private)
 # ==============================================================================
 SERVICE_NAME="omniarcade-app"
 IMAGE_URI="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/data-cloud-ai-demos/gaming-app:latest"
 RUNNER_SA="omniarcade-runner-sa@${GCP_PROJECT}.iam.gserviceaccount.com"
 
 if [ "$RUN_DEPLOY" = true ]; then
-  log_step "STEP 7: Private Cloud Run Deployment (Authenticated & Private)"
+  log_step "STEP 8: Private Cloud Run Deployment (Authenticated & Private)"
+
+  log_info "Verifying Cloud Run execution service account '${RUNNER_SA}'..."
+  if ! gcloud iam service-accounts describe "${RUNNER_SA}" --project="${GCP_PROJECT}" &>/dev/null; then
+    log_warn "Service account '${RUNNER_SA}' not found. Creating..."
+    gcloud iam service-accounts create omniarcade-runner-sa \
+      --display-name="OmniArcade Cloud Run Execution SA" \
+      --project="${GCP_PROJECT}"
+  fi
 
   log_info "Deploying Cloud Run service '${SERVICE_NAME}' with --no-allow-unauthenticated..."
   gcloud run deploy "${SERVICE_NAME}" \
@@ -423,9 +529,9 @@ if [ "$RUN_DEPLOY" = true ]; then
     --set-env-vars="GOOGLE_CLOUD_PROJECT=${GCP_PROJECT},GCP_LOCATION=${GCP_REGION},BIGQUERY_LOCATION=${GCP_REGION}" \
     --port=8080
 
-  log_success "Step 7 Cloud Run service deployed in private/authenticated mode."
+  log_success "Step 8 Cloud Run service deployed in private/authenticated mode."
 else
-  log_info "[SKIPPED] Step 7: Private Cloud Run Deployment"
+  log_info "[SKIPPED] Step 8: Private Cloud Run Deployment"
 fi
 
 # ==============================================================================
@@ -444,6 +550,13 @@ if [ "$RUN_INFRA" = true ]; then
   log_info "    5. Dataplex Aspect: liveops_campaign_policy_aspect"
 else
   log_info "  - Infrastructure & Data: SKIPPED"
+fi
+
+if [ "$RUN_AGENTS" = true ]; then
+  log_info "  - Vertex AI ADK Agents: DEPLOYED"
+  log_info "    Agents: Basic, Scaled, KC, Marketing Swarm, Sequential Council"
+else
+  log_info "  - Vertex AI ADK Agents: SKIPPED"
 fi
 
 if [ "$RUN_BUILD" = true ]; then
@@ -465,4 +578,3 @@ else
 fi
 
 exit 0
-

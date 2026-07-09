@@ -58,8 +58,11 @@ export function SimulatorInterface() {
     if (!isSimulating) return;
     const intervalMs = Math.round(1000 / Math.max(0.5, frequencyHz));
     const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+        return;
+      }
       sendSimulatorEvent({
-        type: "ccu_telemetry_ping font-mono",
+        type: "ccu_telemetry_ping",
         gameId: "cosmic_raider_rpg",
         userId: "system-ccu-stream",
         payload: {

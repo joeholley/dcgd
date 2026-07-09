@@ -5,6 +5,7 @@ import { GamingAssistant } from "./components/sections/GamingAssistant";
 import { KnowledgeCatalog } from "./components/sections/KnowledgeCatalog";
 import { ITObservatory } from "./components/sections/ITObservatory";
 import { AgenticWorkflows } from "./components/sections/AgenticWorkflows";
+import { LiveOpsGuardrail } from "./components/sections/LiveOpsGuardrail";
 import { Operations } from "./components/sections/Operations";
 import { CampaignEngine, Country, LanguageSetting } from "./components/sections/CampaignEngine";
 import { SimulatorInterface } from "./components/sections/SimulatorInterface";
@@ -22,6 +23,7 @@ export type Section =
   | "difficulty-balancer"
   | "marketing-swarm"
   | "workflows" 
+  | "guardrail"
   | "agent-comparison"
   | "lineage-graph"
   | "observatory" 
@@ -121,6 +123,7 @@ export default function App() {
 
           {/* Agent & AI Workspace */}
           {activeSection === "workflows" && <AgenticWorkflows />}
+          {activeSection === "guardrail" && <LiveOpsGuardrail />}
           {activeSection === "agent-comparison" && (
             <FlaskSection 
               title="Agent Comparison Workspace"
