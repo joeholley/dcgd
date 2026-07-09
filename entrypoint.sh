@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-PYTHON_PORT=${PYTHON_PORT:-5000}
-NODE_PORT=${PORT:-8080}
+export PYTHON_PORT=${PYTHON_PORT:-5000}
+export PORT=${PORT:-8080}
+NODE_PORT=${PORT}
 
 PY_PID=""
 NODE_PID=""

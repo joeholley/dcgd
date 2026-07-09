@@ -23,7 +23,7 @@ const FLASK_PORT = Number(process.env.PYTHON_PORT) || 5000;
  * Proxy HTTP requests to internal Python Flask app (gamingdatademo on port 5000)
  */
 function proxyToFlask(req: Request, res: Response, targetPath?: string) {
-  const urlPath = targetPath ?? req.url;
+  const urlPath = targetPath ?? req.originalUrl;
   const reqHeaders = { ...req.headers, host: `127.0.0.1:${FLASK_PORT}` };
 
   let bodyData: string | Buffer | null = null;
@@ -1135,8 +1135,43 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
   });
 
   // --------------------------------------------------------------------------
-  // 6. Reverse Proxy Routes to Internal Python Service (gamingdatademo / 127.0.0.1:5000)
+  // GROUP B: Flask API & Embedded Page Reverse Proxies (gamingdatademo / 127.0.0.1:5000)
   // --------------------------------------------------------------------------
+
+  // Group B1. Explicit Flask API Endpoints (proxy to 127.0.0.1:5000)
+  app.use([
+    "/api/config",
+    "/api/table-info",
+    "/api/term-info",
+    "/api/difficulty-stats",
+    "/api/simulate",
+    "/api/marketing",
+    "/api/executive",
+  ], (req: Request, res: Response) => {
+    proxyToFlask(req, res);
+  });
+
+  // Group B2. Embedded iframe proxy routes for gamingdatademo UI (/agent-comparison, /gamingdatademo)
+  // Only proxy to Flask if request is an embedded iframe (sec-fetch-dest: iframe or ?embedded=true).
+  // Direct browser navigation falls through to Group C to serve the React 19 Player 360 SPA.
+  app.use(["/agent-comparison", "/gamingdatademo"], (req: Request, res: Response, next) => {
+    const isIframe =
+      req.headers["sec-fetch-dest"] === "iframe" ||
+      String(req.query.embedded).toLowerCase() === "true" ||
+      req.query.embedded === "1" ||
+      req.method === "HEAD";
+
+    if (isIframe) {
+      let subPath = req.originalUrl.replace(/^\/(agent-comparison|gamingdatademo)/, "");
+      if (!subPath || !subPath.startsWith("/")) {
+        subPath = "/" + subPath;
+      }
+      return proxyToFlask(req, res, subPath);
+    }
+    return next();
+  });
+
+  // Group B3. Explicit Flask HTML Pages & Flask Static Assets
   const flaskHtmlPages = [
     "/executive.html",
     "/architecture.html",
@@ -1155,34 +1190,14 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
     "/static-responses.json",
   ];
 
-  // 6a. Dedicated proxy entrypoint routes for gamingdatademo UI
-  app.use(["/agent-comparison", "/gamingdatademo"], (req: Request, res: Response) => {
-    let subPath = req.originalUrl.replace(/^\/(agent-comparison|gamingdatademo)/, "");
-    if (!subPath || subPath === "") subPath = "/";
-    proxyToFlask(req, res, subPath);
-  });
-
-  // 6b. Flask API Endpoints
-  app.use([
-    "/api/config",
-    "/api/table-info",
-    "/api/term-info",
-    "/api/difficulty-stats",
-    "/api/simulate",
-    "/api/marketing",
-    "/api/executive",
-  ], (req: Request, res: Response) => {
-    proxyToFlask(req, res);
-  });
-
-  // 6c. Flask HTML Pages & Static Assets
   app.use((req: Request, res: Response, next) => {
     const p = req.path;
     if (
       flaskHtmlPages.includes(p) ||
       flaskStaticAssets.includes(p) ||
       p.startsWith("/icons/") ||
-      p.startsWith("/static/")
+      p.startsWith("/static/") ||
+      p.startsWith("/flask-static/")
     ) {
       return proxyToFlask(req, res);
     }
@@ -1190,7 +1205,8 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
   });
 
   // --------------------------------------------------------------------------
-  // Vite Middleware / Static File Serving
+  // GROUP C: Primary React 19 Player 360 SPA & Static Assets
+  // Strictly captures all top-level non-API/non-proxy GET requests
   // --------------------------------------------------------------------------
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -1201,7 +1217,7 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*", (req, res) => {
+    app.get("*", (_req: Request, res: Response) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
