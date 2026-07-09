@@ -453,26 +453,24 @@ if [ "$RUN_INFRA" = true ]; then
       FROM \`${GCP_PROJECT}.central_identity.players\`
       WHERE user_id NOT IN (SELECT player_id FROM \`${GCP_PROJECT}.omniarcade_raw.gcp_players\`);
 
-      INSERT INTO \`${GCP_PROJECT}.omniarcade_raw.live_session_events\` (event_id, player_id, event_type, timestamp, session_duration_seconds, consecutive_deaths, quit_intent)
+      INSERT INTO \`${GCP_PROJECT}.omniarcade_raw.live_session_events\` (session_id, player_id, event_type, timestamp, session_duration_seconds, consecutive_deaths)
       SELECT
-        CONCAT('EVT-', LPAD(CAST(id AS STRING), 8, '0')),
-        CONCAT('PLAY-', LPAD(CAST(MOD(id, 1000) + 1 AS STRING), 8, '0')),
-        CASE MOD(id, 3) WHEN 0 THEN 'boss_fail' WHEN 1 THEN 'level_complete' ELSE 'session_start' END,
-        TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL CAST(id AS INT64) MINUTE),
-        MOD(id, 3600),
-        MOD(id, 5),
-        IF(MOD(id, 4) = 0, TRUE, FALSE)
+        CONCAT('EVT-', LPAD(CAST(id AS STRING), 8, '0')) AS session_id,
+        CONCAT('PLAY-', LPAD(CAST(MOD(id, 1000) + 1 AS STRING), 8, '0')) AS player_id,
+        CASE MOD(id, 3) WHEN 0 THEN 'boss_fail' WHEN 1 THEN 'level_complete' ELSE 'session_start' END AS event_type,
+        TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL CAST(id AS INT64) MINUTE) AS timestamp,
+        MOD(id, 3600) AS session_duration_seconds,
+        MOD(id, 5) AS consecutive_deaths
       FROM UNNEST(GENERATE_ARRAY(1, 2000)) AS id
       WHERE NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.omniarcade_raw.live_session_events\` LIMIT 1);
 
-      INSERT INTO \`${GCP_PROJECT}.omniarcade_raw.iap_transactions\` (transaction_id, player_id, item_id, amount_usd, timestamp, game_source)
+      INSERT INTO \`${GCP_PROJECT}.omniarcade_raw.iap_transactions\` (transaction_id, player_id, item_id, amount_usd, timestamp)
       SELECT
-        CONCAT('TXN-', LPAD(CAST(id AS STRING), 8, '0')),
-        CONCAT('PLAY-', LPAD(CAST(MOD(id, 1000) + 1 AS STRING), 8, '0')),
-        CONCAT('SKU-', LPAD(CAST(MOD(id, 50) + 1 AS STRING), 4, '0')),
-        CAST(ROUND(0.99 + 49.0 * RAND(), 2) AS NUMERIC),
-        TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL CAST(id AS INT64) HOUR),
-        'RPG'
+        CONCAT('TXN-', LPAD(CAST(id AS STRING), 8, '0')) AS transaction_id,
+        CONCAT('PLAY-', LPAD(CAST(MOD(id, 1000) + 1 AS STRING), 8, '0')) AS player_id,
+        CONCAT('SKU-', LPAD(CAST(MOD(id, 50) + 1 AS STRING), 4, '0')) AS item_id,
+        CAST(ROUND(0.99 + 49.0 * RAND(), 2) AS NUMERIC) AS amount_usd,
+        TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL CAST(id AS INT64) HOUR) AS timestamp
       FROM UNNEST(GENERATE_ARRAY(1, 5000)) AS id
       WHERE NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.omniarcade_raw.iap_transactions\` LIMIT 1);
     "
@@ -560,8 +558,99 @@ fi
 if [ "$RUN_INFRA" = true ]; then
   log_step "STEP 5: In-Warehouse BQML Churn Model Training & Validation"
 
+  log_info "Hydrating BigQuery Silver and Gold analytics tables before model training..."
+  bq query --location="${GCP_REGION}" --use_legacy_sql=false "
+    -- 1. Hydrate gold_player_360 from raw gcp_players & live_session_events
+    MERGE \`${GCP_PROJECT}.omniarcade_gold.gold_player_360\` target
+    USING (
+      SELECT 
+        p.player_id,
+        p.player_id AS username,
+        p.payer_tier AS spend_tier,
+        p.payer_tier,
+        CAST(p.total_iap_spend AS NUMERIC) AS ltv_dollars,
+        CAST(p.total_iap_spend AS NUMERIC) AS total_iap_spend,
+        CAST(NULL AS FLOAT64) AS churn_risk_score,
+        CAST(NULL AS FLOAT64) AS churn_probability,
+        p.days_since_last_login,
+        p.favorite_category,
+        CAST(COALESCE(s.consecutive_deaths, 0) AS INT64) AS consecutive_deaths,
+        CAST(COALESCE(s.session_duration_seconds, 0) AS INT64) AS session_duration_seconds,
+        CAST(CASE WHEN p.days_since_last_login > 15 THEN 1 ELSE 0 END AS INT64) AS is_churned,
+        p.created_at AS last_active_ts,
+        p.created_at AS last_active_timestamp
+      FROM \`${GCP_PROJECT}.omniarcade_raw.gcp_players\` p
+      LEFT JOIN (
+        SELECT 
+          player_id,
+          MAX(consecutive_deaths) AS consecutive_deaths,
+          AVG(session_duration_seconds) AS session_duration_seconds
+        FROM \`${GCP_PROJECT}.omniarcade_raw.live_session_events\`
+        GROUP BY player_id
+      ) s ON p.player_id = s.player_id
+    ) source
+    ON target.player_id = source.player_id
+    WHEN NOT MATCHED THEN
+      INSERT (player_id, username, spend_tier, payer_tier, ltv_dollars, total_iap_spend, churn_risk_score, churn_probability, days_since_last_login, favorite_category, consecutive_deaths, session_duration_seconds, is_churned, last_active_ts, last_active_timestamp)
+      VALUES (source.player_id, source.username, source.spend_tier, source.payer_tier, source.ltv_dollars, source.total_iap_spend, source.churn_risk_score, source.churn_probability, source.days_since_last_login, source.favorite_category, source.consecutive_deaths, source.session_duration_seconds, source.is_churned, source.last_active_ts, source.last_active_timestamp);
+
+    -- 2. Hydrate gold_regional_kpis
+    INSERT INTO \`${GCP_PROJECT}.omniarcade_gold.gold_regional_kpis\`
+    (region, country, country_code, country_name, dau, mau, arpu, arpu_dollars, total_revenue, total_revenue_dollars, avg_ping_ms, last_updated, updated_at)
+    SELECT
+      CASE region_code WHEN 'US' THEN 'North America' WHEN 'EU' THEN 'Europe' WHEN 'APAC' THEN 'Asia-Pacific' ELSE 'Latin America' END AS region,
+      CASE region_code WHEN 'US' THEN 'United States' WHEN 'EU' THEN 'Germany' WHEN 'APAC' THEN 'Japan' ELSE 'Brazil' END AS country,
+      region_code AS country_code,
+      CASE region_code WHEN 'US' THEN 'United States' WHEN 'EU' THEN 'Germany' WHEN 'APAC' THEN 'Japan' ELSE 'Brazil' END AS country_name,
+      CAST(COUNT(DISTINCT player_id) AS INT64) AS dau,
+      CAST(COUNT(DISTINCT player_id) * 3 AS INT64) AS mau,
+      CAST(AVG(total_iap_spend) AS NUMERIC) AS arpu,
+      CAST(AVG(total_iap_spend) AS NUMERIC) AS arpu_dollars,
+      CAST(SUM(total_iap_spend) AS NUMERIC) AS total_revenue,
+      CAST(SUM(total_iap_spend) AS NUMERIC) AS total_revenue_dollars,
+      ROUND(45.0 + RAND() * 120.0, 1) AS avg_ping_ms,
+      CURRENT_TIMESTAMP() AS last_updated,
+      CURRENT_TIMESTAMP() AS updated_at
+    FROM \`${GCP_PROJECT}.omniarcade_raw.gcp_players\`
+    GROUP BY region_code
+    HAVING NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.omniarcade_gold.gold_regional_kpis\` LIMIT 1);
+
+    -- 3. Hydrate gold_campaign_analytics
+    INSERT INTO \`${GCP_PROJECT}.omniarcade_gold.gold_campaign_analytics\`
+    (campaign_id, campaign_name, target_segment, offer_sku, ad_network, age_bracket, ad_spend, incremental_revenue_dollars, total_installs, roas)
+    SELECT * FROM UNNEST([
+      STRUCT('CAM-001' AS campaign_id, 'Summer Churn Recovery' AS campaign_name, 'Whale' AS target_segment, 'sku_skin_fire_dragon' AS offer_sku, 'Google Ads' AS ad_network, 'Adult' AS age_bracket, CAST(5000.00 AS NUMERIC) AS ad_spend, CAST(12500.00 AS NUMERIC) AS incremental_revenue_dollars, 450 AS total_installs, 2.5 AS roas),
+      STRUCT('CAM-002', 'Mobile Launch Burst', 'Dolphin', 'sku_pass_season_1', 'YouTube', 'Teen', CAST(8000.00 AS NUMERIC), CAST(18400.00 AS NUMERIC), 1200, 2.3),
+      STRUCT('CAM-003', 'Japan RPG Whale Target', 'Whale', 'sku_gems_pack_large', 'Google Ads', 'Adult', CAST(3000.00 AS NUMERIC), CAST(11100.00 AS NUMERIC), 180, 3.7)
+    ])
+    WHERE NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.omniarcade_gold.gold_campaign_analytics\` LIMIT 1);
+
+    -- 4. Hydrate silver_server_latency (table table_id = 'server_latency')
+    INSERT INTO \`${GCP_PROJECT}.omniarcade_silver.server_latency\`
+    (server_region, server_id, ccu, avg_ping_ms, packet_loss_pct, frame_rate_drops, timestamp)
+    SELECT * FROM UNNEST([
+      STRUCT('US-EAST' AS server_region, 'srv-us-east-01' AS server_id, 450 AS ccu, 24.5 AS avg_ping_ms, 0.05 AS packet_loss_pct, 12 AS frame_rate_drops, CURRENT_TIMESTAMP() AS timestamp),
+      STRUCT('US-WEST', 'srv-us-west-01', 320, 32.1, 0.08, 8, CURRENT_TIMESTAMP()),
+      STRUCT('EU-CENTRAL', 'srv-eu-central-01', 600, 18.2, 0.02, 15, CURRENT_TIMESTAMP()),
+      STRUCT('APAC-EAST', 'srv-apac-east-01', 520, 42.4, 0.15, 22, CURRENT_TIMESTAMP())
+    ])
+    WHERE NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.omniarcade_silver.server_latency\` LIMIT 1);
+
+    -- 5. Hydrate gold_level_difficulty_funnel
+    INSERT INTO \`${GCP_PROJECT}.omniarcade_gold.gold_level_difficulty_funnel\`
+    (level_number, level_name, total_starts, total_completions, total_failures, total_resets, completion_rate_pct, avg_moves_used)
+    SELECT * FROM UNNEST([
+      STRUCT(1 AS level_number, 'Tutorial Island' AS level_name, 1000 AS total_starts, 980 AS total_completions, 15 AS total_failures, 5 AS total_resets, 98.0 AS completion_rate_pct, 12.5 AS avg_moves_used),
+      STRUCT(2, 'The Dark Forest', 950, 850, 80, 20, 89.5, 18.4),
+      STRUCT(3, 'Dragon Chasm', 820, 610, 180, 30, 74.4, 25.1),
+      STRUCT(4, 'Shadow Citadel (Spike)', 580, 290, 250, 40, 50.0, 38.6),
+      STRUCT(5, 'The Eternal Gate', 250, 220, 20, 10, 88.0, 32.2)
+    ])
+    WHERE NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.omniarcade_gold.gold_level_difficulty_funnel\` LIMIT 1);
+  "
+
   log_info "Training BQML Logistic Regression model 'omniarcade_raw.player_churn_model'..."
-  bq query --location="${GCP_REGION}" --use_legacy_sql=false "CALL \\`${GCP_PROJECT}.omniarcade_raw.train_churn_model\\`();"
+  bq query --location="${GCP_REGION}" --use_legacy_sql=false "CALL \`${GCP_PROJECT}.omniarcade_raw.train_churn_model\`();"
 
   log_success "Step 5 BQML model trained."
 else
