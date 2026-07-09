@@ -1,32 +1,54 @@
 # Copyright 2026 Google LLC
-# Cloud Build Configuration: Build & Store Image in Artifact Registry (Without Deploying)
+# Cloud Build Configuration: Optimized Multi-Stage Container Layer Caching
 
 steps:
-  # Step 0: Pull existing image for layer caching (ignore failure on initial build)
+  # Step 0: Pull existing builder and final images for layer caching
   - name: 'gcr.io/cloud-builders/docker'
     entrypoint: 'bash'
     args:
       - '-c'
-      - 'docker pull ${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:${_TAG} || true'
+      - |
+        docker pull ${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:builder || true
+        docker pull ${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:${_TAG} || true
 
-  # Step 1: Build the unified Docker container image using previously built layers
+  # Step 1: Build & tag the node-builder stage for npm ci layer caching
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
+      - '--target'
+      - 'node-builder'
+      - '--cache-from'
+      - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:builder'
+      - '-t'
+      - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:builder'
+      - '.'
+
+  # Step 2: Build the final image using both builder and final image as cache sources
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--cache-from'
+      - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:builder'
       - '--cache-from'
       - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:${_TAG}'
       - '-t'
       - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:${_TAG}'
       - '.'
 
-  # Step 2: Push the tagged container image to Artifact Registry
+  # Step 3: Push builder cache image and final image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:builder'
+
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
       - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:${_TAG}'
 
-# Store images in Artifact Registry (Build artifacts registration)
+# Store images in Artifact Registry
 images:
+  - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:builder'
   - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:${_TAG}'
 
 substitutions:

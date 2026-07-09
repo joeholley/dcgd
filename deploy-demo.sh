@@ -754,7 +754,7 @@ if [ "$RUN_DEPLOY" = true ]; then
     --service-account="${RUNNER_SA}" \
     --no-allow-unauthenticated \
     --ingress=all \
-    --set-env-vars="GOOGLE_CLOUD_PROJECT=${GCP_PROJECT},GCP_LOCATION=${GCP_REGION},BIGQUERY_LOCATION=${GCP_REGION},PORT=8080,NODE_ENV=production" \
+    --set-env-vars="GOOGLE_CLOUD_PROJECT=${GCP_PROJECT},GCP_LOCATION=${GCP_REGION},BIGQUERY_LOCATION=${GCP_REGION},NODE_ENV=production" \
     --port=8080
 
   log_success "Step 8 Cloud Run service deployed in private/authenticated mode."
