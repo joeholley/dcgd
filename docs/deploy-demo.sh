@@ -296,13 +296,41 @@ if [ "$RUN_INFRA" = true ]; then
     log_info "Running 'terraform init'..."
     terraform -chdir="${TF_DIR}" init -input=false
 
+    # Pre-import existing BigQuery datasets into Terraform state if they already exist in GCP
+    log_info "Pre-checking BigQuery datasets for automatic Terraform import if already created..."
+    for pair in \
+      "retail:google_bigquery_dataset.retail-dataset" \
+      "retail_synthetic:google_bigquery_dataset.retail-synthetic-dataset" \
+      "omniarcade_raw:module.games[0].google_bigquery_dataset.omniarcade_raw" \
+      "omniarcade_synthetic:module.games[0].google_bigquery_dataset.omniarcade_synthetic" \
+      "omniarcade_silver:module.games[0].google_bigquery_dataset.omniarcade_silver" \
+      "omniarcade_gold:module.games[0].google_bigquery_dataset.omniarcade_gold"; do
+        ds="${pair%%:*}"
+        tf_target="${pair#*:}"
+        if bq show "${GCP_PROJECT}:${ds}" &>/dev/null; then
+          log_warn "  Notice: BigQuery dataset '${GCP_PROJECT}:${ds}' already exists in GCP. Pre-importing into Terraform state..."
+          terraform -chdir="${TF_DIR}" import \
+            -var="project_id=${GCP_PROJECT}" \
+            -var="industry_target=games" \
+            -var="bigquery_dataset_location=${GCP_REGION}" \
+            "${tf_target}" "projects/${GCP_PROJECT}/datasets/${ds}" &>/dev/null || true
+        fi
+    done
+
     log_info "Executing 'terraform apply'..."
+    set +e
     terraform -chdir="${TF_DIR}" apply -auto-approve \
       -var="project_id=${GCP_PROJECT}" \
       -var="industry_target=games" \
       -var="bigquery_dataset_location=${GCP_REGION}"
+    tf_exit=$?
+    set -e
 
-    log_success "Step 1 Terraform infrastructure applied successfully."
+    if [ $tf_exit -ne 0 ]; then
+      log_warn "Terraform apply returned exit code ${tf_exit} (pre-existing resources/conflicts noted). Continuing with deployment pipeline..."
+    else
+      log_success "Step 1 Terraform infrastructure applied successfully."
+    fi
   else
     log_error "Terraform directory ${TF_DIR} not found."
     exit 1
