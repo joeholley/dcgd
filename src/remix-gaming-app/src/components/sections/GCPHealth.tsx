@@ -105,9 +105,27 @@ export function GCPHealth() {
       icon: Compass,
     },
     {
-      key: "vertex_agent" as const,
-      name: "Vertex AI Agent Engine",
-      description: "ADK reasoning engines & MCP tool orchestration",
+      key: "vertex_agent_kc" as const,
+      name: "Gemini Enterprise Agent (KC-Guided)",
+      description: "ADK Reasoning Engine with Dataplex Knowledge Catalog Tools",
+      icon: Server,
+    },
+    {
+      key: "vertex_agent_basic" as const,
+      name: "Gemini Enterprise Agent (Basic LLM)",
+      description: "ADK Reasoning Engine without Knowledge Catalog Tools",
+      icon: Server,
+    },
+    {
+      key: "vertex_agent_scaled" as const,
+      name: "Gemini Enterprise Agent (Scaled Runtime)",
+      description: "Multi-shard ADK Reasoning Engine for high-throughput LiveOps",
+      icon: Server,
+    },
+    {
+      key: "vertex_agent_council" as const,
+      name: "Gemini Enterprise Agent (Marketing Council)",
+      description: "Swarm/Council multi-agent reasoning engine for campaign optimization",
       icon: Server,
     },
   ];

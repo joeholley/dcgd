@@ -68,7 +68,6 @@ const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT |
 const LOCATION = process.env.GCP_LOCATION || process.env.BIGQUERY_LOCATION || "us-central1";
 const PUBSUB_TOPIC_NAME = process.env.PUBSUB_TOPIC || "omniarcade-live-telemetry";
 const BQML_MODEL_NAME = process.env.BQML_MODEL || "omniarcade_raw.player_churn_model";
-const AGENT_ENGINE_ID = process.env.VERTEX_AGENT_ENGINE_ID || "omniarcade-guardrail-agent";
 
 // Initialize GCP Clients using Application Default Credentials (ADC)
 const auth = new GoogleAuth({
@@ -77,6 +76,106 @@ const auth = new GoogleAuth({
 
 const pubsubClient = new PubSub({ projectId: PROJECT_ID });
 const bigqueryClient = new BigQuery({ projectId: PROJECT_ID });
+
+// --------------------------------------------------------------------------
+// Gemini Enterprise Agent Runtime (Vertex AI Reasoning Engine) Discovery
+// --------------------------------------------------------------------------
+interface DiscoveredAgent {
+  id: string;
+  displayName: string;
+  name: string;
+  createTime: string;
+}
+
+let discoveredAgentsCache: DiscoveredAgent[] | null = null;
+let discoveryPromise: Promise<DiscoveredAgent[]> | null = null;
+
+async function discoverReasoningEngines(): Promise<DiscoveredAgent[]> {
+  if (discoveredAgentsCache !== null) {
+    return discoveredAgentsCache;
+  }
+  if (discoveryPromise !== null) {
+    return discoveryPromise;
+  }
+
+  discoveryPromise = (async () => {
+    try {
+      const client = await auth.getClient().catch(() => null);
+      const tokenRes = client ? await client.getAccessToken().catch(() => null) : null;
+      const accessToken = typeof tokenRes === 'string' ? tokenRes : tokenRes?.token;
+
+      if (!accessToken) {
+        console.warn("[Agent Runtime Discovery] Access token unavailable; skipping dynamic agent discovery.");
+        discoveredAgentsCache = [];
+        return [];
+      }
+
+      const url = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/reasoningEngines`;
+      console.log(`[Agent Runtime Discovery] Querying Vertex AI Reasoning Engines: GET ${url}`);
+
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } }).catch(() => null);
+      if (!res || !res.ok) {
+        console.warn(`[Agent Runtime Discovery] Reasoning Engine list returned HTTP ${res?.status || 'network_error'}`);
+        discoveredAgentsCache = [];
+        return [];
+      }
+
+      const data = await res.json();
+      const rawEngines = data.reasoningEngines || [];
+
+      discoveredAgentsCache = rawEngines.map((e: any) => ({
+        id: e.name ? e.name.split("/").pop()! : "",
+        displayName: e.displayName || "Unnamed Agent",
+        name: e.name || "",
+        createTime: e.createTime || "",
+      })).sort((a: any, b: any) => new Date(b.createTime || 0).getTime() - new Date(a.createTime || 0).getTime());
+
+      console.log(`[Agent Runtime Discovery] Discovered ${discoveredAgentsCache.length} deployed agent(s) on startup:`);
+      discoveredAgentsCache.forEach((ag) => {
+        console.log(`  - DisplayName: "${ag.displayName}" (ID: ${ag.id})`);
+      });
+
+      return discoveredAgentsCache;
+    } catch (err: any) {
+      console.warn(`[Agent Runtime Discovery] Failed to discover agents: ${err.message}`);
+      discoveredAgentsCache = [];
+      return [];
+    } finally {
+      discoveryPromise = null;
+    }
+  })();
+
+  return discoveryPromise;
+}
+
+async function getAgentEngineInfo(targetRole: 'kc' | 'basic' | 'scaled' | 'council' = 'kc'): Promise<{ id: string; displayName: string } | null> {
+  const envOverride = process.env.VERTEX_AGENT_ENGINE_ID || (targetRole === 'kc' ? process.env.KC_AGENT_ID : targetRole === 'basic' ? process.env.BASIC_AGENT_ID : "");
+  if (envOverride) {
+    return { id: envOverride, displayName: `Env Override (${envOverride})` };
+  }
+
+  const agents = await discoverReasoningEngines();
+  if (!agents || agents.length === 0) {
+    return null;
+  }
+
+  let match: DiscoveredAgent | undefined;
+  if (targetRole === 'kc') {
+    match = agents.find((a) => a.displayName.includes("KC") || a.displayName.includes("Knowledge Catalog") || a.displayName.includes("OmniArcade"));
+  } else if (targetRole === 'basic') {
+    match = agents.find((a) => a.displayName.includes("Basic"));
+  } else if (targetRole === 'scaled') {
+    match = agents.find((a) => a.displayName.includes("Scaled"));
+  } else if (targetRole === 'council') {
+    match = agents.find((a) => a.displayName.includes("Council") || a.displayName.includes("Swarm"));
+  }
+
+  if (!match) {
+    match = agents[0]; // Fallback to newest deployed agent
+  }
+
+  return match ? { id: match.id, displayName: match.displayName } : null;
+}
 
 // SSE Clients Registry with explicit cleanup and error handling
 interface SSEClient {
@@ -734,23 +833,26 @@ FILTER USING (spend_tier = 'Whale' AND churn_risk_score >= 0.50);
         const accessToken = client ? (await client.getAccessToken()).token : null;
 
         if (accessToken) {
-          const agentEngineUrl = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/reasoningEngines/${AGENT_ENGINE_ID}:query`;
-          const agentRes = await fetch(agentEngineUrl, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ input: { message, history } }),
-          }).catch(() => null);
+          const agentInfo = await getAgentEngineInfo('kc');
+          if (agentInfo) {
+            const agentEngineUrl = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/reasoningEngines/${agentInfo.id}:query`;
+            const agentRes = await fetch(agentEngineUrl, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ input: { message, history } }),
+            }).catch(() => null);
 
-          if (agentRes && agentRes.ok) {
-            const agentData = await agentRes.json();
-            const replyText = typeof agentData.output === "string" 
-              ? agentData.output 
-              : agentData.output?.text || agentData.text || "";
-            if (replyText) {
-              return res.json({ text: replyText });
+            if (agentRes && agentRes.ok) {
+              const agentData = await agentRes.json();
+              const replyText = typeof agentData.output === "string" 
+                ? agentData.output 
+                : agentData.output?.text || agentData.text || "";
+              if (replyText) {
+                return res.json({ text: replyText });
+              }
             }
           }
         }
@@ -881,7 +983,7 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       return withTimeout(
         (async () => {
           const bqRows = await executeCustomQuery(
-            `SELECT * FROM ML.PREDICT(MODEL \`${PROJECT_ID}.${BQML_MODEL_NAME}\`, (SELECT 'test_player' AS player_id, 3 AS consecutive_deaths, 420 AS session_duration_seconds, 'boss_fail' AS event_type))`
+            `SELECT * FROM ML.PREDICT(MODEL \`${PROJECT_ID}.${BQML_MODEL_NAME}\`, (SELECT 3 AS consecutive_deaths, 420 AS session_duration_seconds, 'Whale' AS payer_tier, CAST(500.0 AS NUMERIC) AS total_iap_spend, 1 AS days_since_last_login, 'Skins & Cosmetics' AS favorite_category))`
           );
           if (bqRows && bqRows.length > 0) {
             return { status: "LIVE" as const, details: `BQML model '${BQML_MODEL_NAME}' online`, latency_ms: Date.now() - start };
@@ -916,25 +1018,54 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       );
     };
 
-    // 6. Test Vertex AI Agent Engine
-    const testVertexAgent = async () => {
+    // 6. Test Vertex AI Agent Engine (Per-Agent Probe)
+    const testVertexAgent = async (targetRole: 'kc' | 'basic' | 'scaled' | 'council' = 'kc') => {
       const start = Date.now();
+      const agentInfo = await getAgentEngineInfo(targetRole);
+      if (!agentInfo) {
+        return { 
+          status: "MOCK" as const, 
+          agent_id: null,
+          details: `No Agent found for role '${targetRole}' in project '${PROJECT_ID}'; dev fallback active`, 
+          latency_ms: Date.now() - start 
+        };
+      }
       return withTimeout(
         (async () => {
           const client = await auth.getClient().catch(() => null);
           const accessToken = client ? (await client.getAccessToken()).token : null;
           if (!accessToken) {
-            return { status: "MOCK" as const, details: "Vertex AI access token unavailable; using static AI assistant fallback", latency_ms: Date.now() - start };
+            return { 
+              status: "MOCK" as const, 
+              agent_id: agentInfo.id,
+              details: `Agent ID: ${agentInfo.id} | Access token unavailable (Dev Fallback)`, 
+              latency_ms: Date.now() - start 
+            };
           }
-          const agentUrl = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/reasoningEngines/${AGENT_ENGINE_ID}`;
+          const agentUrl = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/reasoningEngines/${agentInfo.id}`;
           const agentRes = await fetch(agentUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
           if (agentRes && agentRes.ok) {
-            return { status: "LIVE" as const, details: `Vertex AI Agent Engine '${AGENT_ENGINE_ID}' online`, latency_ms: Date.now() - start };
+            return { 
+              status: "LIVE" as const, 
+              agent_id: agentInfo.id,
+              details: `Agent ID: ${agentInfo.id} | ${agentInfo.displayName} online`, 
+              latency_ms: Date.now() - start 
+            };
           }
-          return { status: "MOCK" as const, details: `Reasoning Engine unreachable (HTTP ${agentRes.status}); using static AI assistant fallback`, latency_ms: Date.now() - start };
+          return { 
+            status: "MOCK" as const, 
+            agent_id: agentInfo.id,
+            details: `Agent ID: ${agentInfo.id} | ${agentInfo.displayName} unreachable (HTTP ${agentRes.status})`, 
+            latency_ms: Date.now() - start 
+          };
         })(),
         2000,
-        { status: "MOCK" as const, details: "Vertex AI Agent probe timed out (2s); using static AI assistant fallback", latency_ms: 2000 }
+        { 
+          status: "MOCK" as const, 
+          agent_id: agentInfo.id,
+          details: `Agent ID: ${agentInfo.id} | ${agentInfo.displayName} probe timed out (2s)`, 
+          latency_ms: 2000 
+        }
       );
     };
 
@@ -958,7 +1089,10 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       pubsubRes, 
       bqmlRes, 
       dataplexRes, 
-      vertexRes,
+      vertexKcRes,
+      vertexBasicRes,
+      vertexScaledRes,
+      vertexCouncilRes,
       bqPlayers,
       bqSessions,
       bqTransactions,
@@ -972,7 +1106,10 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       testPubSub(),
       testBQML(),
       testDataplex(),
-      testVertexAgent(),
+      testVertexAgent('kc'),
+      testVertexAgent('basic'),
+      testVertexAgent('scaled'),
+      testVertexAgent('council'),
       testBQTable("omniarcade_raw.gcp_players", "Player Profiles & Tiers"),
       testBQTable("omniarcade_raw.live_session_events", "Live Session Telemetry"),
       testBQTable("omniarcade_raw.iap_transactions", "IAP Transaction Log"),
@@ -994,7 +1131,11 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       pubsub: pubsubRes,
       bqml: bqmlRes,
       dataplex: dataplexRes,
-      vertex_agent: vertexRes,
+      vertex_agent: vertexKcRes,
+      vertex_agent_kc: vertexKcRes,
+      vertex_agent_basic: vertexBasicRes,
+      vertex_agent_scaled: vertexScaledRes,
+      vertex_agent_council: vertexCouncilRes,
       simulator: simulatorRes,
       bq_gcp_players: bqPlayers,
       bq_live_sessions: bqSessions,
@@ -1034,7 +1175,10 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
         { id: 'pubsub', name: 'Cloud Pub/Sub Streaming Ingest', category: 'Event Streaming', status: pubsubRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: pubsubRes.status.toLowerCase() as 'live' | 'mock', details: pubsubRes.details, latency_ms: pubsubRes.latency_ms },
         { id: 'bqml', name: 'BigQuery ML (ML.PREDICT)', category: 'Predictive ML', status: bqmlRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: bqmlRes.status.toLowerCase() as 'live' | 'mock', details: bqmlRes.details, latency_ms: bqmlRes.latency_ms },
         { id: 'dataplex', name: 'Dataplex Knowledge Catalog API', category: 'Governance & Catalog', status: dataplexRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: dataplexRes.status.toLowerCase() as 'live' | 'mock', details: dataplexRes.details, latency_ms: dataplexRes.latency_ms },
-        { id: 'vertex_agent', name: 'Vertex AI Reasoning Engine', category: 'Agent Infrastructure', status: vertexRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: vertexRes.status.toLowerCase() as 'live' | 'mock', details: vertexRes.details, latency_ms: vertexRes.latency_ms },
+        { id: 'vertex_agent_kc', name: 'Gemini Enterprise Agent (KC-Guided)', category: 'Agent Infrastructure', status: vertexKcRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: vertexKcRes.status.toLowerCase() as 'live' | 'mock', details: vertexKcRes.details, agent_id: vertexKcRes.agent_id, latency_ms: vertexKcRes.latency_ms },
+        { id: 'vertex_agent_basic', name: 'Gemini Enterprise Agent (Basic LLM)', category: 'Agent Infrastructure', status: vertexBasicRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: vertexBasicRes.status.toLowerCase() as 'live' | 'mock', details: vertexBasicRes.details, agent_id: vertexBasicRes.agent_id, latency_ms: vertexBasicRes.latency_ms },
+        { id: 'vertex_agent_scaled', name: 'Gemini Enterprise Agent (Scaled Runtime)', category: 'Agent Infrastructure', status: vertexScaledRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: vertexScaledRes.status.toLowerCase() as 'live' | 'mock', details: vertexScaledRes.details, agent_id: vertexScaledRes.agent_id, latency_ms: vertexScaledRes.latency_ms },
+        { id: 'vertex_agent_council', name: 'Gemini Enterprise Agent (Marketing Council)', category: 'Agent Infrastructure', status: vertexCouncilRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: vertexCouncilRes.status.toLowerCase() as 'live' | 'mock', details: vertexCouncilRes.details, agent_id: vertexCouncilRes.agent_id, latency_ms: vertexCouncilRes.latency_ms },
         { id: 'simulator', name: 'Live Game Telemetry Simulator Engine', category: 'Event Streaming & Simulation', status: simulatorState.isRunning ? 'LIVE' : 'FALLBACK', mode: simulatorState.isRunning ? 'live' : 'mock', details: simulatorRes.details, latency_ms: 0 }
       ]
     });
@@ -1083,7 +1227,7 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
         },
         {
           step: 3,
-          name: "Vertex AI Agent Engine (agent_kc) Reasoning & Action",
+          name: "Gemini Enterprise Agent Runtime (agent_kc) Reasoning & Action",
           status: isAutonomous ? "AUTO_EXECUTED" : "PROPOSED",
           details: isAutonomous
             ? `Autonomous Mode ACTIVE: Executed offer '${precachedOffer.title}' via SSE in <300ms.`
@@ -1230,6 +1374,11 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
     console.log(`  - Dataplex Search Proxy: GET /api/catalog/search`);
     console.log(`  - Dataplex Rule Discovery: POST /api/catalog/rules/discover`);
     console.log(`  - Vertex AI Agent Chat: POST /api/chat`);
+
+    // Pre-cache deployed Gemini Enterprise Agent Runtimes on startup
+    discoverReasoningEngines().catch((err) => {
+      console.warn("[Agent Runtime Discovery] Startup pre-cache warning:", err.message);
+    });
   });
 
   // --------------------------------------------------------------------------

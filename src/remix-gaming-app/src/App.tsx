@@ -130,7 +130,7 @@ export default function App() {
               subtitle="KC-Guided vs Non-KC AI Gameplay Agent Trajectory Comparison"
               path="/agent-comparison"
               dataMode="live"
-              dataBank="Vertex AI Reasoning Engine + Flask-Sock WS"
+              dataBank="Gemini Enterprise Agent Runtime + Flask-Sock WS"
               description="Side-by-side execution trace comparing Dataplex Knowledge Catalog guided agents against raw LLM agents."
             />
           )}

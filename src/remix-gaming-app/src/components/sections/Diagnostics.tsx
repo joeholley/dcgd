@@ -69,7 +69,10 @@ export function Diagnostics() {
     { id: 'pubsub', name: 'Cloud Pub/Sub Streaming Ingest', description: 'omniarcade-live-telemetry & BQ Direct Sub', status: 'FALLBACK', mode: 'mock', latencyMs: 16, details: 'Pub/Sub topic omniarcade-live-telemetry active (Dev Mock)' },
     { id: 'bqml', name: 'BigQuery ML (ML.PREDICT)', description: 'ML.PREDICT omniarcade_raw.player_churn_model', status: 'FALLBACK', mode: 'mock', latencyMs: 5, details: 'Dynamic heuristic churn scoring active in dev fallback' },
     { id: 'dataplex', name: 'Dataplex Knowledge Catalog API', description: 'Aspect Types, Business Glossaries & Lineage', status: 'FALLBACK', mode: 'mock', latencyMs: 32, details: 'Dataplex REST API aspect registry active (Dev Fallback)' },
-    { id: 'vertex', name: 'Vertex AI Reasoning Engine', description: 'ReasoningEngine omniarcade-guardrail-agent', status: 'FALLBACK', mode: 'mock', latencyMs: 44, details: 'Vertex AI ADK Agent Engine active (Dev Fallback)' }
+    { id: 'vertex_agent_kc', name: 'Gemini Enterprise Agent (KC-Guided)', description: 'Dataplex Knowledge Catalog Guided Reasoning Engine (agent_kc)', status: 'FALLBACK', mode: 'mock', latencyMs: 44, details: 'Discovered Agent ID: Unconfigured (Dev Fallback)' },
+    { id: 'vertex_agent_basic', name: 'Gemini Enterprise Agent (Basic LLM)', description: 'Raw Gemini Reasoning Engine without KC Tools (agent_basic)', status: 'FALLBACK', mode: 'mock', latencyMs: 40, details: 'Discovered Agent ID: Unconfigured (Dev Fallback)' },
+    { id: 'vertex_agent_scaled', name: 'Gemini Enterprise Agent (Scaled Runtime)', description: 'Multi-Shard LiveOps High-Throughput Reasoning Engine (agent_scaled)', status: 'FALLBACK', mode: 'mock', latencyMs: 42, details: 'Discovered Agent ID: Unconfigured (Dev Fallback)' },
+    { id: 'vertex_agent_council', name: 'Gemini Enterprise Agent (Marketing Council)', description: 'Multi-Agent Swarm / Council Reasoning Engine (agent_council)', status: 'FALLBACK', mode: 'mock', latencyMs: 48, details: 'Discovered Agent ID: Unconfigured (Dev Fallback)' }
   ]);
 
   const [sections, setSections] = useState<SectionDiagnostic[]>([
@@ -171,7 +174,7 @@ export function Diagnostics() {
       route: '/workflows',
       overallMode: 'hybrid',
       subFeatures: [
-        { name: 'Retention & Gift Card Promo Pipeline', connected: true, source: 'Vertex AI Agent Engine', mode: 'live', latencyMs: 48 },
+        { name: 'Retention & Gift Card Promo Pipeline', connected: true, source: 'Gemini Enterprise Agent Runtime', mode: 'live', latencyMs: 48 },
         { name: 'Anti-Cheat Memory Tampering Detector', connected: false, source: 'Synthetic Trace Generator', mode: 'mock', latencyMs: 8 }
       ]
     },
@@ -184,7 +187,7 @@ export function Diagnostics() {
       overallMode: 'live',
       subFeatures: [
         { name: 'WebSocket Query Step Streaming (/api/ws)', connected: true, source: 'Flask-Sock Proxy', mode: 'live', latencyMs: 12 },
-        { name: 'KC-Guided Agent Dataplex Tools', connected: true, source: 'Vertex AI Reasoning Engine + Dataplex', mode: 'live', latencyMs: 44 }
+        { name: 'KC-Guided Agent Dataplex Tools', connected: true, source: 'Gemini Enterprise Agent Runtime + Dataplex', mode: 'live', latencyMs: 44 }
       ]
     },
     {

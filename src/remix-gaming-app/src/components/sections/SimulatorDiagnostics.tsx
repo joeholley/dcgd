@@ -53,7 +53,7 @@ export function SimulatorDiagnostics({ routingMode }: SimulatorDiagnosticsProps)
             bigquery: { status: "ACTIVE", latency: "42ms", message: "Table 'omniarcade_gold.gold_player_360' active (1.4M rows)" },
             bqml: { status: "ACTIVE", latency: "88ms", message: "Model 'omniarcade_raw.player_churn_model' (BQML XGBoost 94.2% ROC-AUC)" },
             dataplex: { status: "ACTIVE", latency: "24ms", message: "Governance Aspect 'liveops-campaign-policy-aspect' verified" },
-            vertex: { status: "ACTIVE", latency: "120ms", message: "Reasoning Engine 'omniarcade-guardrail-agent' (Gemini Enterprise 1.5)" }
+            vertex: { status: "ACTIVE", latency: "120ms", message: "Gemini Enterprise Agent Runtime 'omniarcade-guardrail-agent'" }
           });
         }
       })
@@ -64,7 +64,7 @@ export function SimulatorDiagnostics({ routingMode }: SimulatorDiagnosticsProps)
             bigquery: { status: "OFFLINE", latency: "N/A", message: `BigQuery probe failed: ${err.message}` },
             bqml: { status: "OFFLINE", latency: "N/A", message: `BQML probe failed: ${err.message}` },
             dataplex: { status: "OFFLINE", latency: "N/A", message: `Dataplex probe failed: ${err.message}` },
-            vertex: { status: "OFFLINE", latency: "N/A", message: `Vertex AI probe failed: ${err.message}` }
+            vertex: { status: "OFFLINE", latency: "N/A", message: `Gemini Enterprise Agent Runtime probe failed: ${err.message}` }
           });
         }
       });
@@ -91,7 +91,7 @@ export function SimulatorDiagnostics({ routingMode }: SimulatorDiagnosticsProps)
     : { status: "MOCKED", latency: "0ms (Local)", message: "MOCKED (OFFLINE SIMULATION) - Static policy aspect schema" };
 
   const vertexStatus: ProbeInfo = isLive
-    ? (probeResults?.vertex || { status: "ACTIVE", latency: "120ms", message: "Reasoning Engine 'omniarcade-guardrail-agent' (Gemini Enterprise 1.5)" })
+    ? (probeResults?.vertex || { status: "ACTIVE", latency: "120ms", message: "Gemini Enterprise Agent Runtime 'omniarcade-guardrail-agent'" })
     : { status: "MOCKED", latency: "0ms (Local)", message: "MOCKED (OFFLINE SIMULATION) - Canned LLM trace playback" };
 
   const services = [
@@ -136,8 +136,8 @@ export function SimulatorDiagnostics({ routingMode }: SimulatorDiagnosticsProps)
       probeCode: "fetch('https://dataplex.googleapis.com/v1/projects/.../aspectTypes/liveops-campaign-policy-aspect')",
     },
     {
-      name: "Vertex AI Reasoning Engine",
-      target: "Agent Engine: omniarcade-guardrail-agent",
+      name: "Gemini Enterprise Agent Runtime",
+      target: "Agent Runtime: omniarcade-guardrail-agent",
       icon: Bot,
       color: "text-orange-400",
       bg: "bg-orange-500/10",
