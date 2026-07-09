@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Layout } from "./components/Layout";
 import { Overview } from "./components/sections/Overview";
 import { GamingAssistant } from "./components/sections/GamingAssistant";
@@ -7,7 +7,7 @@ import { ITObservatory } from "./components/sections/ITObservatory";
 import { AgenticWorkflows } from "./components/sections/AgenticWorkflows";
 import { Operations } from "./components/sections/Operations";
 import { CampaignEngine, Country, LanguageSetting } from "./components/sections/CampaignEngine";
-import { LiveOpsGuardrail } from "./components/sections/LiveOpsGuardrail";
+import { SimulatorInterface } from "./components/sections/SimulatorInterface";
 import { GCPHealth } from "./components/sections/GCPHealth";
 import { Diagnostics } from "./components/sections/Diagnostics";
 import { FlaskSection } from "./components/sections/FlaskSection";
@@ -18,7 +18,6 @@ export type Section =
   | "operations" 
   | "executive-portfolio"
   | "catalog" 
-  | "guardrail" 
   | "campaigns" 
   | "difficulty-balancer"
   | "marketing-swarm"
@@ -34,6 +33,9 @@ export default function App() {
   const [activeSection, setActiveSection] = useState<Section>("overview");
   const [initialCatalogSearch, setInitialCatalogSearch] = useState("");
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [isStandaloneSimulator] = useState<boolean>(
+    () => typeof window !== "undefined" && window.location.pathname.startsWith("/simulator")
+  );
 
   // Global Localization States shared across application layout
   const [country, setCountry] = useState<Country>("Japan");
@@ -50,6 +52,10 @@ export default function App() {
       }
     }
   };
+
+  if (isStandaloneSimulator) {
+    return <SimulatorInterface />;
+  }
 
   return (
     <DemoEventProvider activeSection={activeSection} setActiveSection={handleSectionChange}>
@@ -84,7 +90,6 @@ export default function App() {
           {activeSection === "catalog" && <KnowledgeCatalog initialSearch={initialCatalogSearch} />}
 
           {/* LiveOps & Automation */}
-          {activeSection === "guardrail" && <LiveOpsGuardrail />}
           {activeSection === "campaigns" && (
             <CampaignEngine 
               country={country}

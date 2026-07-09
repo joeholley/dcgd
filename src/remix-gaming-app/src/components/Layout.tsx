@@ -11,13 +11,14 @@ import {
   Bot,
   Megaphone,
   ShieldCheck,
-  CloudCheck
+  CloudCheck,
+  ExternalLink
 } from "lucide-react";
 import { Section } from "../App";
 import { cn } from "../lib/utils";
 import { Country, LanguageSetting } from "./sections/CampaignEngine";
 import { isUsingFirebaseMock } from "../services/firebase";
-
+import { getRoutingMode, setRoutingMode, onRoutingModeChange, RoutingMode } from "../services/simulatorBridge";
 
 const LAYOUT_TRANSLATIONS: Record<string, Record<Country, string>> = {
   "Gaming Overview": {
@@ -35,11 +36,6 @@ const LAYOUT_TRANSLATIONS: Record<string, Record<Country, string>> = {
     Korea: "게임 플레이 에이전트",
     China: "自动化游戏代理"
   },
-  "LiveOps Guardrail": {
-    Japan: "リアルタイム・ガードレール",
-    Korea: "라이브옵스 가드레일",
-    China: "实时 LiveOps 护栏"
-  },
   "Campaign Engine": {
     Japan: "キャンペーン・エンジン",
     Korea: "캠페인 엔진",
@@ -47,7 +43,7 @@ const LAYOUT_TRANSLATIONS: Record<string, Record<Country, string>> = {
   },
   "Telemetry Catalog": {
     Japan: "テレメトリ・カタログ",
-    Korea: "텔레메트리 카탈로그",
+    Korea: "텔레메트리 カタログ",
     China: "遥测指标目录"
   },
   "API Observatory": {
@@ -96,7 +92,16 @@ export function Layout({
   languageSetting,
   setLanguageSetting
 }: LayoutProps) {
-    // Live Game Telemetry Simulator Control State & Handlers
+  // Routing mode state (LIVE vs MOCKED)
+  const [routingMode, setRoutingModeState] = useState<RoutingMode>(getRoutingMode());
+
+  useEffect(() => {
+    return onRoutingModeChange((newMode) => {
+      setRoutingModeState(newMode);
+    });
+  }, []);
+
+  // Live Game Telemetry Simulator Control State & Handlers
   const [simulator, setSimulator] = useState<{
     isRunning: boolean;
     currentCCU: number;
@@ -190,7 +195,6 @@ export function Layout({
     {
       title: "LiveOps & Automation",
       items: [
-        { id: "guardrail" as Section, label: "LiveOps Guardrail", icon: ShieldCheck },
         { id: "campaigns" as Section, label: "Campaign Engine", icon: Megaphone },
         { id: "difficulty-balancer" as Section, label: "Difficulty Balancer (Flask)", icon: Zap },
         { id: "marketing-swarm" as Section, label: "Marketing Swarm (Flask)", icon: Bot },
@@ -228,6 +232,34 @@ export function Layout({
 
         {/* Live Game Telemetry Simulator Control Bar */}
         <div className="flex items-center gap-3 px-3.5 py-1.5 bg-slate-800/80 rounded-full border border-slate-700/60 shadow-inner font-mono text-xs shrink-0">
+          {/* User-Controlled LIVE vs MOCKED Routing Mode Toggle */}
+          <div className="flex items-center bg-slate-950 p-0.5 rounded-full border border-slate-700">
+            <button
+              type="button"
+              onClick={() => setRoutingMode("LIVE")}
+              className={cn(
+                "px-2 py-0.5 rounded-full text-[9px] font-bold uppercase transition-all cursor-pointer",
+                routingMode === "LIVE"
+                  ? "bg-blue-600 text-white shadow-sm"
+                  : "text-slate-400 hover:text-slate-200"
+              )}
+            >
+              LIVE (GCP)
+            </button>
+            <button
+              type="button"
+              onClick={() => setRoutingMode("MOCKED")}
+              className={cn(
+                "px-2 py-0.5 rounded-full text-[9px] font-bold uppercase transition-all cursor-pointer",
+                routingMode === "MOCKED"
+                  ? "bg-emerald-600 text-white shadow-sm"
+                  : "text-slate-400 hover:text-slate-200"
+              )}
+            >
+              MOCKED
+            </button>
+          </div>
+
           <button
             type="button"
             onClick={handleToggleSimulator}
@@ -261,6 +293,17 @@ export function Layout({
               <option value="toxic_chat">☣️ Toxic Chat Outbreak</option>
             </select>
           </div>
+
+          {/* Leaving Page Box: External Link to Standalone Simulator */}
+          <button
+            type="button"
+            onClick={() => window.open("/simulator", "_blank")}
+            className="flex items-center gap-1 px-2.5 py-1 bg-slate-900 hover:bg-slate-950 border border-slate-700 hover:border-slate-500 text-blue-400 hover:text-blue-300 text-[10px] font-bold rounded-lg transition-all cursor-pointer shadow-sm ml-1"
+            title="Open Standalone Game Simulator Interface in new window"
+          >
+            <span>Simulator UI</span>
+            <ExternalLink className="w-3 h-3" />
+          </button>
         </div>
 
         {/* Global Regional Localization Controllers - VERY Prominent & Accessible on all tabs */}
