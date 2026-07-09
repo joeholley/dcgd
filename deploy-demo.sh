@@ -402,6 +402,11 @@ if [ "$RUN_INFRA" = true ]; then
   if [ -d "$DATAFORM_DIR" ]; then
     log_info "Compiling and running Dataform Medallion models in ${DATAFORM_DIR}..."
 
+    log_info "Ensuring all required BigQuery datasets exist in ${GCP_PROJECT} before table seeding..."
+    for ds in omniarcade_raw omniarcade_synthetic omniarcade_silver omniarcade_gold central_identity fps_studio mmo_studio mobile_studio sports_studio strategy_studio telemetry_bronze telemetry_silver telemetry_gold telemetry_dashboards telemetry_reference agent_analytics; do
+      bq mk --location="${GCP_REGION}" --dataset "${GCP_PROJECT}:${ds}" &>/dev/null || true
+    done
+
     log_info "Ensuring source tables exist and are seeded before Dataform execution..."
     bq query --location="${GCP_REGION}" --use_legacy_sql=false "
       CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.central_identity.players\` (
