@@ -79,6 +79,7 @@ RUN_AGENTS=true
 RUN_BUILD=true
 RUN_DEPLOY=true
 MODE_SET=false
+AGENT_TARGET="kc"
 
 usage() {
   local exit_code="${1:-0}"
@@ -90,15 +91,18 @@ Master Deployment Orchestrator for Unified Gaming Data & AI Operations Platform.
 Options:
   -a, --all             Run full deployment runbook (Steps 0-8) [Default].
   -s, --skip-infra      Skip infrastructure/pipeline steps (1-5), run ADK Agents, Cloud Build & Cloud Run (Steps 6-8).
+  -k, --kc-agent-only   Only deploy/push out latest KC ADK Agent code to Vertex AI Agent Engine (Step 6 for agent_kc).
+  -g, --agent-only      Only run ADK Agent Engine deployment (Step 6).
   -b, --build-only      Only run Cloud Build container compilation (Step 7).
   -d, --deploy-only     Only run Cloud Run service deployment (Step 8).
-  -g, --agent-only      Only run ADK Agent Engine deployment (Step 6).
+  --all-agents          Deploy all 5 ADK agents (basic, scaled, kc, council, council_seq) during Step 6.
   -h, --help            Show this help message and exit.
 
 Examples:
   $(basename "$0") --skip-infra
-  $(basename "$0") --agent-only
-  $(basename "$0") -b -d
+  $(basename "$0") --kc-agent-only
+  $(basename "$0") -k
+  $(basename "$0") -g --all-agents
 EOHELP
   exit "$exit_code"
 }
@@ -129,6 +133,19 @@ while [[ $# -gt 0 ]]; do
       fi
       shift
       ;;
+    -k|--kc-agent-only|--push-agent|--agent-kc)
+      if [ "$MODE_SET" = false ]; then
+        RUN_INFRA=false
+        RUN_AGENTS=true
+        RUN_BUILD=false
+        RUN_DEPLOY=false
+        MODE_SET=true
+      else
+        RUN_AGENTS=true
+      fi
+      AGENT_TARGET="kc"
+      shift
+      ;;
     -g|--agent-only|--agents-only)
       if [ "$MODE_SET" = false ]; then
         RUN_INFRA=false
@@ -139,6 +156,10 @@ while [[ $# -gt 0 ]]; do
       else
         RUN_AGENTS=true
       fi
+      shift
+      ;;
+    --all-agents)
+      AGENT_TARGET="all"
       shift
       ;;
     -s|--skip-infra)
@@ -297,7 +318,7 @@ if [ "$RUN_INFRA" = true ]; then
     terraform -chdir="${TF_DIR}" init -input=false
 
     # Pre-import existing BigQuery datasets into Terraform state if they already exist in GCP
-    log_info "Pre-checking BigQuery datasets for automatic Terraform import if already created..."
+    log_info "Pre-importing existing BigQuery datasets into Terraform state to prevent 409 duplicate creation errors..."
     for pair in \
       "retail:google_bigquery_dataset.retail-dataset" \
       "retail_synthetic:google_bigquery_dataset.retail-synthetic-dataset" \
@@ -307,14 +328,11 @@ if [ "$RUN_INFRA" = true ]; then
       "omniarcade_gold:module.games[0].google_bigquery_dataset.omniarcade_gold"; do
         ds="${pair%%:*}"
         tf_target="${pair#*:}"
-        if bq show "${GCP_PROJECT}:${ds}" &>/dev/null; then
-          log_warn "  Notice: BigQuery dataset '${GCP_PROJECT}:${ds}' already exists in GCP. Pre-importing into Terraform state..."
-          terraform -chdir="${TF_DIR}" import \
-            -var="project_id=${GCP_PROJECT}" \
-            -var="industry_target=games" \
-            -var="bigquery_dataset_location=${GCP_REGION}" \
-            "${tf_target}" "projects/${GCP_PROJECT}/datasets/${ds}" &>/dev/null || true
-        fi
+        terraform -chdir="${TF_DIR}" import \
+          -var="project_id=${GCP_PROJECT}" \
+          -var="industry_target=games" \
+          -var="bigquery_dataset_location=${GCP_REGION}" \
+          "${tf_target}" "projects/${GCP_PROJECT}/datasets/${ds}" &>/dev/null || true
     done
 
     log_info "Executing 'terraform apply'..."
@@ -466,11 +484,12 @@ fi
 if [ "$RUN_AGENTS" = true ]; then
   log_step "STEP 6: Vertex AI Agent Engine / ADK Agent Deployment"
 
+  AGENT_TARGET="${AGENT_TARGET:-kc}"
   AGENT_DEPLOY_SCRIPT="${GAMING_DIR}/agents/deploy_agents.sh"
   if [ -f "$AGENT_DEPLOY_SCRIPT" ]; then
-    log_info "Executing ADK agent deployment script: ${AGENT_DEPLOY_SCRIPT}..."
-    GOOGLE_CLOUD_PROJECT="${GCP_PROJECT}" GOOGLE_CLOUD_LOCATION="${GCP_REGION}" bash "$AGENT_DEPLOY_SCRIPT" all
-    log_success "Step 6 Vertex AI Agent Engine / ADK Agents deployed successfully."
+    log_info "Executing ADK agent deployment script: ${AGENT_DEPLOY_SCRIPT} (target: ${AGENT_TARGET})..."
+    GOOGLE_CLOUD_PROJECT="${GCP_PROJECT}" GOOGLE_CLOUD_LOCATION="${GCP_REGION}" bash "$AGENT_DEPLOY_SCRIPT" "${AGENT_TARGET}"
+    log_success "Step 6 Vertex AI Agent Engine / ADK Agent(s) (${AGENT_TARGET}) deployed successfully."
   else
     log_error "Agent deployment script ${AGENT_DEPLOY_SCRIPT} not found."
     exit 1
