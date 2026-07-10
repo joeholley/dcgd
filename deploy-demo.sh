@@ -494,6 +494,15 @@ if [ "$RUN_INFRA" = true ]; then
 }
 EOF
 
+    # Always overwrite workflow_settings.yaml to target the active project and location dynamically
+    cat <<EOF > "${DATAFORM_DIR}/workflow_settings.yaml"
+dataformCoreVersion: 3.0.0
+defaultProject: ${GCP_PROJECT}
+defaultLocation: ${GCP_REGION}
+datasetSuffix: ""
+defaultAssertionDataset: dataform_assertions
+EOF
+
     # Remove legacy package.json if present (Dataform v3 rejects package.json when workflow_settings.yaml is used)
     rm -f "${DATAFORM_DIR}/package.json"
 
