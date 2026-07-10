@@ -201,9 +201,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Configuration variables
-GCP_PROJECT="${GOOGLE_CLOUD_PROJECT:-${GCP_PROJECT}}"
+GCP_PROJECT="$(gcloud config get-value project 2>/dev/null)"
 if [ -z "$GCP_PROJECT" ]; then
-  GCP_PROJECT="$(gcloud config get-value project 2>/dev/null)"
+  GCP_PROJECT="${GOOGLE_CLOUD_PROJECT:-${GCP_PROJECT}}"
 fi
 
 if [ -z "$GCP_PROJECT" ]; then
@@ -212,13 +212,15 @@ if [ -z "$GCP_PROJECT" ]; then
   exit 1
 fi
 
+log_info "Using active GCP Project ID: '${GCP_PROJECT}'"
+
 GCP_REGION="${GCP_LOCATION:-us-central1}"
 PUBSUB_TOPIC="omniarcade-live-telemetry"
 BQ_DATASET_RAW="omniarcade_raw"
 BQ_DATASET_GOLD="omniarcade_gold"
 
 # Fetch project number strictly
-GCP_PROJECT_NUMBER="$(gcloud projects describe "${GCP_PROJECT}" --format="value(projectNumber)" 2>/dev/null)"
+GCP_PROJECT_NUMBER="$(gcloud projects describe "${GCP_PROJECT}" --format="value(projectNumber)")"
 if [ -z "$GCP_PROJECT_NUMBER" ]; then
   log_error "Failed to retrieve project number for project '${GCP_PROJECT}'."
   exit 1
