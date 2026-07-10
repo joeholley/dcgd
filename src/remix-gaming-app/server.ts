@@ -1104,6 +1104,7 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
 
     const [
       authRes, 
+      bqRes,
       pubsubRes, 
       bqmlRes, 
       dataplexRes, 
@@ -1121,6 +1122,7 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       bqDifficulty
     ] = await Promise.all([
       testAuth(),
+      testBigQuery(),
       testPubSub(),
       testBQML(),
       testDataplex(),
@@ -1146,6 +1148,7 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
 
     const services = {
       auth: authRes,
+      bigquery: bqRes,
       pubsub: pubsubRes,
       bqml: bqmlRes,
       dataplex: dataplexRes,
