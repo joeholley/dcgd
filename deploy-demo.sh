@@ -506,14 +506,31 @@ EOF
     # Remove legacy package.json if present (Dataform v3 rejects package.json when workflow_settings.yaml is used)
     rm -f "${DATAFORM_DIR}/package.json"
 
+    local run_status=0
+    local log_file=$(mktemp)
+
+    log_info "Running Dataform Medallion pipeline..."
     if command -v dataform &> /dev/null; then
-      dataform run "${DATAFORM_DIR}" --default-location="${GCP_REGION}" --vars=project_id:${GCP_PROJECT},industry:games
+      dataform run "${DATAFORM_DIR}" --default-location="${GCP_REGION}" --vars=project_id:${GCP_PROJECT},industry:games --verbose > "$log_file" 2>&1 || run_status=$?
     elif command -v npx &> /dev/null; then
-      npx --yes @dataform/cli run "${DATAFORM_DIR}" --default-location="${GCP_REGION}" --vars=project_id:${GCP_PROJECT},industry:games
+      npx --yes @dataform/cli run "${DATAFORM_DIR}" --default-location="${GCP_REGION}" --vars=project_id:${GCP_PROJECT},industry:games --verbose > "$log_file" 2>&1 || run_status=$?
     else
       log_error "Neither 'dataform' nor 'npx' CLI utility was found in PATH."
+      rm -f "$log_file"
       exit 1
     fi
+
+    cat "$log_file"
+
+    if [ $run_status -ne 0 ]; then
+      log_error "Dataform execution failed (exit code $run_status). Filtering log for errors/failures:"
+      echo -e "${RED}"
+      grep -i -E "error|fail|exception|denied|invalid" "$log_file" || true
+      echo -e "${NC}"
+      rm -f "$log_file"
+      exit $run_status
+    fi
+    rm -f "$log_file"
     log_success "Step 3 Dataform Gold analytical tables built."
   else
     log_error "Dataform directory ${DATAFORM_DIR} not found."
