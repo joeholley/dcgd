@@ -523,8 +523,8 @@ EOF
     # Remove legacy package.json if present (Dataform v3 rejects package.json when workflow_settings.yaml is used)
     rm -f "${DATAFORM_DIR}/package.json"
 
-    local run_status=0
-    local log_file=$(mktemp)
+    run_status=0
+    log_file=$(mktemp)
 
     log_info "Running Dataform Medallion pipeline..."
     if command -v dataform &> /dev/null; then
