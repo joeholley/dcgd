@@ -18,7 +18,7 @@ import { Section } from "../App";
 import { cn } from "../lib/utils";
 import { Country, LanguageSetting } from "./sections/CampaignEngine";
 import { isUsingFirebaseMock } from "../services/firebase";
-import { getRoutingMode, setRoutingMode, onRoutingModeChange, RoutingMode } from "../services/simulatorBridge";
+import { getRoutingMode, setRoutingMode, onRoutingModeChange, onSimulatorStateChange, broadcastSimulatorState, RoutingMode } from "../services/simulatorBridge";
 
 const LAYOUT_TRANSLATIONS: Record<string, Record<Country, string>> = {
   "Gaming Overview": {
@@ -95,12 +95,6 @@ export function Layout({
   // Routing mode state (LIVE vs MOCKED)
   const [routingMode, setRoutingModeState] = useState<RoutingMode>(getRoutingMode());
 
-  useEffect(() => {
-    return onRoutingModeChange((newMode) => {
-      setRoutingModeState(newMode);
-    });
-  }, []);
-
   // Live Game Telemetry Simulator Control State & Handlers
   const [simulator, setSimulator] = useState<{
     isRunning: boolean;
@@ -114,16 +108,70 @@ export function Layout({
     totalEventsPublished: 0,
   });
 
+  useEffect(() => {
+    const unsubMode = onRoutingModeChange((newMode) => {
+      setRoutingModeState(newMode);
+    });
+
+    const unsubState = onSimulatorStateChange((state) => {
+      setSimulator((prev) => {
+        if (
+          prev.isRunning === state.isRunning &&
+          prev.currentCCU === state.targetCCU &&
+          prev.activeAnomaly === state.activeAnomaly
+        ) {
+          return prev;
+        }
+        return {
+          ...prev,
+          isRunning: state.isRunning,
+          currentCCU: state.targetCCU,
+          activeAnomaly: state.activeAnomaly,
+        };
+      });
+    });
+
+    return () => {
+      unsubMode();
+      unsubState();
+    };
+  }, []);
+
   const fetchSimulatorStatus = async () => {
+    if (getRoutingMode() !== "LIVE") return;
     try {
       const res = await fetch("/api/simulator/status");
       if (res.ok) {
         const data = await res.json();
-        setSimulator({
-          isRunning: !!data.isRunning,
-          currentCCU: data.currentCCU || 14280,
-          activeAnomaly: data.activeAnomaly || null,
-          totalEventsPublished: data.totalEventsPublished || 0,
+        setSimulator((prev) => {
+          const isRunning = !!data.is_running;
+          const currentCCU = data.current_ccu || 14280;
+          const activeAnomaly = data.active_anomaly || null;
+          const totalEventsPublished = data.total_events_published || 0;
+
+          if (
+            prev.isRunning === isRunning &&
+            prev.currentCCU === currentCCU &&
+            prev.activeAnomaly === activeAnomaly &&
+            prev.totalEventsPublished === totalEventsPublished
+          ) {
+            return prev;
+          }
+
+          // Broadcast status change to simulator tab to keep UI controls in sync
+          broadcastSimulatorState({
+            isRunning,
+            frequencyHz: data.event_rate_hz || 2,
+            targetCCU: currentCCU,
+            activeAnomaly,
+          });
+
+          return {
+            isRunning,
+            currentCCU,
+            activeAnomaly,
+            totalEventsPublished,
+          };
         });
       }
     } catch (err) {
@@ -138,39 +186,69 @@ export function Layout({
   }, []);
 
   const handleToggleSimulator = async () => {
-    const endpoint = simulator.isRunning ? "/api/simulator/stop" : "/api/simulator/start";
-    try {
-      const res = await fetch(endpoint, { method: "POST" });
-      if (res.ok) {
-        const data = await res.json();
-        setSimulator(prev => ({
-          ...prev,
-          isRunning: !!data.isRunning,
-          currentCCU: data.currentCCU || prev.currentCCU,
-          activeAnomaly: data.activeAnomaly !== undefined ? data.activeAnomaly : prev.activeAnomaly,
-        }));
+    const nextIsRunning = !simulator.isRunning;
+
+    // Update local state immediately
+    setSimulator((prev) => ({ ...prev, isRunning: nextIsRunning }));
+
+    // Broadcast to other tabs
+    broadcastSimulatorState({
+      isRunning: nextIsRunning,
+      frequencyHz: 2,
+      targetCCU: simulator.currentCCU,
+      activeAnomaly: simulator.activeAnomaly,
+    });
+
+    if (getRoutingMode() === "LIVE") {
+      const endpoint = nextIsRunning ? "/api/simulator/start" : "/api/simulator/stop";
+      try {
+        const res = await fetch(endpoint, { method: "POST" });
+        if (res.ok) {
+          const data = await res.json();
+          setSimulator((prev) => ({
+            ...prev,
+            isRunning: !!data.is_running,
+            currentCCU: data.current_ccu || prev.currentCCU,
+            activeAnomaly: data.active_anomaly !== undefined ? data.active_anomaly : prev.activeAnomaly,
+          }));
+        }
+      } catch (err) {
+        console.warn("Simulator toggle error:", err);
       }
-    } catch (err) {
-      console.warn("Simulator toggle error:", err);
     }
   };
 
   const handleInjectAnomaly = async (type: string) => {
-    try {
-      const res = await fetch("/api/simulator/inject-anomaly", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSimulator(prev => ({
-          ...prev,
-          activeAnomaly: data.activeAnomaly || null,
-        }));
+    const nextAnomaly = type === "none" ? null : type;
+
+    // Update local state immediately
+    setSimulator((prev) => ({ ...prev, activeAnomaly: nextAnomaly }));
+
+    // Broadcast to other tabs
+    broadcastSimulatorState({
+      isRunning: simulator.isRunning,
+      frequencyHz: 2,
+      targetCCU: simulator.currentCCU,
+      activeAnomaly: nextAnomaly,
+    });
+
+    if (getRoutingMode() === "LIVE") {
+      try {
+        const res = await fetch("/api/simulator/inject-anomaly", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ anomaly_type: nextAnomaly }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setSimulator((prev) => ({
+            ...prev,
+            activeAnomaly: data.active_anomaly || null,
+          }));
+        }
+      } catch (err) {
+        console.warn("Simulator anomaly injection error:", err);
       }
-    } catch (err) {
-      console.warn("Simulator anomaly injection error:", err);
     }
   };
 

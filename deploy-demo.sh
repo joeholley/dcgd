@@ -45,6 +45,26 @@ log_step() {
   echo -e "${BOLD}${BLUE}======================================================================${NC}\n"
 }
 
+grant_role_silently() {
+  local member="$1"
+  local role="$2"
+  log_info "  - Granting ${role} to ${member}..."
+  local err_log
+  err_log=$(mktemp)
+  if gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
+    --member="${member}" \
+    --role="${role}" \
+    --condition=None >/dev/null 2>"${err_log}"; then
+    log_info "    Updated IAM policy for project [${GCP_PROJECT}]."
+  else
+    log_error "    Failed to update IAM policy. Error details:"
+    cat "${err_log}" >&2
+    rm -f "${err_log}"
+    return 1
+  fi
+  rm -f "${err_log}"
+}
+
 # Base paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${SCRIPT_DIR}"
@@ -809,30 +829,12 @@ if [ "$RUN_STEP_7" = true ]; then
   fi
 
   log_info "Ensuring Cloud Build & Compute service account IAM permissions..."
-  gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
-    --member="serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
-    --role="roles/storage.admin" --condition=None
-
-  gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
-    --member="serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
-    --role="roles/artifactregistry.writer" --condition=None
-
-  gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
-    --member="serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
-    --role="roles/logging.logWriter" --condition=None
-
-  gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
-    --member="serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
-    --role="roles/storage.admin" --condition=None
-
-  gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
-    --member="serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
-    --role="roles/artifactregistry.writer" --condition=None
-
-  gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
-    --member="serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
-    --role="roles/logging.logWriter" --condition=None
-
+  grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/storage.admin"
+  grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/artifactregistry.writer"
+  grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/logging.logWriter"
+  grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/storage.admin"
+  grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/artifactregistry.writer"
+  grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/logging.logWriter"
   log_info "Submitting Cloud Build job to compile unified container image..."
   gcloud builds submit --config="${REPO_ROOT}/cloudbuild.yaml" \
     --substitutions=_LOCATION="${GCP_REGION}",_REPOSITORY="data-cloud-ai-demos",_TAG="latest" \

@@ -20,6 +20,8 @@ import {
   setRoutingMode, 
   onRoutingModeChange, 
   sendSimulatorEvent, 
+  onSimulatorStateChange,
+  broadcastSimulatorState,
   RoutingMode 
 } from "../../services/simulatorBridge";
 import { SimulatorDiagnostics } from "./SimulatorDiagnostics";
@@ -48,10 +50,70 @@ export function SimulatorInterface() {
   const [activeOffer, setActiveOffer] = useState<{ id: string; title: string; price: string } | null>(null);
 
   useEffect(() => {
-    return onRoutingModeChange((newMode) => {
+    const unsubMode = onRoutingModeChange((newMode) => {
       setRoutingModeState(newMode);
     });
+
+    const unsubState = onSimulatorStateChange((state) => {
+      setFrequencyHz(state.frequencyHz);
+      setTargetCCU(state.targetCCU);
+      setActiveAnomaly(state.activeAnomaly);
+      setIsSimulating(state.isRunning);
+    });
+
+    return () => {
+      unsubMode();
+      unsubState();
+    };
   }, []);
+
+  const handleUpdateSimulatorState = (updates: Partial<{
+    isRunning: boolean;
+    frequencyHz: number;
+    targetCCU: number;
+    activeAnomaly: string | null;
+  }>) => {
+    const nextIsRunning = updates.isRunning !== undefined ? updates.isRunning : isSimulating;
+    const nextFrequencyHz = updates.frequencyHz !== undefined ? updates.frequencyHz : frequencyHz;
+    const nextTargetCCU = updates.targetCCU !== undefined ? updates.targetCCU : targetCCU;
+    const nextActiveAnomaly = updates.activeAnomaly !== undefined ? updates.activeAnomaly : activeAnomaly;
+
+    if (updates.isRunning !== undefined) setIsSimulating(updates.isRunning);
+    if (updates.frequencyHz !== undefined) setFrequencyHz(updates.frequencyHz);
+    if (updates.targetCCU !== undefined) setTargetCCU(updates.targetCCU);
+    if (updates.activeAnomaly !== undefined) setActiveAnomaly(updates.activeAnomaly);
+
+    broadcastSimulatorState({
+      isRunning: nextIsRunning,
+      frequencyHz: nextFrequencyHz,
+      targetCCU: nextTargetCCU,
+      activeAnomaly: nextActiveAnomaly,
+    });
+
+    if (routingMode === "LIVE") {
+      if (updates.isRunning !== undefined) {
+        fetch(updates.isRunning ? "/api/simulator/start" : "/api/simulator/stop", { method: "POST" })
+          .catch((err) => console.warn("API error:", err));
+      }
+      if (updates.activeAnomaly !== undefined) {
+        fetch("/api/simulator/inject-anomaly", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ anomaly_type: updates.activeAnomaly }),
+        }).catch((err) => console.warn("API error:", err));
+      }
+      if (updates.frequencyHz !== undefined || updates.targetCCU !== undefined) {
+        fetch("/api/simulator/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            event_rate_hz: nextFrequencyHz,
+            current_ccu: nextTargetCCU,
+          }),
+        }).catch((err) => console.warn("API error:", err));
+      }
+    }
+  };
 
   // Background telemetry emission timer when isSimulating is ACTIVE
   useEffect(() => {
@@ -178,7 +240,7 @@ export function SimulatorInterface() {
 
           <button
             type="button"
-            onClick={() => setIsSimulating(!isSimulating)}
+            onClick={() => handleUpdateSimulatorState({ isRunning: !isSimulating })}
             className={cn(
               "px-3.5 py-1.5 rounded-full text-xs font-bold uppercase font-mono tracking-wider transition-all border flex items-center gap-2 cursor-pointer",
               isSimulating
@@ -265,7 +327,7 @@ export function SimulatorInterface() {
                   max="10"
                   step="0.5"
                   value={frequencyHz}
-                  onChange={(e) => setFrequencyHz(parseFloat(e.target.value))}
+                  onChange={(e) => handleUpdateSimulatorState({ frequencyHz: parseFloat(e.target.value) })}
                   className="w-full accent-indigo-500 bg-slate-800 rounded-lg h-2 cursor-pointer"
                 />
               </div>
@@ -282,7 +344,7 @@ export function SimulatorInterface() {
                   max="50000"
                   step="1000"
                   value={targetCCU}
-                  onChange={(e) => setTargetCCU(parseInt(e.target.value, 10))}
+                  onChange={(e) => handleUpdateSimulatorState({ targetCCU: parseInt(e.target.value, 10) })}
                   className="w-full accent-blue-500 bg-slate-800 rounded-lg h-2 cursor-pointer"
                 />
               </div>
@@ -300,7 +362,7 @@ export function SimulatorInterface() {
                     <button
                       key={anomaly.id}
                       type="button"
-                      onClick={() => setActiveAnomaly(anomaly.id)}
+                      onClick={() => handleUpdateSimulatorState({ activeAnomaly: anomaly.id })}
                       className={cn(
                         "p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between",
                         activeAnomaly === anomaly.id

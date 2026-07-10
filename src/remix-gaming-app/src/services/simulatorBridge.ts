@@ -44,11 +44,19 @@ if (typeof window !== "undefined" && "BroadcastChannel" in window) {
 
 const modeListeners: Set<(mode: RoutingMode) => void> = new Set();
 const eventListeners: Set<(event: SimulatorTelemetryEvent) => void> = new Set();
+const stateListeners: Set<(state: SimulatorStatePayload) => void> = new Set();
+
+export interface SimulatorStatePayload {
+  isRunning: boolean;
+  frequencyHz: number;
+  targetCCU: number;
+  activeAnomaly: string | null;
+}
 
 if (broadcastChannel) {
   broadcastChannel.onmessage = (msgEvent) => {
     if (!msgEvent.data) return;
-    const { type, mode, telemetryEvent } = msgEvent.data;
+    const { type, mode, telemetryEvent, state } = msgEvent.data;
     if (type === "MODE_CHANGE" && mode) {
       currentMode = mode;
       if (typeof localStorage !== "undefined") {
@@ -57,6 +65,8 @@ if (broadcastChannel) {
       modeListeners.forEach((fn) => fn(mode));
     } else if (type === "TELEMETRY_EVENT" && telemetryEvent) {
       eventListeners.forEach((fn) => fn(telemetryEvent));
+    } else if (type === "SIMULATOR_STATE_CHANGE" && state) {
+      stateListeners.forEach((fn) => fn(state));
     }
   };
 } else if (typeof window !== "undefined") {
@@ -70,6 +80,15 @@ if (broadcastChannel) {
         const parsed = JSON.parse(e.newValue);
         if (parsed.telemetryEvent) {
           eventListeners.forEach((fn) => fn(parsed.telemetryEvent));
+        }
+      } catch (err) {
+        // ignore parse error
+      }
+    } else if (e.key === "dcgd_simulator_state_tmp" && e.newValue) {
+      try {
+        const parsed = JSON.parse(e.newValue);
+        if (parsed.state) {
+          stateListeners.forEach((fn) => fn(parsed.state));
         }
       } catch (err) {
         // ignore parse error
@@ -105,6 +124,24 @@ export function onSimulatorEvent(listener: (event: SimulatorTelemetryEvent) => v
   return () => {
     eventListeners.delete(listener);
   };
+}
+
+export function onSimulatorStateChange(listener: (state: SimulatorStatePayload) => void): () => void {
+  stateListeners.add(listener);
+  return () => {
+    stateListeners.delete(listener);
+  };
+}
+
+export function broadcastSimulatorState(state: SimulatorStatePayload): void {
+  if (broadcastChannel) {
+    broadcastChannel.postMessage({ type: "SIMULATOR_STATE_CHANGE", state });
+  } else if (typeof localStorage !== "undefined") {
+    try {
+      localStorage.setItem("dcgd_simulator_state_tmp", JSON.stringify({ state, t: Date.now() }));
+    } catch (_) {}
+  }
+  stateListeners.forEach((fn) => fn(state));
 }
 
 /**

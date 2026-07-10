@@ -335,6 +335,7 @@ const simulatorState: SimulatorState = {
 let simulatorTimer: NodeJS.Timeout | null = null;
 
 function runSimulationTick() {
+  if (!simulatorState.isRunning) return;
 
   try {
     simulatorState.currentCCU = calculateCurrentCCU();
@@ -482,7 +483,7 @@ async function startServer() {
   });
 
   app.post("/api/simulator/inject-anomaly", (req: Request, res: Response) => {
-    const { anomaly_type } = req.body || {};
+    const anomaly_type = req.body.anomaly_type !== undefined ? req.body.anomaly_type : req.body.type;
     const validAnomalies = ["level_2_bottleneck", "high_churn_boss_deaths", "toxic_chat", null, ""];
     if (!validAnomalies.includes(anomaly_type)) {
       return res.status(400).json({
@@ -497,6 +498,23 @@ async function startServer() {
       success: true,
       active_anomaly: simulatorState.activeAnomaly,
       message: `Active anomaly set to '${simulatorState.activeAnomaly || "NONE"}'`
+    });
+  });
+
+  app.post("/api/simulator/update", (req: Request, res: Response) => {
+    const { event_rate_hz, current_ccu } = req.body || {};
+    if (event_rate_hz !== undefined) {
+      simulatorState.eventRateHz = Math.max(0.1, Math.min(50, Number(event_rate_hz)));
+      startIntegratedSimulatorLoop();
+    }
+    if (current_ccu !== undefined) {
+      simulatorState.currentCCU = Number(current_ccu);
+    }
+    console.log(`[Simulator Gateway] Updated: rate=${simulatorState.eventRateHz}Hz, ccu=${simulatorState.currentCCU}`);
+    return res.json({
+      success: true,
+      event_rate_hz: simulatorState.eventRateHz,
+      current_ccu: simulatorState.currentCCU,
     });
   });
 
