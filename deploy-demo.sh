@@ -80,6 +80,7 @@ RUN_BUILD=true
 RUN_DEPLOY=true
 MODE_SET=false
 AGENT_TARGET="kc"
+FORCE_AGENT_BUILD=false
 
 usage() {
   local exit_code="${1:-0}"
@@ -96,6 +97,7 @@ Options:
   -b, --build-only      Only run Cloud Build container compilation (Step 7).
   -d, --deploy-only     Only run Cloud Run service deployment (Step 8).
   --all-agents          Deploy all 5 ADK agents (basic, scaled, kc, council, council_seq) during Step 6.
+  --force-agent-build   Force rebuild of agent_kc container image during Step 6.
   -h, --help            Show this help message and exit.
 
 Examples:
@@ -160,6 +162,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --all-agents)
       AGENT_TARGET="all"
+      shift
+      ;;
+    --force-agent-build)
+      FORCE_AGENT_BUILD=true
       shift
       ;;
     -s|--skip-infra)
@@ -666,6 +672,67 @@ if [ "$RUN_AGENTS" = true ]; then
 
   AGENT_TARGET="${AGENT_TARGET:-kc}"
   AGENT_DEPLOY_SCRIPT="${GAMING_DIR}/agents/deploy_agents.sh"
+
+  if [ "$AGENT_TARGET" = "kc" ] || [ "$AGENT_TARGET" = "all" ]; then
+    log_info "Verifying agent_kc container image in Artifact Registry..."
+    
+    AGENT_REPO="agent-images"
+    AGENT_IMAGE_NAME="agent-kc"
+    AGENT_IMAGE_URI="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/${AGENT_REPO}/${AGENT_IMAGE_NAME}"
+    
+    # Get git commit hash for src/gamingdatademo
+    GIT_COMMIT_HASH=$(git log -n 1 --pretty=format:%H -- "${GAMING_DIR}" 2>/dev/null || echo "latest")
+    log_info "Active code commit hash for ${GAMING_DIR}: ${GIT_COMMIT_HASH}"
+    
+    # Ensure Artifact Registry repository exists
+    if ! gcloud artifacts repositories describe "${AGENT_REPO}" --location="${GCP_REGION}" --project="${GCP_PROJECT}" &>/dev/null; then
+      log_info "Creating Artifact Registry repository '${AGENT_REPO}'..."
+      gcloud artifacts repositories create "${AGENT_REPO}" \
+        --repository-format=docker \
+        --location="${GCP_REGION}" \
+        --description="Docker repository for AI agents" \
+        --project="${GCP_PROJECT}" --quiet
+    fi
+    
+    # Configure docker authentication
+    gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+    
+    # Check if tag already exists in Artifact Registry
+    IMAGE_EXISTS=false
+    if gcloud artifacts docker images describe "${AGENT_IMAGE_URI}:${GIT_COMMIT_HASH}" --project="${GCP_PROJECT}" &>/dev/null; then
+      IMAGE_EXISTS=true
+    fi
+    
+    if [ "$IMAGE_EXISTS" = true ] && [ "${FORCE_AGENT_BUILD:-false}" = "false" ]; then
+      log_info "Container image for commit ${GIT_COMMIT_HASH} already exists in registry. Skipping build."
+    else
+      if [ "$IMAGE_EXISTS" = "false" ]; then
+        log_info "No container image found for commit ${GIT_COMMIT_HASH}. Building container..."
+      else
+        log_info "Forcing rebuild of agent_kc container..."
+      fi
+      
+      # Pull latest for caching
+      docker pull "${AGENT_IMAGE_URI}:latest" || true
+      
+      # Build the image using docker cache
+      docker build \
+        --cache-from "${AGENT_IMAGE_URI}:latest" \
+        -t "${AGENT_IMAGE_URI}:latest" \
+        -t "${AGENT_IMAGE_URI}:${GIT_COMMIT_HASH}" \
+        -f "${GAMING_DIR}/agents/agent_kc/Dockerfile" \
+        "${GAMING_DIR}/agents/agent_kc"
+        
+      # Push tags to registry
+      docker push "${AGENT_IMAGE_URI}:latest"
+      docker push "${AGENT_IMAGE_URI}:${GIT_COMMIT_HASH}"
+      log_success "Successfully compiled and pushed agent_kc container image."
+    fi
+    
+    # Export the image URI for deploy_agents.sh to pick up
+    export CONTAINER_IMAGE_URI="${AGENT_IMAGE_URI}:${GIT_COMMIT_HASH}"
+  fi
+
   if [ -f "$AGENT_DEPLOY_SCRIPT" ]; then
     log_info "Executing ADK agent deployment script: ${AGENT_DEPLOY_SCRIPT} (target: ${AGENT_TARGET})..."
     GOOGLE_CLOUD_PROJECT="${GCP_PROJECT}" GOOGLE_CLOUD_LOCATION="${GCP_REGION}" bash "$AGENT_DEPLOY_SCRIPT" "${AGENT_TARGET}"
