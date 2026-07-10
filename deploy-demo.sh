@@ -92,7 +92,7 @@ Options:
   -a, --all             Run full deployment runbook (Steps 0-8) [Default].
   -s, --skip-infra      Skip infrastructure & agent deployment steps (1-6), run Cloud Build & Cloud Run (Steps 7-8).
   -k, --kc-agent-only   Only deploy/push out latest KC ADK Agent code to Vertex AI Agent Engine (Step 6 for agent_kc).
-  -g, --agent-only      Only run ADK Agent Engine deployment (Step 6).
+  -g, --agents-only, --agent-only Only deploy ADK agents (Step 6), skipping infrastructure and app build/deploy.
   -b, --build-only      Only run Cloud Build container compilation (Step 7).
   -d, --deploy-only     Only run Cloud Run service deployment (Step 8).
   --all-agents          Deploy all 5 ADK agents (basic, scaled, kc, council, council_seq) during Step 6.
@@ -146,7 +146,7 @@ while [[ $# -gt 0 ]]; do
       AGENT_TARGET="kc"
       shift
       ;;
-    -g|--agent-only|--agents-only)
+    -g|--agent-only|--agents-only|--only-agents)
       if [ "$MODE_SET" = false ]; then
         RUN_INFRA=false
         RUN_AGENTS=true
