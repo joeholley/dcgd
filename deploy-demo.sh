@@ -528,9 +528,9 @@ EOF
 
     log_info "Running Dataform Medallion pipeline..."
     if command -v dataform &> /dev/null; then
-      dataform run "${DATAFORM_DIR}" --default-location="${GCP_REGION}" --vars=project_id:${GCP_PROJECT},industry:games --verbose > "$log_file" 2>&1 || run_status=$?
+      dataform run "${DATAFORM_DIR}" --default-location="${GCP_REGION}" --vars=project_id:${GCP_PROJECT},industry:games > "$log_file" 2>&1 || run_status=$?
     elif command -v npx &> /dev/null; then
-      npx --yes @dataform/cli run "${DATAFORM_DIR}" --default-location="${GCP_REGION}" --vars=project_id:${GCP_PROJECT},industry:games --verbose > "$log_file" 2>&1 || run_status=$?
+      npx --yes @dataform/cli run "${DATAFORM_DIR}" --default-location="${GCP_REGION}" --vars=project_id:${GCP_PROJECT},industry:games > "$log_file" 2>&1 || run_status=$?
     else
       log_error "Neither 'dataform' nor 'npx' CLI utility was found in PATH."
       rm -f "$log_file"
