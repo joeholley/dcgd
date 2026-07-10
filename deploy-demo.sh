@@ -74,14 +74,72 @@ cleanup() {
 trap cleanup EXIT INT TERM
 trap 'log_error "Command \"$BASH_COMMAND\" failed at line $LINENO"' ERR
 
-# Execution mode flags
-RUN_INFRA=true
-RUN_AGENTS=true
-RUN_BUILD=true
-RUN_DEPLOY=true
-MODE_SET=false
+# Execution mode flags per step
+RUN_STEP_1=true
+RUN_STEP_2=true
+RUN_STEP_3=true
+RUN_STEP_4=true
+RUN_STEP_5=true
+RUN_STEP_6=true
+RUN_STEP_7=true
+RUN_STEP_8=true
 AGENT_TARGET="kc"
 FORCE_AGENT_BUILD=false
+
+# Helper to enable/disable all steps
+set_all_steps() {
+  local val="$1"
+  RUN_STEP_1=$val
+  RUN_STEP_2=$val
+  RUN_STEP_3=$val
+  RUN_STEP_4=$val
+  RUN_STEP_5=$val
+  RUN_STEP_6=$val
+  RUN_STEP_7=$val
+  RUN_STEP_8=$val
+}
+
+parse_steps() {
+  local steps_str="$1"
+  IFS=',' read -ra ADDR <<< "$steps_str"
+  for step in "${ADDR[@]}"; do
+    case "$step" in
+      1) RUN_STEP_1=true ;;
+      2) RUN_STEP_2=true ;;
+      3) RUN_STEP_3=true ;;
+      4) RUN_STEP_4=true ;;
+      5) RUN_STEP_5=true ;;
+      6) RUN_STEP_6=true ;;
+      7) RUN_STEP_7=true ;;
+      8) RUN_STEP_8=true ;;
+      *)
+        log_error "Invalid step number: $step (valid steps: 1-8)"
+        exit 1
+        ;;
+    esac
+  done
+}
+
+parse_skip_steps() {
+  local steps_str="$1"
+  IFS=',' read -ra ADDR <<< "$steps_str"
+  for step in "${ADDR[@]}"; do
+    case "$step" in
+      1) RUN_STEP_1=false ;;
+      2) RUN_STEP_2=false ;;
+      3) RUN_STEP_3=false ;;
+      4) RUN_STEP_4=false ;;
+      5) RUN_STEP_5=false ;;
+      6) RUN_STEP_6=false ;;
+      7) RUN_STEP_7=false ;;
+      8) RUN_STEP_8=false ;;
+      *)
+        log_error "Invalid step number to skip: $step (valid steps: 1-8)"
+        exit 1
+        ;;
+    esac
+  done
+}
 
 usage() {
   local exit_code="${1:-0}"
@@ -90,76 +148,50 @@ Usage: $(basename "$0") [OPTIONS]
 
 Master Deployment Orchestrator for Unified Gaming Data & AI Operations Platform.
 
+Steps Runbook:
+  Step 0: Pre-flight Verification & Environment Sanity Check (Always runs)
+  Step 1: Core Terraform Infrastructure Provisioning
+  Step 2: Auto-Generate Dataplex Governance Configuration
+  Step 3: Dataform Medallion Pipeline Execution (Bronze -> Silver -> Gold)
+  Step 4: Dataplex Aspect Tags & Business Glossary Registration
+  Step 5: In-Warehouse BQML Churn Prediction Model Training
+  Step 6: Vertex AI Agent Engine / ADK Agent Deployment
+  Step 7: Cloud Build Container Compilation (Artifact Registry)
+  Step 8: Private Cloud Run Service Deployment
+
 Options:
-  -a, --all             Run full deployment runbook (Steps 0-8) [Default].
-  -s, --skip-infra      Skip infrastructure & agent deployment steps (1-6), run Cloud Build & Cloud Run (Steps 7-8).
-  -k, --kc-agent-only   Only deploy/push out latest KC ADK Agent code to Vertex AI Agent Engine (Step 6 for agent_kc).
-  -g, --agents-only, --agent-only Only deploy ADK agents (Step 6), skipping infrastructure and app build/deploy.
-  -b, --build-only      Only run Cloud Build container compilation (Step 7).
-  -d, --deploy-only     Only run Cloud Run service deployment (Step 8).
+  --steps <1-8>         Comma-separated list of step numbers to run (disables all other steps).
+  --skip-steps <1-8>    Comma-separated list of step numbers to skip.
   --all-agents          Deploy all 5 ADK agents (basic, scaled, kc, council, council_seq) during Step 6.
   --force-agent-build   Force rebuild of agent_kc container image during Step 6.
   -h, --help            Show this help message and exit.
 
 Examples:
-  $(basename "$0") --skip-infra
-  $(basename "$0") --kc-agent-only
-  $(basename "$0") -k
-  $(basename "$0") -g --all-agents
+  $(basename "$0") --steps 1,2,3
+  $(basename "$0") --skip-steps 4,5
+  $(basename "$0") --steps 6 --all-agents
 EOHELP
   exit "$exit_code"
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -b|--build-only)
-      if [ "$MODE_SET" = false ]; then
-        RUN_INFRA=false
-        RUN_AGENTS=false
-        RUN_BUILD=true
-        RUN_DEPLOY=false
-        MODE_SET=true
-      else
-        RUN_BUILD=true
+    --steps)
+      if [ -z "${2:-}" ]; then
+        log_error "--steps requires a comma-separated list of step numbers"
+        exit 1
       fi
-      shift
+      set_all_steps false
+      parse_steps "$2"
+      shift 2
       ;;
-    -d|--deploy-only)
-      if [ "$MODE_SET" = false ]; then
-        RUN_INFRA=false
-        RUN_AGENTS=false
-        RUN_BUILD=false
-        RUN_DEPLOY=true
-        MODE_SET=true
-      else
-        RUN_DEPLOY=true
+    --skip-steps)
+      if [ -z "${2:-}" ]; then
+        log_error "--skip-steps requires a comma-separated list of step numbers"
+        exit 1
       fi
-      shift
-      ;;
-    -k|--kc-agent-only|--push-agent|--agent-kc)
-      if [ "$MODE_SET" = false ]; then
-        RUN_INFRA=false
-        RUN_AGENTS=true
-        RUN_BUILD=false
-        RUN_DEPLOY=false
-        MODE_SET=true
-      else
-        RUN_AGENTS=true
-      fi
-      AGENT_TARGET="kc"
-      shift
-      ;;
-    -g|--agent-only|--agents-only|--only-agents)
-      if [ "$MODE_SET" = false ]; then
-        RUN_INFRA=false
-        RUN_AGENTS=true
-        RUN_BUILD=false
-        RUN_DEPLOY=false
-        MODE_SET=true
-      else
-        RUN_AGENTS=true
-      fi
-      shift
+      parse_skip_steps "$2"
+      shift 2
       ;;
     --all-agents)
       AGENT_TARGET="all"
@@ -167,27 +199,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --force-agent-build)
       FORCE_AGENT_BUILD=true
-      shift
-      ;;
-    -s|--skip-infra)
-      if [ "$MODE_SET" = false ]; then
-        RUN_INFRA=false
-        RUN_AGENTS=false
-        RUN_BUILD=true
-        RUN_DEPLOY=true
-        MODE_SET=true
-      else
-        RUN_INFRA=false
-        RUN_AGENTS=false
-      fi
-      shift
-      ;;
-    -a|--all)
-      RUN_INFRA=true
-      RUN_AGENTS=true
-      RUN_BUILD=true
-      RUN_DEPLOY=true
-      MODE_SET=true
       shift
       ;;
     -h|--help)
@@ -232,7 +243,7 @@ fi
 log_step "STEP 0: Pre-flight Verification & Environment Sanity Check"
 
 log_info "Verifying required CLI utilities..."
-log_info "Execution plan: [Infra/Data: ${RUN_INFRA}] | [ADK Agents: ${RUN_AGENTS}] | [Cloud Build: ${RUN_BUILD}] | [Cloud Run: ${RUN_DEPLOY}]"
+log_info "Execution plan: [Step 1: ${RUN_STEP_1}] [Step 2: ${RUN_STEP_2}] [Step 3: ${RUN_STEP_3}] [Step 4: ${RUN_STEP_4}] [Step 5: ${RUN_STEP_5}] [Step 6: ${RUN_STEP_6}] [Step 7: ${RUN_STEP_7}] [Step 8: ${RUN_STEP_8}]"
 
 PREFLIGHT_FAILED=0
 
@@ -275,14 +286,20 @@ check_tool() {
 
 check_tool "gcloud" "gcloud --version"
 
-if [ "$RUN_INFRA" = true ]; then
-  check_tool "bq" "bq version"
+if [ "$RUN_STEP_1" = true ]; then
   check_tool "terraform" "terraform version"
+fi
+
+if [ "$RUN_STEP_3" = true ] || [ "$RUN_STEP_5" = true ]; then
+  check_tool "bq" "bq version"
+fi
+
+if [ "$RUN_STEP_3" = true ]; then
   check_tool "node" "node --version"
   check_tool "npm" "npm --version"
 fi
 
-if [ "$RUN_INFRA" = true ] || [ "$RUN_AGENTS" = true ]; then
+if [ "$RUN_STEP_2" = true ] || [ "$RUN_STEP_4" = true ] || [ "$RUN_STEP_6" = true ]; then
   check_tool "python3" "python3 --version"
 fi
 
@@ -318,7 +335,7 @@ log_success "Step 0 Pre-flight checks completed."
 # ==============================================================================
 # Step 1: Core Terraform Infrastructure Provisioning
 # ==============================================================================
-if [ "$RUN_INFRA" = true ]; then
+if [ "$RUN_STEP_1" = true ]; then
   log_step "STEP 1: Core Terraform Infrastructure Provisioning"
 
   TF_DIR="${RETAIL_DIR}/infrastructure/terraform"
@@ -384,7 +401,7 @@ fi
 # ==============================================================================
 # Step 2: Auto-Generate Dataplex Script Configuration
 # ==============================================================================
-if [ "$RUN_INFRA" = true ]; then
+if [ "$RUN_STEP_2" = true ]; then
   log_step "STEP 2: Auto-Generate Dataplex Governance Configuration"
 
   DATAPLEX_CONFIG="${GAMING_DIR}/scripts/config.json"
@@ -405,7 +422,7 @@ fi
 # ==============================================================================
 # Step 3: Dataform Medallion Pipeline Execution
 # ==============================================================================
-if [ "$RUN_INFRA" = true ]; then
+if [ "$RUN_STEP_3" = true ]; then
   log_step "STEP 3: Dataform Medallion Pipeline Execution (Bronze -> Silver -> Gold)"
 
   DATAFORM_DIR="${GAMING_DIR}/dataform"
@@ -543,7 +560,7 @@ fi
 # ==============================================================================
 # Step 4: Dataplex Aspect Tags & Business Glossary Registration
 # ==============================================================================
-if [ "$RUN_INFRA" = true ]; then
+if [ "$RUN_STEP_4" = true ]; then
   log_step "STEP 4: Dataplex Aspect Tags & Business Glossary Registration"
 
   SCRIPTS_DIR="${GAMING_DIR}/scripts"
@@ -592,7 +609,7 @@ fi
 # ==============================================================================
 # Step 5: In-Warehouse BQML Churn Prediction Model Training
 # ==============================================================================
-if [ "$RUN_INFRA" = true ]; then
+if [ "$RUN_STEP_5" = true ]; then
   log_step "STEP 5: In-Warehouse BQML Churn Model Training & Validation"
 
   log_info "Hydrating BigQuery Silver and Gold analytics tables before model training..."
@@ -697,7 +714,7 @@ fi
 # ==============================================================================
 # Step 6: Vertex AI Agent Engine / ADK Agent Deployment
 # ==============================================================================
-if [ "$RUN_AGENTS" = true ]; then
+if [ "$RUN_STEP_6" = true ]; then
   log_step "STEP 6: Vertex AI Agent Engine / ADK Agent Deployment"
 
   AGENT_TARGET="${AGENT_TARGET:-kc}"
@@ -778,7 +795,7 @@ fi
 # ==============================================================================
 # Step 7: Cloud Build Container Compilation
 # ==============================================================================
-if [ "$RUN_BUILD" = true ]; then
+if [ "$RUN_STEP_7" = true ]; then
   log_step "STEP 7: Cloud Build Container Compilation (Artifact Registry)"
 
   log_info "Verifying Artifact Registry repository 'data-cloud-ai-demos' in ${GCP_REGION}..."
@@ -833,7 +850,7 @@ SERVICE_NAME="omniarcade-app"
 IMAGE_URI="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/data-cloud-ai-demos/gaming-app:latest"
 RUNNER_SA="omniarcade-runner-sa@${GCP_PROJECT}.iam.gserviceaccount.com"
 
-if [ "$RUN_DEPLOY" = true ]; then
+if [ "$RUN_STEP_8" = true ]; then
   log_step "STEP 8: Private Cloud Run Deployment (Authenticated & Private)"
 
   log_info "Verifying Cloud Run execution service account '${RUNNER_SA}'..."
@@ -866,40 +883,20 @@ echo -e "\n${BOLD}${GREEN}======================================================
 echo -e "${BOLD}${GREEN}   MASTER DEPLOYMENT ORCHESTRATION COMPLETE!${NC}"
 echo -e "${BOLD}${GREEN}======================================================================${NC}\n"
 log_info "Summary of Execution:"
-if [ "$RUN_INFRA" = true ]; then
-  log_info "  - Infrastructure & Data: APPLIED"
-  log_info "    1. BigQuery Datasets: ${BQ_DATASET_RAW}, ${BQ_DATASET_GOLD}"
-  log_info "    2. Pub/Sub Direct Sub: ${PUBSUB_TOPIC} -> ${BQ_DATASET_RAW}.live_session_events"
-  log_info "    3. BQML Model: ${BQ_DATASET_RAW}.player_churn_model"
-  log_info "    4. Dataform Medallion: Bronze -> Silver -> Gold (gold_player_360)"
-  log_info "    5. Dataplex Aspect: liveops_campaign_policy_aspect"
-else
-  log_info "  - Infrastructure & Data: SKIPPED"
-fi
-
-if [ "$RUN_AGENTS" = true ]; then
-  log_info "  - Vertex AI ADK Agents: DEPLOYED"
-  log_info "    Agents: Basic, Scaled, KC, Marketing Swarm, Sequential Council"
-else
-  log_info "  - Vertex AI ADK Agents: SKIPPED"
-fi
-
-if [ "$RUN_BUILD" = true ]; then
-  log_info "  - Cloud Build Container: COMPLETED"
-  log_info "    Container Image: ${IMAGE_URI}"
-else
-  log_info "  - Cloud Build Container: SKIPPED"
-fi
-
-if [ "$RUN_DEPLOY" = true ]; then
-  log_info "  - Cloud Run Service: DEPLOYED"
-  log_info "    Service Name: ${SERVICE_NAME} (Private / Authenticated)"
-  log_info ""
-  log_info "To access the private Cloud Run service from Cloud Shell Web Preview:"
-  log_info "  $ gcloud run services proxy ${SERVICE_NAME} --port=8080 --region=${GCP_REGION}"
-  log_info "Then click 'Web Preview' in Cloud Shell and select 'Preview on port 8080'."
-else
-  log_info "  - Cloud Run Service: SKIPPED"
-fi
+  log_info "  - Step 1 (Terraform Infra): $([ "$RUN_STEP_1" = true ] && echo "APPLIED" || echo "SKIPPED")"
+  log_info "  - Step 2 (Dataplex Config): $([ "$RUN_STEP_2" = true ] && echo "APPLIED" || echo "SKIPPED")"
+  log_info "  - Step 3 (Dataform Pipeline): $([ "$RUN_STEP_3" = true ] && echo "APPLIED" || echo "SKIPPED")"
+  log_info "  - Step 4 (Dataplex Aspect Tags): $([ "$RUN_STEP_4" = true ] && echo "APPLIED" || echo "SKIPPED")"
+  log_info "  - Step 5 (BQML Model): $([ "$RUN_STEP_5" = true ] && echo "APPLIED" || echo "SKIPPED")"
+  log_info "  - Step 6 (Vertex AI Agents): $([ "$RUN_STEP_6" = true ] && echo "APPLIED" || echo "SKIPPED")"
+  log_info "  - Step 7 (Cloud Build Compilation): $([ "$RUN_STEP_7" = true ] && echo "APPLIED" || echo "SKIPPED")"
+  log_info "  - Step 8 (Cloud Run Deployment): $([ "$RUN_STEP_8" = true ] && echo "APPLIED" || echo "SKIPPED")"
+  
+  if [ "$RUN_STEP_8" = true ]; then
+    log_info ""
+    log_info "To access the private Cloud Run service from Cloud Shell Web Preview:"
+    log_info "  $ gcloud run services proxy ${SERVICE_NAME} --port=8080 --region=${GCP_REGION}"
+    log_info "Then click 'Web Preview' in Cloud Shell and select 'Preview on port 8080'."
+  fi
 
 exit 0
