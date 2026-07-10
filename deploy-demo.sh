@@ -360,13 +360,13 @@ if [ "$RUN_INFRA" = true ]; then
     done
 
     log_info "Executing 'terraform apply'..."
-    set +e
-    terraform -chdir="${TF_DIR}" apply -auto-approve \
+    tf_exit=0
+    if ! terraform -chdir="${TF_DIR}" apply -auto-approve \
       -var="project_id=${GCP_PROJECT}" \
       -var="industry_target=games" \
-      -var="bigquery_dataset_location=${GCP_REGION}"
-    tf_exit=$?
-    set -e
+      -var="bigquery_dataset_location=${GCP_REGION}"; then
+      tf_exit=1
+    fi
 
     if [ $tf_exit -ne 0 ]; then
       log_warn "Terraform apply returned exit code ${tf_exit} (pre-existing resources/conflicts noted). Continuing with deployment pipeline..."
