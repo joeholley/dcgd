@@ -72,6 +72,7 @@ cleanup() {
   exit "$exit_code"
 }
 trap cleanup EXIT INT TERM
+trap 'log_error "Command \"$BASH_COMMAND\" failed at line $LINENO"' ERR
 
 # Execution mode flags
 RUN_INFRA=true
