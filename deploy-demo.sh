@@ -414,6 +414,7 @@ if [ "$RUN_INFRA" = true ]; then
 
     log_info "Ensuring all required BigQuery datasets exist in ${GCP_PROJECT} before table seeding..."
     for ds in omniarcade_raw omniarcade_synthetic omniarcade_silver omniarcade_gold central_identity fps_studio mmo_studio mobile_studio sports_studio strategy_studio telemetry_bronze telemetry_silver telemetry_gold telemetry_dashboards telemetry_reference agent_analytics; do
+      log_info "  - Checking/creating dataset: ${ds}..."
       bq mk --location="${GCP_REGION}" --dataset "${GCP_PROJECT}:${ds}" &>/dev/null || true
     done
 
