@@ -24,7 +24,7 @@ import {
   Info
 } from "lucide-react";
 import { cn } from "../../lib/utils";
-import { getRoutingMode, onRoutingModeChange, RoutingMode } from "../../services/simulatorBridge";
+import { getRoutingMode, onRoutingModeChange, RoutingMode, broadcastIncomingAgentEvent } from "../../services/simulatorBridge";
 
 interface WorkflowResult {
   thinking: string[];
@@ -600,6 +600,19 @@ export function AgenticWorkflows() {
                                       onClick={() => {
                                         setApprovedActions(prev => ({ ...prev, [wf.id]: true }));
                                         setRejectedActions(prev => ({ ...prev, [wf.id]: false }));
+                                        broadcastIncomingAgentEvent({
+                                          eventType: "in_game_retention_offer_injected",
+                                          payload: {
+                                            agentId: wf.id,
+                                            cohortId: "veteran_whale",
+                                            sku: "frost_giant_shield_pack",
+                                            discount: "80%",
+                                            price: "$0.99",
+                                            title: "Frost Giant Shield & Resurrect Crate",
+                                            dataplexAspectVerified: true,
+                                            timestamp: Date.now()
+                                          }
+                                        });
                                       }}
                                       className="py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-blue-600/20"
                                     >

@@ -1,12 +1,44 @@
 /**
  * Telemetry Routing & Simulator Bridge Service
- * Manages user-controllable LIVE (GCP) vs MOCKED (In-Memory) data routing mode
- * and provides cross-tab / cross-window state synchronization via BroadcastChannel.
- * 
- * // TODO: [Backend Integration] Wire up live gRPC / HTTP2 stream to Cloud Pub/Sub ingestion gateway
+ * Manages user-controllable LIVE (GCP) vs MOCKED (In-Memory) data routing mode,
+ * persistent application state, bidirectional telemetry stream logs,
+ * and cross-tab state synchronization via BroadcastChannel.
  */
 
 export type RoutingMode = "LIVE" | "MOCKED";
+export type PlayerCohortId = "veteran_whale" | "casual_grinder" | "new_f2p_onboarding";
+export type AnomalyType = "none" | "high_churn_boss_deaths" | "level_2_bottleneck" | "toxic_chat";
+
+export interface SimulatorPersistentState {
+  routingMode: RoutingMode;
+  selectedCohort: PlayerCohortId;
+  peakCCU: number;
+  activeAnomaly: AnomalyType;
+  activeTimezones: {
+    apac: boolean;
+    emea: boolean;
+    na: boolean;
+  };
+}
+
+export const STORAGE_KEYS = {
+  SIMULATOR_STATE: "dcgd_simulator_app_state_v2",
+  STREAM_LOGS: "dcgd_simulator_stream_logs_v2",
+  ROUTING_MODE_LEGACY: "dcgd_telemetry_routing_mode",
+};
+
+export interface StreamLogEntry {
+  id: string;
+  timestamp: number;
+  direction: "OUTGOING" | "INCOMING";
+  eventType: string;
+  transport: string;
+  pubsubTopic?: string;
+  gcpConsoleUrl?: string;
+  success: boolean;
+  errorMessage?: string;
+  payload: Record<string, any>;
+}
 
 export interface SimulatorTelemetryEvent {
   type: string;
@@ -15,24 +47,93 @@ export interface SimulatorTelemetryEvent {
   gameId?: string;
   timestamp?: number;
   payload?: Record<string, any>;
+  pubsubTopic?: string;
 }
 
-const STORAGE_KEY = "dcgd_telemetry_routing_mode";
-const CHANNEL_NAME = "omniarcade_simulator_channel";
+export interface SimulatorStatePayload {
+  isRunning: boolean;
+  frequencyHz: number;
+  targetCCU: number;
+  activeAnomaly: string | null;
+}
 
-const getInitialRoutingMode = (): RoutingMode => {
-  if (typeof localStorage !== "undefined") {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === "LIVE" || stored === "MOCKED") {
-      return stored;
-    }
-  }
-  return "MOCKED";
+export function buildGcpConsolePubSubUrl(
+  topicName: string = "omniarcade-live-telemetry",
+  projectId: string = "omniarcade-demo"
+): string {
+  return `https://console.cloud.google.com/pubsub/topics/${topicName}?project=${projectId}`;
+}
+
+const DEFAULT_STATE: SimulatorPersistentState = {
+  routingMode: "MOCKED",
+  selectedCohort: "veteran_whale",
+  peakCCU: 14280,
+  activeAnomaly: "none",
+  activeTimezones: {
+    apac: true,
+    emea: true,
+    na: true,
+  },
 };
 
-let currentMode: RoutingMode = getInitialRoutingMode();
+const CHANNEL_NAME = "omniarcade_simulator_channel";
 
-// Initialize BroadcastChannel if available in browser environment
+// Load persistent state from localStorage
+function loadInitialState(): SimulatorPersistentState {
+  if (typeof localStorage === "undefined") return { ...DEFAULT_STATE };
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.SIMULATOR_STATE);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        routingMode: parsed.routingMode === "LIVE" ? "LIVE" : "MOCKED",
+        selectedCohort: ["veteran_whale", "casual_grinder", "new_f2p_onboarding"].includes(parsed.selectedCohort)
+          ? parsed.selectedCohort
+          : "veteran_whale",
+        peakCCU: typeof parsed.peakCCU === "number" ? parsed.peakCCU : 14280,
+        activeAnomaly: ["none", "high_churn_boss_deaths", "level_2_bottleneck", "toxic_chat"].includes(parsed.activeAnomaly)
+          ? parsed.activeAnomaly
+          : "none",
+        activeTimezones: {
+          apac: parsed.activeTimezones?.apac ?? true,
+          emea: parsed.activeTimezones?.emea ?? true,
+          na: parsed.activeTimezones?.na ?? true,
+        },
+      };
+    }
+  } catch (e) {
+    console.warn("Failed to parse simulator persistent state:", e);
+  }
+  return { ...DEFAULT_STATE };
+}
+
+let currentState: SimulatorPersistentState = loadInitialState();
+
+// Load initial stream logs
+function loadInitialLogs(): StreamLogEntry[] {
+  if (typeof localStorage === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.STREAM_LOGS);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {
+    console.warn("Failed to parse stream logs:", e);
+  }
+  return [];
+}
+
+let currentLogs: StreamLogEntry[] = loadInitialLogs();
+
+// Listeners
+const stateListeners: Set<(state: SimulatorPersistentState) => void> = new Set();
+const modeListeners: Set<(mode: RoutingMode) => void> = new Set();
+const eventListeners: Set<(event: SimulatorTelemetryEvent) => void> = new Set();
+const logListeners: Set<(logs: StreamLogEntry[]) => void> = new Set();
+const simStatePayloadListeners: Set<(payload: SimulatorStatePayload) => void> = new Set();
+
+// Initialize BroadcastChannel
 let broadcastChannel: BroadcastChannel | null = null;
 if (typeof window !== "undefined" && "BroadcastChannel" in window) {
   try {
@@ -42,74 +143,95 @@ if (typeof window !== "undefined" && "BroadcastChannel" in window) {
   }
 }
 
-const modeListeners: Set<(mode: RoutingMode) => void> = new Set();
-const eventListeners: Set<(event: SimulatorTelemetryEvent) => void> = new Set();
-const stateListeners: Set<(state: SimulatorStatePayload) => void> = new Set();
-
-export interface SimulatorStatePayload {
-  isRunning: boolean;
-  frequencyHz: number;
-  targetCCU: number;
-  activeAnomaly: string | null;
-}
-
 if (broadcastChannel) {
   broadcastChannel.onmessage = (msgEvent) => {
     if (!msgEvent.data) return;
-    const { type, mode, telemetryEvent, state } = msgEvent.data;
-    if (type === "MODE_CHANGE" && mode) {
-      currentMode = mode;
-      if (typeof localStorage !== "undefined") {
-        localStorage.setItem(STORAGE_KEY, mode);
-      }
-      modeListeners.forEach((fn) => fn(mode));
+    const { type, state, mode, telemetryEvent, logs, simStatePayload } = msgEvent.data;
+    if (type === "STATE_CHANGE" && state) {
+      currentState = state;
+      notifyStateListeners();
+    } else if (type === "MODE_CHANGE" && mode) {
+      currentState.routingMode = mode;
+      notifyStateListeners();
     } else if (type === "TELEMETRY_EVENT" && telemetryEvent) {
       eventListeners.forEach((fn) => fn(telemetryEvent));
-    } else if (type === "SIMULATOR_STATE_CHANGE" && state) {
-      stateListeners.forEach((fn) => fn(state));
+    } else if (type === "LOGS_UPDATE" && Array.isArray(logs)) {
+      currentLogs = logs;
+      notifyLogListeners();
+    } else if (type === "SIMULATOR_STATE_CHANGE" && simStatePayload) {
+      simStatePayloadListeners.forEach((fn) => fn(simStatePayload));
     }
   };
-} else if (typeof window !== "undefined") {
-  window.addEventListener("storage", (e) => {
-    if (e.key === STORAGE_KEY && e.newValue) {
-      const mode = e.newValue as RoutingMode;
-      currentMode = mode;
-      modeListeners.forEach((fn) => fn(mode));
-    } else if (e.key === "dcgd_telemetry_event_tmp" && e.newValue) {
-      try {
-        const parsed = JSON.parse(e.newValue);
-        if (parsed.telemetryEvent) {
-          eventListeners.forEach((fn) => fn(parsed.telemetryEvent));
-        }
-      } catch (err) {
-        // ignore parse error
-      }
-    } else if (e.key === "dcgd_simulator_state_tmp" && e.newValue) {
-      try {
-        const parsed = JSON.parse(e.newValue);
-        if (parsed.state) {
-          stateListeners.forEach((fn) => fn(parsed.state));
-        }
-      } catch (err) {
-        // ignore parse error
-      }
+}
+
+function saveState() {
+  if (typeof localStorage !== "undefined") {
+    try {
+      localStorage.setItem(STORAGE_KEYS.SIMULATOR_STATE, JSON.stringify(currentState));
+      localStorage.setItem(STORAGE_KEYS.ROUTING_MODE_LEGACY, currentState.routingMode);
+    } catch (e) {
+      console.warn("Error saving simulator state:", e);
     }
-  });
+  }
+}
+
+function saveLogs() {
+  if (typeof localStorage !== "undefined") {
+    try {
+      // Keep up to 150 log entries to avoid quota issues
+      const trimmed = currentLogs.slice(-150);
+      localStorage.setItem(STORAGE_KEYS.STREAM_LOGS, JSON.stringify(trimmed));
+    } catch (e) {
+      console.warn("Error saving stream logs:", e);
+    }
+  }
+}
+
+function notifyStateListeners() {
+  saveState();
+  stateListeners.forEach((fn) => fn(currentState));
+  modeListeners.forEach((fn) => fn(currentState.routingMode));
+}
+
+function notifyLogListeners() {
+  saveLogs();
+  logListeners.forEach((fn) => fn(currentLogs));
+}
+
+// State Exported APIs
+export function getSimulatorState(): SimulatorPersistentState {
+  return currentState;
+}
+
+export function updateSimulatorState(updates: Partial<SimulatorPersistentState>): SimulatorPersistentState {
+  currentState = {
+    ...currentState,
+    ...updates,
+    activeTimezones: {
+      ...currentState.activeTimezones,
+      ...(updates.activeTimezones || {}),
+    },
+  };
+  notifyStateListeners();
+  if (broadcastChannel) {
+    broadcastChannel.postMessage({ type: "STATE_CHANGE", state: currentState });
+  }
+  return currentState;
+}
+
+export function onSimulatorStateUpdate(listener: (state: SimulatorPersistentState) => void): () => void {
+  stateListeners.add(listener);
+  return () => {
+    stateListeners.delete(listener);
+  };
 }
 
 export function getRoutingMode(): RoutingMode {
-  return currentMode;
+  return currentState.routingMode;
 }
 
 export function setRoutingMode(mode: RoutingMode): void {
-  currentMode = mode;
-  if (typeof localStorage !== "undefined") {
-    localStorage.setItem(STORAGE_KEY, mode);
-  }
-  modeListeners.forEach((fn) => fn(mode));
-  if (broadcastChannel) {
-    broadcastChannel.postMessage({ type: "MODE_CHANGE", mode });
-  }
+  updateSimulatorState({ routingMode: mode });
 }
 
 export function onRoutingModeChange(listener: (mode: RoutingMode) => void): () => void {
@@ -127,45 +249,89 @@ export function onSimulatorEvent(listener: (event: SimulatorTelemetryEvent) => v
 }
 
 export function onSimulatorStateChange(listener: (state: SimulatorStatePayload) => void): () => void {
-  stateListeners.add(listener);
+  simStatePayloadListeners.add(listener);
   return () => {
-    stateListeners.delete(listener);
+    simStatePayloadListeners.delete(listener);
   };
 }
 
-export function broadcastSimulatorState(state: SimulatorStatePayload): void {
+export function broadcastSimulatorState(payload: SimulatorStatePayload): void {
   if (broadcastChannel) {
-    broadcastChannel.postMessage({ type: "SIMULATOR_STATE_CHANGE", state });
-  } else if (typeof localStorage !== "undefined") {
-    try {
-      localStorage.setItem("dcgd_simulator_state_tmp", JSON.stringify({ state, t: Date.now() }));
-    } catch (_) {}
+    broadcastChannel.postMessage({ type: "SIMULATOR_STATE_CHANGE", simStatePayload: payload });
   }
-  stateListeners.forEach((fn) => fn(state));
+  simStatePayloadListeners.forEach((fn) => fn(payload));
+}
+
+// Log Exported APIs
+export function getStreamLogs(): StreamLogEntry[] {
+  return currentLogs;
+}
+
+export function addStreamLogEntry(entry: Omit<StreamLogEntry, "id">): StreamLogEntry {
+  const newEntry: StreamLogEntry = {
+    id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+    ...entry,
+  };
+  currentLogs = [...currentLogs, newEntry];
+  notifyLogListeners();
+  if (broadcastChannel) {
+    broadcastChannel.postMessage({ type: "LOGS_UPDATE", logs: currentLogs });
+  }
+  return newEntry;
+}
+
+export function clearStreamLogs(): void {
+  currentLogs = [];
+  notifyLogListeners();
+  if (broadcastChannel) {
+    broadcastChannel.postMessage({ type: "LOGS_UPDATE", logs: currentLogs });
+  }
+}
+
+export function onStreamLogUpdate(listener: (logs: StreamLogEntry[]) => void): () => void {
+  logListeners.add(listener);
+  return () => {
+    logListeners.delete(listener);
+  };
+}
+
+export function broadcastIncomingAgentEvent(event: { eventType: string; payload: Record<string, any> }): void {
+  const topicName = "omniarcade-live-telemetry";
+  addStreamLogEntry({
+    timestamp: Date.now(),
+    direction: "INCOMING",
+    eventType: event.eventType,
+    transport: currentState.routingMode === "LIVE" ? "Vertex AI / Cloud PubSub" : "In-Memory Channel",
+    pubsubTopic: topicName,
+    gcpConsoleUrl: buildGcpConsolePubSubUrl(topicName),
+    success: true,
+    payload: event.payload,
+  });
 }
 
 /**
  * Sends a telemetry event through either LIVE (GCP backend) or MOCKED (in-memory BroadcastChannel)
  */
 export async function sendSimulatorEvent(event: SimulatorTelemetryEvent): Promise<{ success: boolean; mode: RoutingMode; data?: any }> {
+  const mode = currentState.routingMode;
+  const timestamp = event.timestamp || Date.now();
+  const pubsubTopic = event.pubsubTopic || "omniarcade-live-telemetry";
+  const gcpConsoleUrl = buildGcpConsolePubSubUrl(pubsubTopic);
+
   const payload = {
     ...event,
-    timestamp: event.timestamp || Date.now(),
-    routingMode: currentMode,
+    timestamp,
+    cohortId: currentState.selectedCohort,
+    routingMode: mode,
   };
 
-  // Broadcast locally to all open tabs / windows regardless of mode
+  // Local broadcast
   if (broadcastChannel) {
     broadcastChannel.postMessage({ type: "TELEMETRY_EVENT", telemetryEvent: payload });
-  } else if (typeof localStorage !== "undefined") {
-    try {
-      localStorage.setItem("dcgd_telemetry_event_tmp", JSON.stringify({ telemetryEvent: payload, t: Date.now() }));
-    } catch (_) {}
   }
   eventListeners.forEach((fn) => fn(payload));
 
-  if (currentMode === "LIVE") {
-    // LIVE Mode: Post to GCP Telemetry Ingestion Endpoint
+  if (mode === "LIVE") {
     try {
       const response = await fetch("/api/telemetry/stream", {
         method: "POST",
@@ -178,22 +344,68 @@ export async function sendSimulatorEvent(event: SimulatorTelemetryEvent): Promis
       }
 
       const data = await response.json();
+
+      addStreamLogEntry({
+        timestamp,
+        direction: "OUTGOING",
+        eventType: event.type,
+        transport: "Cloud Pub/Sub HTTP Gateway",
+        pubsubTopic,
+        gcpConsoleUrl,
+        success: true,
+        payload: {
+          ...payload,
+          ...data,
+        },
+      });
+
       return { success: true, mode: "LIVE", data };
-    } catch (err) {
-      console.warn("[simulatorBridge] LIVE mode telemetry post failed, falling back to local broadcast:", err);
-      return { success: false, mode: "LIVE", data: { error: String(err) } };
+    } catch (err: any) {
+      const errMsg = String(err?.message || err);
+      addStreamLogEntry({
+        timestamp,
+        direction: "OUTGOING",
+        eventType: event.type,
+        transport: "Cloud Pub/Sub HTTP Gateway",
+        pubsubTopic,
+        gcpConsoleUrl,
+        success: false,
+        errorMessage: errMsg,
+        payload: {
+          ...payload,
+          error: errMsg,
+        },
+      });
+
+      return { success: false, mode: "LIVE", data: { error: errMsg } };
     }
   } else {
-    // MOCKED Mode: Directly return simulated success with zero network latency
+    // MOCKED mode
+    const mockData = {
+      status: "MOCKED_SUCCESS",
+      pubsubMessageId: `mock-msg-${Date.now()}`,
+      bqmlPredictedScore: 0.89,
+      riskTier: "HIGH",
+    };
+
+    addStreamLogEntry({
+      timestamp,
+      direction: "OUTGOING",
+      eventType: event.type,
+      transport: "In-Memory BroadcastChannel",
+      pubsubTopic,
+      gcpConsoleUrl,
+      success: true,
+      payload: {
+        ...payload,
+        ...mockData,
+      },
+    });
+
     return {
       success: true,
       mode: "MOCKED",
-      data: {
-        status: "MOCKED_SUCCESS",
-        pubsubMessageId: `mock-msg-${Date.now()}`,
-        bqmlPredictedScore: 0.89,
-        riskTier: "HIGH",
-      },
+      data: mockData,
     };
   }
 }
