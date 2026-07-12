@@ -61,11 +61,11 @@ export function buildGcpConsolePubSubUrl(
   topicName: string = "omniarcade-live-telemetry",
   projectId: string = "omniarcade-demo"
 ): string {
-  return `https://console.cloud.google.com/pubsub/topics/${topicName}?project=${projectId}`;
+  return `https://console.cloud.google.com/cloudpubsub/topic/detail/${topicName}?project=${projectId}`;
 }
 
 const DEFAULT_STATE: SimulatorPersistentState = {
-  routingMode: "MOCKED",
+  routingMode: "LIVE",
   selectedCohort: "veteran_whale",
   peakCCU: 14280,
   activeAnomaly: "none",
@@ -86,7 +86,7 @@ function loadInitialState(): SimulatorPersistentState {
     if (raw) {
       const parsed = JSON.parse(raw);
       return {
-        routingMode: parsed.routingMode === "LIVE" ? "LIVE" : "MOCKED",
+        routingMode: parsed.routingMode === "MOCKED" ? "MOCKED" : "LIVE",
         selectedCohort: ["veteran_whale", "casual_grinder", "new_f2p_onboarding"].includes(parsed.selectedCohort)
           ? parsed.selectedCohort
           : "veteran_whale",
@@ -178,8 +178,8 @@ function saveState() {
 function saveLogs() {
   if (typeof localStorage !== "undefined") {
     try {
-      // Keep up to 150 log entries to avoid quota issues
-      const trimmed = currentLogs.slice(-150);
+      // Keep up to 150 newest log entries to avoid quota issues
+      const trimmed = currentLogs.slice(0, 150);
       localStorage.setItem(STORAGE_KEYS.STREAM_LOGS, JSON.stringify(trimmed));
     } catch (e) {
       console.warn("Error saving stream logs:", e);
@@ -272,7 +272,7 @@ export function addStreamLogEntry(entry: Omit<StreamLogEntry, "id">): StreamLogE
     id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
     ...entry,
   };
-  currentLogs = [...currentLogs, newEntry];
+  currentLogs = [newEntry, ...currentLogs];
   notifyLogListeners();
   if (broadcastChannel) {
     broadcastChannel.postMessage({ type: "LOGS_UPDATE", logs: currentLogs });

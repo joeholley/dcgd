@@ -67,15 +67,25 @@ export function DiurnalSineWaveGraph({
   activeTimezones,
   onTimezoneToggle,
 }: DiurnalSineWaveGraphProps) {
-  // Live city clock states
+  // Live city clock states & local machine time readout
   const [cityTimes, setCityTimes] = useState<Record<string, string>>({});
+  const [localMachineTime, setLocalMachineTime] = useState<string>("");
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
-  // Update live city clocks every second
+  // Update live city clocks and local machine clock every second
   useEffect(() => {
     const updateTimes = () => {
       const now = new Date();
+      const localTimeStr = now.toLocaleTimeString("en-US", {
+        hour12: false,
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+      const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      setLocalMachineTime(`${localTimeStr} (${localTz})`);
+
       const newTimes: Record<string, string> = {};
       REGIONS.forEach((r) => {
         try {
@@ -185,11 +195,17 @@ export function DiurnalSineWaveGraph({
     <div className="bg-slate-950 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-inner font-mono">
       {/* Header & Regional Timezone Chips */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800 pb-3">
-        <div className="flex items-center gap-2">
-          <Globe className="w-4 h-4 text-cyan-400" />
-          <h3 className="font-bold text-white text-xs tracking-wider uppercase">
-            Interactive 24-Hr Diurnal Concurrency Model
-          </h3>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Globe className="w-4 h-4 text-cyan-400" />
+            <h3 className="font-bold text-white text-xs tracking-wider uppercase">
+              Interactive 24-Hr Diurnal Concurrency Model
+            </h3>
+          </div>
+          <span className="flex items-center gap-1.5 text-[10px] text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-500/30 font-bold shrink-0 shadow-sm">
+            <Clock className="w-3 h-3 text-emerald-400 animate-pulse" />
+            <span>Local Machine Time: {localMachineTime || "--:--:--"}</span>
+          </span>
         </div>
 
         {/* Timezone Toggle Chips with Live City Clocks */}

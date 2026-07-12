@@ -25,7 +25,7 @@ interface SimulatorTelemetryLogProps {
   routingMode?: RoutingMode;
 }
 
-export function SimulatorTelemetryLog({ routingMode = "MOCKED" }: SimulatorTelemetryLogProps) {
+export function SimulatorTelemetryLog({ routingMode = "LIVE" }: SimulatorTelemetryLogProps) {
   const [logs, setLogs] = useState<StreamLogEntry[]>(() => getStreamLogs());
   const [isLiveStreamOn, setIsLiveStreamOn] = useState<boolean>(true);
   const [filter, setFilter] = useState<"ALL" | "OUTGOING" | "INCOMING">("ALL");
@@ -40,10 +40,10 @@ export function SimulatorTelemetryLog({ routingMode = "MOCKED" }: SimulatorTelem
     return () => unsub();
   }, []);
 
-  // Auto-scroll logic when isLiveStreamOn is true
+  // Auto-scroll to top (latest entry) when isLiveStreamOn is true
   useEffect(() => {
     if (isLiveStreamOn && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      scrollRef.current.scrollTop = 0;
     }
   }, [logs, isLiveStreamOn]);
 

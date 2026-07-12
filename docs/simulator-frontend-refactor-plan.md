@@ -175,7 +175,7 @@ Positioned directly adjacent to the mock client, providing full visibility into 
   - **Clickable GCP Console Link**:
     - Next to each outgoing telemetry log line, render a clickable button/link:
       `[Open in GCP Console ↗]`
-    - Link Target: `https://console.cloud.google.com/pubsub/topics/omniarcade-live-telemetry?project=omniarcade-demo`
+    - Link Target: `https://console.cloud.google.com/cloudpubsub/topic/detail/omniarcade-live-telemetry?project=omniarcade-demo`
     - Target: Opens in new browser tab (`target="_blank" rel="noopener noreferrer"`).
   - **Expandable JSON Message Payload**: Expandable JSON pre container displaying full payload including `cohortId`, `userId`, `bossHealth`, `playerDeaths`, `pubsubMessageId`, `bqmlPredictedScore`.
 
