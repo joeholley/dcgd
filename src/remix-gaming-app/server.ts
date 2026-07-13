@@ -569,6 +569,16 @@ async function startServer() {
       // 2. Execute immediate targeted BQML ML.PREDICT query for player_id against omniarcade_raw.player_churn_model
       let predictedChurnScore = 0.15;
       let playerTier = "Whale";
+      const pidLower = String(player_id || "").toLowerCase();
+      if (pidLower.includes("whale")) {
+        playerTier = "Whale";
+      } else if (pidLower.includes("dolphin")) {
+        playerTier = "Dolphin";
+      } else if (pidLower.includes("minnow")) {
+        playerTier = "Minnow";
+      } else if (pidLower.includes("f2p") || pidLower.includes("free")) {
+        playerTier = "F2P";
+      }
 
       try {
         const sqlQuery = `

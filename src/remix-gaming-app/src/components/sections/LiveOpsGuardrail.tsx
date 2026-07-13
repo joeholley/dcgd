@@ -251,7 +251,13 @@ export function LiveOpsGuardrail() {
       setChurnRiskLevel(calculatedScore >= 0.80 ? "CRITICAL" : calculatedScore >= 0.50 ? "HIGH" : "LOW");
 
       if (calculatedScore >= 0.50) setIsPrecached(true);
-      if (calculatedScore >= 0.85) setShowOffer(true);
+      if (calculatedScore >= 0.85) {
+        setShowOffer(true);
+        setActiveOffer(prev => ({
+          ...prev,
+          player_tier: currentProfile.tierName,
+        }));
+      }
 
       const fallbackLog: TelemetryEvent = {
         session_id: payload.session_id,

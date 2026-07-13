@@ -33,7 +33,8 @@ import {
   onSimulatorStateUpdate,
   updateSimulatorState,
   PlayerCohortId,
-  AnomalyType
+  AnomalyType,
+  onSimulatorEvent
 } from "../services/simulatorBridge";
 
 const LAYOUT_TRANSLATIONS: Record<string, Record<Country, string>> = {
@@ -169,10 +170,23 @@ export function Layout({
       });
     });
 
+    const unsubEvent = onSimulatorEvent((event) => {
+      if (event.type === "ccu_telemetry_ping" && event.payload?.currentCCU) {
+        setSimulator((prev) => {
+          if (prev.currentCCU === event.payload.currentCCU) return prev;
+          return {
+            ...prev,
+            currentCCU: event.payload.currentCCU,
+          };
+        });
+      }
+    });
+
     return () => {
       unsubMode();
       unsubState();
       unsubStateUpdate();
+      unsubEvent();
     };
   }, []);
 
