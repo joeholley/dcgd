@@ -260,7 +260,7 @@ export function AgenticWorkflows() {
         "[3/4] Evaluating BQML churn prediction model ('player_churn_model' -> 89% score)...",
         "[4/4] Policy verified: Max discount limit 85% honored. Issuing certified offer SKU 'frost_giant_shield_pack'."
       ],
-      finding: "Critical level decline detected for 'Cosmic Raider RPG' veteran whale cohort after 4 consecutive Frost Giant wipeouts.",
+      finding: "Critical level decline detected for 'Realm of Eldoria RPG' veteran whale cohort after 4 consecutive Frost Giant wipeouts.",
       impact: "Potential $85K user lifetime value (LTV) churn exposure over current season.",
       recommendation: "Inject dynamic $0.99 Frost Giant Shield & Resurrect Crate (80% discount). Policy Aspect ID: liveops-campaign-policy-aspect.",
       nextSteps: ["Send In-Game Gift", "Auto-Notify Team", "Update Segment Tag"]
@@ -526,7 +526,7 @@ export function AgenticWorkflows() {
                               </span>
                               <h4 className="text-base font-bold text-slate-800">
                                 {isRetentionAgent
-                                  ? "Target Cohort: Cosmic Raider RPG - Veteran Whale Cohort"
+                                  ? "Target Cohort: Realm of Eldoria RPG - Veteran Whale Cohort"
                                   : workflowData[wf.id].finding}
                               </h4>
                             </div>
@@ -754,7 +754,7 @@ export function AgenticWorkflows() {
                               >
                                 {followUpResponse[wf.id]?.includes("150 gold") && (
                                   <InGameGiftCard 
-                                    game="Cosmic Raider RPG" 
+                                    game="Realm of Eldoria RPG" 
                                     amount={150} 
                                     hash="#JG-TX-9982" 
                                   />

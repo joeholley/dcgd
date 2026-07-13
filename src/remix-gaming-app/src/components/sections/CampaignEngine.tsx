@@ -96,11 +96,11 @@ interface Campaign {
 
 const PRESET_COHORTS = [
   {
-    name: "Cosmic Raider Dormant Cohort",
-    game: "Cosmic Raider RPG",
+    name: "Realm of Eldoria Dormant Cohort",
+    game: "Realm of Eldoria RPG",
     propensity: 88,
     sampleInterest: "Legendary weapon drop models & gold incentives",
-    defaultMessage: "Ready to conquer the stars again, Commander? A rare Legendary Obsidian Blade is waiting in your gift crate! Grab it now in Cosmic Raider RPG."
+    defaultMessage: "Ready to conquer the stars again, Commander? A rare Legendary Obsidian Blade is waiting in your gift crate! Grab it now in Realm of Eldoria RPG."
   },
   {
     name: "Retro Speed Racer Churn-Risk",
@@ -130,18 +130,18 @@ export type LanguageSetting = "en" | "local";
 
 const TRANSLATIONS: Record<string, Record<Country, string>> = {
   // Game & Cohort Presets
-  "Cosmic Raider RPG": { Japan: "Cosmic Raider RPG", Korea: "Cosmic Raider RPG", China: "Cosmic Raider RPG" },
+  "Realm of Eldoria RPG": { Japan: "Realm of Eldoria RPG", Korea: "Realm of Eldoria RPG", China: "Realm of Eldoria RPG" },
   "Retro Speed Racer": { Japan: "Retro Speed Racer", Korea: "Retro Speed Racer", China: "Retro Speed Racer" },
   "Puzzle Quest Saga": { Japan: "Puzzle Quest Saga", Korea: "Puzzle Quest Saga", China: "Puzzle Quest Saga" },
   "Pixel Battle Royale": { Japan: "Pixel Battle Royale", Korea: "Pixel Battle Royale", China: "Pixel Battle Royale" },
-  "Cosmic Raider Dormant Cohort": { Japan: "Cosmic Raider 休眠プレイヤー層", Korea: "Cosmic Raider 휴면 고객 코호트", China: "Cosmic Raider 流失玩家群组" },
+  "Realm of Eldoria Dormant Cohort": { Japan: "Realm of Eldoria 休眠プレイヤー層", Korea: "Realm of Eldoria 휴면 고객 코호트", China: "Realm of Eldoria 流失玩家群组" },
   "Retro Speed Racer Churn-Risk": { Japan: "Retro Speed Racer 離脱リスク高層", Korea: "Retro Speed Racer 이탈 위험 코호트", China: "Retro Speed Racer 易流失玩家群组" },
   "Puzzle Quest Casual Spenders": { Japan: "Puzzle Quest 微課金層コホート", Korea: "Puzzle Quest 소액 결제 코호트", China: "Puzzle Quest 轻度付费群组" },
   "Pixel Battle Royale Active Recruits": { Japan: "Pixel Battle Royale アクティブ新規層", Korea: "Pixel Battle Royale 신규 활성 대원", China: "Pixel Battle Royale 活跃玩家群组" },
-  "Ready to conquer the stars again, Commander? A rare Legendary Obsidian Blade is waiting in your gift crate! Grab it now in Cosmic Raider RPG.": {
-    Japan: "指揮官、再び宇宙を征服する準備はできていますか？レアなレジェンダリー・オブシディアンブレードがギフトボックスで待っています！Cosmic Raider RPGに今すぐログインしましょう。",
-    Korea: "사령관님, 다시 우주를 지배할 준비가 되셨습니까? 보상 상자에 희귀한 전설 옵시디언 검이 잠들어 있습니다! Cosmic Raider RPG에서 지금 바로 수령하세요.",
-    China: "指挥官，准备好再次征服星域了吗？稀有传奇曜石剑已在您的专属礼包箱中静候！立即登录 Cosmic Raider RPG 领取。"
+  "Ready to conquer the stars again, Commander? A rare Legendary Obsidian Blade is waiting in your gift crate! Grab it now in Realm of Eldoria RPG.": {
+    Japan: "指揮官、再び宇宙を征服する準備はできていますか？レアなレジェンダリー・オブシディアンブレードがギフトボックスで待っています！Realm of Eldoria RPGに今すぐログインしましょう。",
+    Korea: "사령관님, 다시 우주를 지배할 준비가 되셨습니까? 보상 상자에 희귀한 전설 옵시디언 검이 잠들어 있습니다! Realm of Eldoria RPG에서 지금 바로 수령하세요.",
+    China: "指挥官，准备好再次征服星域了吗？稀有传奇曜石剑已在您的专属礼包箱中静候！立即登录 Realm of Eldoria RPG 领取。"
   },
   "Ready to conquer the stars again, Commander? A rare Legendary Obsidian Blade is waiting in your gift crate!": {
     Japan: "指揮官、再び宇宙を征服する準備はできていますか？レアなレジェンダリー・オブシディアンブレードがギフトボックスで待っています！",
@@ -591,11 +591,11 @@ function translateDynamicText(text: string, country: Country, setting: LanguageS
 
   let translated = text;
   const replacers = [
-    { enlist: "Cosmic Raider Dormant Cohort", JP: "Cosmic Raider 休眠コホート", KR: "Cosmic Raider 휴면 코호트", ZH: "Cosmic Raider 休眠玩家群组" },
+    { enlist: "Realm of Eldoria Dormant Cohort", JP: "Realm of Eldoria 休眠コホート", KR: "Realm of Eldoria 휴면 코호트", ZH: "Realm of Eldoria 休眠玩家群组" },
     { enlist: "Retro Speed Racer Churn-Risk", JP: "Retro Speed Racer 離脱リスクコホート", KR: "Retro Speed Racer 이탈위험 코호트", ZH: "Retro Speed Racer 易流失群组" },
     { enlist: "Puzzle Quest Casual Spenders", JP: "Puzzle Quest 微課金コホート", KR: "Puzzle Quest 소액결제 코호트", ZH: "Puzzle Quest 轻度付费群组" },
     { enlist: "Pixel Battle Royale Active Recruits", JP: "Pixel Battle Royale 新規アクティブ", KR: "Pixel Battle Royale 신규활성", ZH: "Pixel Battle Royale 活跃玩家群组" },
-    { enlist: "Cosmic Raider RPG", JP: "Cosmic Raider RPG", KR: "Cosmic Raider RPG", ZH: "Cosmic Raider RPG" },
+    { enlist: "Realm of Eldoria RPG", JP: "Realm of Eldoria RPG", KR: "Realm of Eldoria RPG", ZH: "Realm of Eldoria RPG" },
     { enlist: "Retro Speed Racer", JP: "Retro Speed Racer", KR: "Retro Speed Racer", ZH: "Retro Speed Racer" },
     { enlist: "Puzzle Quest Saga", JP: "Puzzle Quest Saga", KR: "Puzzle Quest Saga", ZH: "Puzzle Quest Saga" },
     { enlist: "Pixel Battle Royale", JP: "Pixel Battle Royale", KR: "Pixel Battle Royale", ZH: "Pixel Battle Royale" }
@@ -1047,8 +1047,8 @@ export function CampaignEngine({
         {
           id: "initial-raider-re-engage",
           name: "High-Spender Cosmic Reactivation",
-          cohort: "Cosmic Raider Dormant Cohort",
-          game: "Cosmic Raider RPG",
+          cohort: "Realm of Eldoria Dormant Cohort",
+          game: "Realm of Eldoria RPG",
           propensity: 88,
           originalBudget: 4000,
           aiBudget: 5500,
@@ -1097,8 +1097,8 @@ export function CampaignEngine({
           {
             id: "initial-raider-re-engage",
             name: "High-Spender Cosmic Reactivation",
-            cohort: "Cosmic Raider Dormant Cohort",
-            game: "Cosmic Raider RPG",
+            cohort: "Realm of Eldoria Dormant Cohort",
+            game: "Realm of Eldoria RPG",
             propensity: 88,
             originalBudget: 4000,
             aiBudget: 5500,
@@ -1132,8 +1132,8 @@ export function CampaignEngine({
         {
           id: "initial-raider-re-engage",
           name: "High-Spender Cosmic Reactivation",
-          cohort: "Cosmic Raider Dormant Cohort",
-          game: "Cosmic Raider RPG",
+          cohort: "Realm of Eldoria Dormant Cohort",
+          game: "Realm of Eldoria RPG",
           propensity: 88,
           originalBudget: 4000,
           aiBudget: 5500,

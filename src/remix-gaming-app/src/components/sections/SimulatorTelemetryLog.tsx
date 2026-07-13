@@ -212,7 +212,7 @@ export function SimulatorTelemetryLog({ routingMode = "LIVE" }: SimulatorTelemet
                     >
                       {isOutgoing
                         ? isInMemory
-                          ? "[MOCKED] OUTGOING -> BroadcastChannel"
+                          ? "Outgoing -> BroadcastChannel"
                           : "[LIVE] OUTGOING -> Cloud Pub/Sub"
                         : `[${entryMode}] INCOMING <- Agent Event`}
                     </span>

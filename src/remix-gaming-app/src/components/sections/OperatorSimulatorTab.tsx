@@ -15,7 +15,9 @@ import {
   onSimulatorStateUpdate, 
   sendSimulatorEvent, 
   AnomalyType, 
-  RoutingMode 
+  RoutingMode,
+  onSimulatorStateChange,
+  broadcastSimulatorState
 } from "../../services/simulatorBridge";
 import { DiurnalSineWaveGraph } from "./DiurnalSineWaveGraph";
 import { SimulatorTelemetryLog } from "./SimulatorTelemetryLog";
@@ -32,7 +34,13 @@ export function OperatorSimulatorTab({ routingMode }: OperatorSimulatorTabProps)
     const unsub = onSimulatorStateUpdate((newState) => {
       setSimState({ ...newState });
     });
-    return () => unsub();
+    const unsubState = onSimulatorStateChange((state) => {
+      setIsSimulating(state.isRunning);
+    });
+    return () => {
+      unsub();
+      unsubState();
+    };
   }, []);
 
   // Hardcoded 1 Hz (1000ms) background telemetry publishing loop
@@ -103,7 +111,24 @@ export function OperatorSimulatorTab({ routingMode }: OperatorSimulatorTabProps)
 
             <button
               type="button"
-              onClick={() => setIsSimulating(!isSimulating)}
+              onClick={async () => {
+                const nextIsRunning = !isSimulating;
+                setIsSimulating(nextIsRunning);
+                broadcastSimulatorState({
+                  isRunning: nextIsRunning,
+                  frequencyHz: 2,
+                  targetCCU: simState.peakCCU,
+                  activeAnomaly: simState.activeAnomaly === "none" ? null : simState.activeAnomaly,
+                });
+                if (routingMode === "LIVE") {
+                  const endpoint = nextIsRunning ? "/api/simulator/start" : "/api/simulator/stop";
+                  try {
+                    await fetch(endpoint, { method: "POST" });
+                  } catch (err) {
+                    console.warn("Simulator toggle error:", err);
+                  }
+                }
+              }}
               className={cn(
                 "px-3.5 py-1.5 rounded-full text-xs font-bold uppercase font-mono tracking-wider transition-all border flex items-center gap-2 cursor-pointer",
                 isSimulating

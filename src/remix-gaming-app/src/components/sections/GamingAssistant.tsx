@@ -17,7 +17,7 @@ import { cn } from "../../lib/utils";
 
 const MOCK_REVENUE_DATA = [
   { name: "Puzzle Quest Saga", revenue: 142, target: 162 },
-  { name: "Cosmic Raider RPG", revenue: 128, target: 125 },
+  { name: "Realm of Eldoria RPG", revenue: 128, target: 125 },
   { name: "Retro Speed Racer", revenue: 98, target: 100 },
   { name: "Pixel Battle Royale", revenue: 85, target: 80 },
 ];

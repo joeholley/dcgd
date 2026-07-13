@@ -24,6 +24,19 @@ import {
 import { cn } from "../../lib/utils";
 import { DataModeBadge } from "../DataModeBadge";
 import { useDemoEvent } from "../../context/DemoEventContext";
+import { 
+  getSimulatorState, 
+  onSimulatorStateUpdate, 
+  PlayerCohortId, 
+  SimulatorPersistentState 
+} from "../../services/simulatorBridge";
+
+const COHORT_PROFILES: Record<PlayerCohortId, { playerId: string; tierName: string }> = {
+  Whale: { playerId: "player_cosmic_whale_42", tierName: "Whale" },
+  Dolphin: { playerId: "player_starry_dolphin_88", tierName: "Dolphin" },
+  Minnow: { playerId: "player_silver_minnow_07", tierName: "Minnow" },
+  F2P: { playerId: "player_f2p_adventurer_99", tierName: "F2P" },
+};
 
 interface TelemetryEvent {
   session_id: string;
@@ -57,6 +70,17 @@ interface CertifiedOffer {
 }
 
 export function LiveOpsGuardrail() {
+  const [simState, setSimState] = useState<SimulatorPersistentState>(() => getSimulatorState());
+
+  useEffect(() => {
+    const unsub = onSimulatorStateUpdate((state) => {
+      setSimState({ ...state });
+    });
+    return () => unsub();
+  }, []);
+
+  const currentProfile = COHORT_PROFILES[simState.selectedCohort] || COHORT_PROFILES.Whale;
+
   // Telemetry & State
   const [consecutiveDeaths, setConsecutiveDeaths] = useState(0);
   const [sessionDuration, setSessionDuration] = useState(420);
@@ -164,7 +188,7 @@ export function LiveOpsGuardrail() {
 
     const payload = {
       session_id: `sess_${Date.now()}`,
-      player_id: "player_cosmic_whale_42",
+      player_id: currentProfile.playerId,
       event_type: eventType,
       consecutive_deaths: newDeaths,
       session_duration_seconds: sessionDuration + 30,
@@ -206,7 +230,7 @@ export function LiveOpsGuardrail() {
           session_duration_seconds: payload.session_duration_seconds,
           predicted_churn_score: data.bqml_prediction?.predicted_churn_score || churnScore,
           churn_risk_level: data.bqml_prediction?.churn_risk_level || churnRiskLevel,
-          player_tier: "Whale",
+          player_tier: currentProfile.tierName,
           pubsub_message_id: data.pubsub_message_id,
           timestamp: new Date().toISOString(),
           latency_ms: data.latency_ms || 18,
@@ -237,7 +261,7 @@ export function LiveOpsGuardrail() {
         session_duration_seconds: payload.session_duration_seconds,
         predicted_churn_score: calculatedScore,
         churn_risk_level: calculatedScore >= 0.80 ? "CRITICAL" : calculatedScore >= 0.50 ? "HIGH" : "LOW",
-        player_tier: "Whale",
+        player_tier: currentProfile.tierName,
         pubsub_message_id: `pubsub_mock_${Date.now()}`,
         timestamp: new Date().toISOString(),
         latency_ms: 18,
@@ -346,7 +370,7 @@ export function LiveOpsGuardrail() {
               <div className="w-3 h-3 rounded-full bg-yellow-500" />
               <div className="w-3 h-3 rounded-full bg-green-500" />
               <span className="ml-2 text-xs font-mono font-bold text-slate-400 uppercase tracking-widest">
-                Game Client Simulator (Cosmic Raider RPG)
+                Mock Game Client (Realm of Eldoria RPG)
               </span>
             </div>
             <button
@@ -371,13 +395,13 @@ export function LiveOpsGuardrail() {
             <div className="relative z-10 flex items-center justify-between">
               <div>
                 <span className="text-[10px] font-mono font-bold text-red-400 uppercase tracking-widest block mb-1">
-                  ⚔️ Level 85 Raid Encounter
+                  ⚔️ Tutorial Level 8 of 10
                 </span>
                 <h3 className="text-xl font-extrabold text-white tracking-tight">Frost Giant Overlord</h3>
               </div>
               <div className="text-right">
                 <span className="text-[10px] font-mono text-slate-400 uppercase block">Player Profile</span>
-                <span className="text-xs font-bold text-blue-400 font-mono">cosmic_whale_42 (Whale Tier)</span>
+                <span className="text-xs font-bold text-blue-400 font-mono">{currentProfile.playerId.replace("player_", "")} ({currentProfile.tierName} Tier)</span>
               </div>
             </div>
 
@@ -504,9 +528,9 @@ export function LiveOpsGuardrail() {
                       type="button"
                       onClick={() => {
                         triggerMarketingRecovery({
-                          playerId: "player_cosmic_whale_42",
+                          playerId: currentProfile.playerId,
                           churnProbability: churnScore || 0.87,
-                          payerTier: "Whale",
+                          payerTier: currentProfile.tierName,
                           recommendedOffer: activeOffer.title,
                           timestamp: new Date().toISOString()
                         });

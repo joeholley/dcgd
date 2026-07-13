@@ -12,13 +12,29 @@ import {
   Megaphone,
   ShieldCheck,
   CloudCheck,
-  ExternalLink
+  ExternalLink,
+  Crown,
+  Sparkles,
+  Fish,
+  Coins
 } from "lucide-react";
 import { Section } from "../App";
 import { cn } from "../lib/utils";
 import { Country, LanguageSetting } from "./sections/CampaignEngine";
 import { isUsingFirebaseMock } from "../services/firebase";
-import { getRoutingMode, setRoutingMode, onRoutingModeChange, onSimulatorStateChange, broadcastSimulatorState, RoutingMode } from "../services/simulatorBridge";
+import { 
+  getRoutingMode, 
+  setRoutingMode, 
+  onRoutingModeChange, 
+  onSimulatorStateChange, 
+  broadcastSimulatorState, 
+  RoutingMode,
+  getSimulatorState,
+  onSimulatorStateUpdate,
+  updateSimulatorState,
+  PlayerCohortId,
+  AnomalyType
+} from "../services/simulatorBridge";
 
 const LAYOUT_TRANSLATIONS: Record<string, Record<Country, string>> = {
   "Gaming Overview": {
@@ -73,6 +89,13 @@ const LAYOUT_TRANSLATIONS: Record<string, Record<Country, string>> = {
   }
 };
 
+const COHORT_BADGES: Record<PlayerCohortId, { label: string; color: string; icon: React.ComponentType<any> }> = {
+  Whale: { label: "Whale", color: "bg-purple-500/20 text-purple-300 border-purple-500/30", icon: Crown },
+  Dolphin: { label: "Dolphin", color: "bg-blue-500/20 text-blue-300 border-blue-500/30", icon: Sparkles },
+  Minnow: { label: "Minnow", color: "bg-teal-500/20 text-teal-300 border-teal-500/30", icon: Fish },
+  F2P: { label: "F2P", color: "bg-slate-500/20 text-slate-300 border-slate-500/30", icon: Coins },
+};
+
 interface LayoutProps {
   children: React.ReactNode;
   activeSection: Section;
@@ -94,6 +117,9 @@ export function Layout({
 }: LayoutProps) {
   // Routing mode state (LIVE vs MOCKED)
   const [routingMode, setRoutingModeState] = useState<RoutingMode>(getRoutingMode());
+
+  // Cohort sync state
+  const [selectedCohort, setSelectedCohort] = useState<PlayerCohortId>(() => getSimulatorState().selectedCohort);
 
   // Live Game Telemetry Simulator Control State & Handlers
   const [simulator, setSimulator] = useState<{
@@ -131,9 +157,22 @@ export function Layout({
       });
     });
 
+    const unsubStateUpdate = onSimulatorStateUpdate((state) => {
+      setSelectedCohort(state.selectedCohort);
+      setSimulator((prev) => {
+        const nextAnomaly = state.activeAnomaly === "none" ? null : state.activeAnomaly;
+        if (prev.activeAnomaly === nextAnomaly) return prev;
+        return {
+          ...prev,
+          activeAnomaly: nextAnomaly,
+        };
+      });
+    });
+
     return () => {
       unsubMode();
       unsubState();
+      unsubStateUpdate();
     };
   }, []);
 
@@ -224,6 +263,9 @@ export function Layout({
     // Update local state immediately
     setSimulator((prev) => ({ ...prev, activeAnomaly: nextAnomaly }));
 
+    // Update persistent state to sync with other components
+    updateSimulatorState({ activeAnomaly: (nextAnomaly === null ? "none" : nextAnomaly) as AnomalyType });
+
     // Broadcast to other tabs
     broadcastSimulatorState({
       isRunning: simulator.isRunning,
@@ -309,7 +351,10 @@ export function Layout({
         </div>
 
         {/* Live Game Telemetry Simulator Control Bar */}
-        <div className="flex items-center gap-3 px-3.5 py-1.5 bg-slate-800/80 rounded-full border border-slate-700/60 shadow-inner font-mono text-xs shrink-0">
+        <div className={cn(
+          "flex items-center gap-3 px-3.5 py-1.5 bg-slate-800/80 rounded-full border shadow-inner font-mono text-xs shrink-0",
+          routingMode === "MOCKED" ? "border-orange-500/40" : "border-slate-700/60"
+        )}>
           {/* User-Controlled LIVE vs MOCKED Routing Mode Toggle */}
           <div className="flex items-center bg-slate-950 p-0.5 rounded-full border border-slate-700">
             <button
@@ -352,10 +397,23 @@ export function Layout({
             <span>Simulator: {simulator.isRunning ? "ON" : "OFF"}</span>
           </button>
 
-          <div className="flex items-center gap-1 text-slate-200 font-semibold text-[11px]">
+          <div className="flex items-center gap-1.5 text-slate-200 font-semibold text-[11px]">
             <Activity className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-            <span>{simulator.currentCCU.toLocaleString()} CCU</span>
+            <span>{simulator.currentCCU.toLocaleString()} Simulated Global PCCU</span>
           </div>
+
+          {/* Cohort Badge */}
+          {(() => {
+            const cohortInfo = COHORT_BADGES[selectedCohort];
+            if (!cohortInfo) return null;
+            const CohortIcon = cohortInfo.icon;
+            return (
+              <div className={cn("flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-bold", cohortInfo.color)}>
+                <CohortIcon className="w-3 h-3 shrink-0" />
+                <span>{cohortInfo.label}</span>
+              </div>
+            );
+          })()}
 
           <div className="flex items-center gap-1.5 border-l border-slate-700/80 pl-2.5">
             <span className="text-[10px] text-slate-400 font-bold uppercase hidden sm:inline">Anomaly:</span>
@@ -366,9 +424,9 @@ export function Layout({
               className="bg-slate-950 border border-slate-700/60 text-[10px] font-semibold text-amber-300 px-2 py-0.5 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
             >
               <option value="none">Normal (No Anomaly)</option>
-              <option value="level_2_bottleneck">⚡ Level 2 Bottleneck</option>
+              <option value="level_2_bottleneck" disabled>⚡ Level 2 Bottleneck (Not Yet Implemented)</option>
               <option value="high_churn_boss_deaths">💀 High-Churn Boss Death</option>
-              <option value="toxic_chat">☣️ Toxic Chat Outbreak</option>
+              <option value="toxic_chat" disabled>☣️ Toxic Chat Outbreak (Not Yet Implemented)</option>
             </select>
           </div>
 

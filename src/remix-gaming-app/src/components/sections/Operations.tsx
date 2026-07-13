@@ -40,7 +40,7 @@ import {
 // 1. Placeholder Game Data
 const GAME_METRICS = [
   { name: "Puzzle Quest Saga", downloads: 450000, revenue: 320000, crashes: 12, sentiment: 4.5, iapRate: 35 },
-  { name: "Cosmic Raider RPG", downloads: 320000, revenue: 450000, crashes: 5, sentiment: 4.8, iapRate: 52 },
+  { name: "Realm of Eldoria RPG", downloads: 320000, revenue: 450000, crashes: 5, sentiment: 4.8, iapRate: 52 },
   { name: "Retro Speed Racer", downloads: 150000, revenue: 110000, crashes: 2, sentiment: 4.1, iapRate: 20 },
   { name: "Pixel Battle Royale", downloads: 650000, revenue: 580000, crashes: 18, sentiment: 4.3, iapRate: 41 },
 ];
@@ -490,7 +490,7 @@ export function Operations() {
                 <div className="mt-8 p-4 bg-amber-50 rounded-2xl border border-amber-100 flex items-start gap-3">
                    <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
                    <p className="text-xs text-amber-800 leading-relaxed font-medium">
-                     <span className="font-bold">Conversion Alert:</span> A 14% drop-off from "Viewed Item" to "Added to Cart" matches a known inventory load lag in Cosmic Raider RPG patch 1.8. Matches logged to AlloyDB cluster.
+                     <span className="font-bold">Conversion Alert:</span> A 14% drop-off from "Viewed Item" to "Added to Cart" matches a known inventory load lag in Realm of Eldoria RPG patch 1.8. Matches logged to AlloyDB cluster.
                    </p>
                 </div>
               </div>
