@@ -330,7 +330,7 @@ export function Layout({
               className={cn(
                 "px-2 py-0.5 rounded-full text-[9px] font-bold uppercase transition-all cursor-pointer",
                 routingMode === "MOCKED"
-                  ? "bg-emerald-600 text-white shadow-sm"
+                  ? "bg-orange-600 text-white shadow-sm"
                   : "text-slate-400 hover:text-slate-200"
               )}
             >

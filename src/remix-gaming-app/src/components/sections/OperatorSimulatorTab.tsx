@@ -62,7 +62,7 @@ export function OperatorSimulatorTab({ routingMode }: OperatorSimulatorTabProps)
   }, [isSimulating, simState.peakCCU, simState.activeAnomaly, simState.activeTimezones]);
 
   const handleCCUChange = (val: number) => {
-    const clamped = Math.max(1000, Math.min(50000, val));
+    const clamped = Math.max(0, Math.min(1000000, val));
     updateSimulatorState({ peakCCU: clamped });
   };
 
@@ -79,11 +79,11 @@ export function OperatorSimulatorTab({ routingMode }: OperatorSimulatorTabProps)
     });
   };
 
-  const ANOMALY_OPTIONS: Array<{ id: AnomalyType; label: string; desc: string }> = [
+  const ANOMALY_OPTIONS: Array<{ id: AnomalyType; label: string; desc: string; disabled?: boolean }> = [
     { id: "none", label: "Normal Play (No Anomaly)", desc: "Baseline player progression & steady telemetry" },
     { id: "high_churn_boss_deaths", label: "💀 High-Churn Boss Death", desc: "Repeated Frost Giant wipeouts & churn risk" },
-    { id: "level_2_bottleneck", label: "⚡ Level 2 Bottleneck", desc: "Excessive move exhaustion & difficulty drop" },
-    { id: "toxic_chat", label: "☣️ Toxic Chat Outbreak", desc: "High-frequency chat flags & GIRA alert trigger" },
+    { id: "level_2_bottleneck", label: "⚡ Level 2 Bottleneck", desc: "Excessive move exhaustion & difficulty drop", disabled: true },
+    { id: "toxic_chat", label: "☣️ Toxic Chat Outbreak", desc: "High-frequency chat flags & GIRA alert trigger", disabled: true },
   ];
 
   return (
@@ -121,18 +121,18 @@ export function OperatorSimulatorTab({ routingMode }: OperatorSimulatorTabProps)
             <div className="flex justify-between items-center text-xs">
               <label className="text-slate-300 font-semibold flex items-center gap-1.5">
                 <Activity className="w-4 h-4 text-blue-400" />
-                Synchronized Peak Target CCU:
+                Simulated Global PCCU:
               </label>
 
               {/* Numeric Input Field */}
               <div className="flex items-center gap-2">
                 <input
                   type="number"
-                  min={1000}
-                  max={50000}
-                  step={1000}
+                  min={0}
+                  max={1000000}
+                  step={10000}
                   value={simState.peakCCU}
-                  onChange={(e) => handleCCUChange(parseInt(e.target.value, 10) || 1000)}
+                  onChange={(e) => handleCCUChange(parseInt(e.target.value, 10) || 0)}
                   className="w-28 bg-slate-950 border border-slate-700 text-blue-400 font-bold text-xs px-2.5 py-1 rounded-lg text-right focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
                 <span className="text-slate-400 text-xs font-bold">CCU</span>
@@ -142,9 +142,9 @@ export function OperatorSimulatorTab({ routingMode }: OperatorSimulatorTabProps)
             {/* Range Slider */}
             <input
               type="range"
-              min="1000"
-              max="50000"
-              step="1000"
+              min="0"
+              max="1000000"
+              step="10000"
               value={simState.peakCCU}
               onChange={(e) => handleCCUChange(parseInt(e.target.value, 10))}
               className="w-full accent-blue-500 bg-slate-800 rounded-lg h-2.5 cursor-pointer"
@@ -159,20 +159,31 @@ export function OperatorSimulatorTab({ routingMode }: OperatorSimulatorTabProps)
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 font-mono text-xs">
               {ANOMALY_OPTIONS.map((anomaly) => {
                 const isSelected = simState.activeAnomaly === anomaly.id;
+                const isDisabled = !!anomaly.disabled;
                 return (
                   <button
                     key={anomaly.id}
                     type="button"
-                    onClick={() => handleAnomalySelect(anomaly.id)}
+                    disabled={isDisabled}
+                    onClick={() => !isDisabled && handleAnomalySelect(anomaly.id)}
                     className={cn(
-                      "p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between space-y-1.5",
-                      isSelected
-                        ? "bg-indigo-600/20 border-indigo-500 text-white shadow-md shadow-indigo-600/20"
-                        : "bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200"
+                      "p-3 rounded-xl border text-left transition-all flex flex-col justify-between space-y-1.5",
+                      isDisabled
+                        ? "bg-slate-950/40 border-slate-800/60 text-slate-500 cursor-not-allowed opacity-60"
+                        : isSelected
+                        ? "bg-indigo-600/20 border-indigo-500 text-white shadow-md shadow-indigo-600/20 cursor-pointer"
+                        : "bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200 cursor-pointer"
                     )}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-bold text-xs">{anomaly.label}</span>
+                      <span className="font-bold text-xs flex items-center gap-1.5">
+                        {anomaly.label}
+                        {isDisabled && (
+                          <span className="text-[9px] bg-slate-800 text-slate-400 font-normal px-1.5 py-0.5 rounded border border-slate-700">
+                            Not Yet Implemented
+                          </span>
+                        )}
+                      </span>
                       {isSelected && <CheckCircle2 className="w-4 h-4 text-indigo-400 shrink-0" />}
                     </div>
                     <p className="text-[10px] text-slate-500 leading-tight">{anomaly.desc}</p>

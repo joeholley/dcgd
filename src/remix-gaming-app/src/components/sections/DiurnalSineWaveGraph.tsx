@@ -32,9 +32,9 @@ const REGIONS: RegionConfig[] = [
     name: "North America (NA)",
     city: "New York",
     timeZone: "America/New_York",
-    color: "#f59e0b", // Amber
-    bgBadge: "bg-amber-500/10 text-amber-300",
-    borderBadge: "border-amber-500/30",
+    color: "#a855f7", // Purple
+    bgBadge: "bg-purple-500/10 text-purple-300",
+    borderBadge: "border-purple-500/30",
     weight: 0.45,
     peakHourUtc: 23,
   },
@@ -199,7 +199,7 @@ export function DiurnalSineWaveGraph({
           <div className="flex items-center gap-2">
             <Globe className="w-4 h-4 text-cyan-400" />
             <h3 className="font-bold text-white text-xs tracking-wider uppercase">
-              Interactive 24-Hr Diurnal Concurrency Model
+              Interactive 24-Hour Simulated Concurrency Graph
             </h3>
           </div>
           <span className="flex items-center gap-1.5 text-[10px] text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-500/30 font-bold shrink-0 shadow-sm">

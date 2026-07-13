@@ -6,7 +6,9 @@ import {
   Server, 
   Activity, 
   Globe,
-  Crown 
+  Crown,
+  Sparkles,
+  UserCheck
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { 
@@ -89,7 +91,7 @@ export function SimulatorInterface() {
               className={cn(
                 "px-3 py-1 rounded-full text-xs font-bold tracking-wider uppercase transition-all cursor-pointer border",
                 routingMode === "MOCKED"
-                  ? "bg-emerald-600 border-emerald-500 text-white shadow-md shadow-emerald-500/30"
+                  ? "bg-orange-600 border-orange-500 text-white shadow-md shadow-orange-600/30"
                   : "bg-transparent border-transparent text-slate-400 hover:text-slate-200"
               )}
             >
@@ -114,7 +116,7 @@ export function SimulatorInterface() {
             )}
           >
             <Gamepad2 className="w-4 h-4 text-orange-400" />
-            <span>Tab 1: Mock Client View</span>
+            <span>Mock Client View</span>
           </button>
 
           {/* Tab 2: Operations View */}
@@ -129,7 +131,7 @@ export function SimulatorInterface() {
             )}
           >
             <Sliders className="w-4 h-4 text-cyan-400" />
-            <span>Tab 2: Operations View</span>
+            <span>Operations View</span>
           </button>
 
           {/* Auxiliary Cloud Resource Diagnostics Tab */}
@@ -151,7 +153,13 @@ export function SimulatorInterface() {
         {/* Persistent Summary Metadata Bar */}
         <div className="flex items-center gap-4 text-slate-400 text-xs">
           <span className="flex items-center gap-1.5">
-            <Crown className="w-3.5 h-3.5 text-amber-400" />
+            {simState.selectedCohort === "casual_grinder" ? (
+              <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+            ) : simState.selectedCohort === "new_f2p_onboarding" ? (
+              <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+            ) : (
+              <Crown className="w-3.5 h-3.5 text-amber-400" />
+            )}
             Cohort: <strong className="text-slate-200">{simState.selectedCohort}</strong>
           </span>
           <span className="flex items-center gap-1.5 border-l border-slate-800 pl-4">

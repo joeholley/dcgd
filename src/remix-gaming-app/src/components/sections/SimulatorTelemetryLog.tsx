@@ -9,7 +9,8 @@ import {
   Radio, 
   Filter, 
   Play, 
-  Pause 
+  Pause,
+  ArrowUpToLine
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { 
@@ -18,6 +19,8 @@ import {
   clearStreamLogs, 
   onStreamLogUpdate, 
   buildGcpConsolePubSubUrl, 
+  getStreamLoggingPaused,
+  setStreamLoggingPaused,
   RoutingMode 
 } from "../../services/simulatorBridge";
 
@@ -27,7 +30,8 @@ interface SimulatorTelemetryLogProps {
 
 export function SimulatorTelemetryLog({ routingMode = "LIVE" }: SimulatorTelemetryLogProps) {
   const [logs, setLogs] = useState<StreamLogEntry[]>(() => getStreamLogs());
-  const [isLiveStreamOn, setIsLiveStreamOn] = useState<boolean>(true);
+  const [isPaused, setIsPaused] = useState<boolean>(() => getStreamLoggingPaused());
+  const [autoScroll, setAutoScroll] = useState<boolean>(true);
   const [filter, setFilter] = useState<"ALL" | "OUTGOING" | "INCOMING">("ALL");
   const [expandedLogIds, setExpandedLogIds] = useState<Record<string, boolean>>({});
   
@@ -40,15 +44,21 @@ export function SimulatorTelemetryLog({ routingMode = "LIVE" }: SimulatorTelemet
     return () => unsub();
   }, []);
 
-  // Auto-scroll to top (latest entry) when isLiveStreamOn is true
+  // Auto-scroll to top (latest entry) when autoScroll is enabled
   useEffect(() => {
-    if (isLiveStreamOn && scrollRef.current) {
+    if (autoScroll && scrollRef.current) {
       scrollRef.current.scrollTop = 0;
     }
-  }, [logs, isLiveStreamOn]);
+  }, [logs, autoScroll]);
 
   const toggleExpand = (id: string) => {
     setExpandedLogIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const handleToggleStreamPause = () => {
+    const nextPaused = !isPaused;
+    setIsPaused(nextPaused);
+    setStreamLoggingPaused(nextPaused);
   };
 
   const filteredLogs = logs.filter((log) => {
@@ -78,30 +88,49 @@ export function SimulatorTelemetryLog({ routingMode = "LIVE" }: SimulatorTelemet
           </span>
         </div>
 
-        {/* Live View Toggle Switch (Default: ON) */}
+        {/* Action Controls */}
         <div className="flex items-center gap-3">
+          {/* Stream Logging Halt/Resume Toggle */}
           <button
             type="button"
-            onClick={() => setIsLiveStreamOn(!isLiveStreamOn)}
+            onClick={handleToggleStreamPause}
             className={cn(
               "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer border",
-              isLiveStreamOn
+              !isPaused
                 ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm shadow-emerald-500/20"
                 : "bg-amber-500/20 text-amber-400 border-amber-500/40"
             )}
           >
-            {isLiveStreamOn ? <Play className="w-3 h-3 fill-current" /> : <Pause className="w-3 h-3 fill-current" />}
-            <span>Live View Stream: {isLiveStreamOn ? "ON (Auto-scroll)" : "OFF (Paused)"}</span>
+            {!isPaused ? <Play className="w-3 h-3 fill-current" /> : <Pause className="w-3 h-3 fill-current" />}
+            <span>Stream Logging: {!isPaused ? "ON" : "OFF (Paused)"}</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => clearStreamLogs()}
-            className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-all border border-slate-800 cursor-pointer"
-            title="Clear Log Stream"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+          {/* Auto-Scroll Toggle and Trash Clear */}
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setAutoScroll(!autoScroll)}
+              className={cn(
+                "p-1.5 px-2 rounded-lg border text-xs transition-all cursor-pointer flex items-center gap-1",
+                autoScroll
+                  ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-sm"
+                  : "bg-slate-900 text-slate-500 hover:text-slate-300 border-slate-800"
+              )}
+              title={autoScroll ? "Auto-Scroll: Enabled (Jumps to latest log entry)" : "Auto-Scroll: Disabled"}
+            >
+              <ArrowUpToLine className="w-3.5 h-3.5" />
+              <span className="text-[10px] font-bold hidden sm:inline">Auto-Scroll</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => clearStreamLogs()}
+              className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-all border border-slate-800 cursor-pointer"
+              title="Clear Log Stream"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -128,7 +157,7 @@ export function SimulatorTelemetryLog({ routingMode = "LIVE" }: SimulatorTelemet
         </div>
 
         <span className="text-[10px] text-slate-500">
-          Mode: <strong className="text-slate-300">{routingMode}</strong>
+          Mode: <strong className={routingMode === "MOCKED" ? "text-orange-400" : "text-blue-400"}>{routingMode}</strong>
         </span>
       </div>
 
@@ -145,6 +174,7 @@ export function SimulatorTelemetryLog({ routingMode = "LIVE" }: SimulatorTelemet
             const isOutgoing = log.direction === "OUTGOING";
             const isExpanded = !!expandedLogIds[log.id];
             const consoleUrl = log.gcpConsoleUrl || buildGcpConsolePubSubUrl(log.pubsubTopic || "omniarcade-live-telemetry");
+            const isInMemory = routingMode === "MOCKED" || log.transport.includes("In-Memory");
 
             return (
               <div
@@ -171,13 +201,19 @@ export function SimulatorTelemetryLog({ routingMode = "LIVE" }: SimulatorTelemet
                     {/* Direction Badge */}
                     <span
                       className={cn(
-                        "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider",
+                        "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border",
                         isOutgoing
-                          ? "bg-cyan-500/10 text-cyan-300 border border-cyan-500/30"
-                          : "bg-purple-500/10 text-purple-300 border border-purple-500/30"
+                          ? isInMemory
+                            ? "bg-orange-500/10 text-orange-400 border-orange-500/30"
+                            : "bg-cyan-500/10 text-cyan-300 border-cyan-500/30"
+                          : "bg-purple-500/10 text-purple-300 border-purple-500/30"
                       )}
                     >
-                      {isOutgoing ? "OUTGOING -> Cloud Pub/Sub" : "INCOMING <- Agent Event"}
+                      {isOutgoing
+                        ? isInMemory
+                          ? "OUTGOING -> BroadcastChannel"
+                          : "OUTGOING -> Cloud Pub/Sub"
+                        : "INCOMING <- Agent Event"}
                     </span>
 
                     <span className="text-white font-bold text-[11px]">{log.eventType}</span>
@@ -188,17 +224,19 @@ export function SimulatorTelemetryLog({ routingMode = "LIVE" }: SimulatorTelemet
                       {log.transport}
                     </span>
 
-                    {/* Clickable GCP Console Link */}
-                    <a
-                      href={consoleUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-2 py-0.5 rounded bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/40 text-blue-300 text-[10px] font-bold flex items-center gap-1 transition-all"
-                      title="Open Cloud Pub/Sub Topic in Google Cloud Console"
-                    >
-                      <span>Open in GCP Console</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
+                    {/* Clickable GCP Console Link (Hidden in MOCKED mode) */}
+                    {routingMode !== "MOCKED" && (
+                      <a
+                        href={consoleUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2 py-0.5 rounded bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/40 text-blue-300 text-[10px] font-bold flex items-center gap-1 transition-all"
+                        title="Open Cloud Pub/Sub Topic in Google Cloud Console"
+                      >
+                        <span>Open in GCP Console</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
 
                     {/* Expand JSON Button */}
                     <button
@@ -234,3 +272,4 @@ export function SimulatorTelemetryLog({ routingMode = "LIVE" }: SimulatorTelemet
     </div>
   );
 }
+

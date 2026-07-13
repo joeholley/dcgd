@@ -9,7 +9,8 @@ import {
   Sparkles, 
   Skull, 
   ShieldAlert, 
-  CheckCircle2 
+  CheckCircle2,
+  RotateCcw
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { 
@@ -18,6 +19,8 @@ import {
   onSimulatorStateUpdate, 
   sendSimulatorEvent, 
   onStreamLogUpdate, 
+  resetCohortStats,
+  updateCohortStats,
   PlayerCohortId, 
   RoutingMode 
 } from "../../services/simulatorBridge";
@@ -67,10 +70,11 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
   const [simState, setSimState] = useState(() => getSimulatorState());
   const activeCohort = COHORT_PROFILES[simState.selectedCohort] || COHORT_PROFILES.veteran_whale;
 
+  // Cohort stats for active cohort
+  const activeCohortStats = simState.cohortStats?.[activeCohort.id] || { playerDeaths: 0, quitAttempts: 0 };
+
   // Mock game client inner states
   const [bossHealth, setBossHealth] = useState<number>(65);
-  const [playerDeaths, setPlayerDeaths] = useState<number>(4);
-  const [quitAttempts, setQuitAttempts] = useState<number>(2);
   const [isProcessingAction, setIsProcessingAction] = useState<boolean>(false);
   const [activeOffer, setActiveOffer] = useState<{
     id: string;
@@ -111,14 +115,14 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
     setIsProcessingAction(true);
 
     let nextBossHealth = bossHealth;
-    let nextPlayerDeaths = playerDeaths;
-    let nextQuitAttempts = quitAttempts;
+    let nextPlayerDeaths = activeCohortStats.playerDeaths;
+    let nextQuitAttempts = activeCohortStats.quitAttempts;
 
     if (actionType === "boss_fail") {
-      nextPlayerDeaths = playerDeaths + 1;
+      nextPlayerDeaths = activeCohortStats.playerDeaths + 1;
       nextBossHealth = Math.max(10, bossHealth - 15);
-      setPlayerDeaths(nextPlayerDeaths);
       setBossHealth(nextBossHealth);
+      updateCohortStats(activeCohort.id, { playerDeaths: nextPlayerDeaths });
 
       // Auto-trigger retention promo after 3 deaths if no offer exists
       if (nextPlayerDeaths >= 3 && !activeOffer) {
@@ -135,8 +139,8 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
         });
       }
     } else if (actionType === "mission_quit") {
-      nextQuitAttempts = quitAttempts + 1;
-      setQuitAttempts(nextQuitAttempts);
+      nextQuitAttempts = activeCohortStats.quitAttempts + 1;
+      updateCohortStats(activeCohort.id, { quitAttempts: nextQuitAttempts });
     } else if (actionType === "offer_accepted") {
       setActiveOffer(null);
     }
@@ -176,6 +180,7 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {(Object.values(COHORT_PROFILES) as CohortMeta[]).map((cohort) => {
             const isSelected = simState.selectedCohort === cohort.id;
+            const stats = simState.cohortStats?.[cohort.id] || { playerDeaths: 0, quitAttempts: 0 };
             return (
               <button
                 key={cohort.id}
@@ -198,9 +203,26 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
                   {isSelected && <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />}
                 </div>
 
-                <div className="flex justify-between items-end font-mono text-[11px] text-slate-400">
-                  <span>User Prefix: <strong className="text-slate-200">{cohort.userId}</strong></span>
-                  <span>LTV: <strong className="text-emerald-400">{cohort.ltvDisplay}</strong></span>
+                <div className="flex justify-between items-center font-mono text-[11px] text-slate-400 pt-1 border-t border-slate-800/60">
+                  <div className="flex flex-col gap-0.5">
+                    <span>LTV: <strong className="text-emerald-400">{cohort.ltvDisplay}</strong></span>
+                    <span className="text-[10px] text-slate-400">
+                      Deaths: <strong className="text-amber-400">{stats.playerDeaths}</strong> | Quits: <strong className="text-orange-400">{stats.quitAttempts}</strong>
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      resetCohortStats(cohort.id);
+                    }}
+                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0"
+                    title={`Reset ${cohort.title} counters to 0`}
+                  >
+                    <RotateCcw className="w-3 h-3 text-amber-400" />
+                    <span>Reset</span>
+                  </button>
                 </div>
               </button>
             );
@@ -210,8 +232,19 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
 
       {/* Grid: Game Client Viewport (Left) & Telemetry Log (Right) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Pure Player Game Viewport */}
-        <div className="lg:col-span-5 bg-gradient-to-b from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl flex flex-col justify-between space-y-6">
+        {/* Left Column: Mock Game Client Viewport (Smartphone Frame Aesthetic) */}
+        <div className="lg:col-span-5 bg-slate-950 border-4 border-slate-800 rounded-[2.5rem] p-6 shadow-2xl flex flex-col justify-between space-y-5 relative">
+          {/* Smartphone Top Notch & Label */}
+          <div className="flex flex-col items-center border-b border-slate-800/80 pb-3">
+            <div className="w-24 h-3 bg-slate-900 rounded-b-xl border-x border-b border-slate-700/50 flex items-center justify-center mb-2">
+              <div className="w-2.5 h-2.5 rounded-full bg-slate-800 mr-2 border border-slate-700" />
+              <div className="w-8 h-1 rounded-full bg-slate-800" />
+            </div>
+            <div className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-widest bg-slate-900 px-3 py-0.5 rounded-full border border-slate-800">
+              Mock Game Client
+            </div>
+          </div>
+
           {/* Game Title & Header */}
           <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
             <div className="flex items-center gap-3">
@@ -219,12 +252,12 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
                 <Gamepad2 className="w-5 h-5" />
               </div>
               <div>
-                <h2 className="font-bold text-white text-base tracking-wide font-sans">Cosmic Raider RPG</h2>
-                <p className="text-[11px] font-mono text-slate-400">Raid Dungeon Level 85</p>
+                <h2 className="font-bold text-white text-base tracking-wide font-sans">Realm of Eldoria RPG</h2>
+                <p className="text-[11px] font-mono text-slate-400">Tutorial Level 8 of 10</p>
               </div>
             </div>
 
-            <span className="px-2.5 py-1 rounded-full bg-slate-950 border border-slate-800 text-[10px] font-mono font-bold text-slate-300">
+            <span className="px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 text-[10px] font-mono font-bold text-slate-300">
               Player: <span className="text-amber-400">{activeCohort.userId}</span>
             </span>
           </div>
@@ -252,11 +285,11 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
             <div className="grid grid-cols-2 gap-3 pt-1">
               <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800">
                 <span className="text-[10px] text-slate-500 uppercase block font-bold">Wipeouts / Deaths:</span>
-                <span className="text-base font-bold text-amber-400">{playerDeaths} Consecutive Fails</span>
+                <span className="text-base font-bold text-amber-400">{activeCohortStats.playerDeaths} Consecutive Fails</span>
               </div>
               <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800">
                 <span className="text-[10px] text-slate-500 uppercase block font-bold">Exit Intent Count:</span>
-                <span className="text-base font-bold text-orange-400">{quitAttempts} Mission Quits</span>
+                <span className="text-base font-bold text-orange-400">{activeCohortStats.quitAttempts} Mission Quits</span>
               </div>
             </div>
 
@@ -321,3 +354,4 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
     </div>
   );
 }
+

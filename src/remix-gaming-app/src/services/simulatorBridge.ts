@@ -9,6 +9,13 @@ export type RoutingMode = "LIVE" | "MOCKED";
 export type PlayerCohortId = "veteran_whale" | "casual_grinder" | "new_f2p_onboarding";
 export type AnomalyType = "none" | "high_churn_boss_deaths" | "level_2_bottleneck" | "toxic_chat";
 
+export interface CohortStats {
+  playerDeaths: number;
+  quitAttempts: number;
+}
+
+export type CohortStatsMap = Record<PlayerCohortId, CohortStats>;
+
 export interface SimulatorPersistentState {
   routingMode: RoutingMode;
   selectedCohort: PlayerCohortId;
@@ -19,6 +26,7 @@ export interface SimulatorPersistentState {
     emea: boolean;
     na: boolean;
   };
+  cohortStats: CohortStatsMap;
 }
 
 export const STORAGE_KEYS = {
@@ -64,6 +72,12 @@ export function buildGcpConsolePubSubUrl(
   return `https://console.cloud.google.com/cloudpubsub/topic/detail/${topicName}?project=${projectId}`;
 }
 
+const DEFAULT_COHORT_STATS: CohortStatsMap = {
+  veteran_whale: { playerDeaths: 0, quitAttempts: 0 },
+  casual_grinder: { playerDeaths: 0, quitAttempts: 0 },
+  new_f2p_onboarding: { playerDeaths: 0, quitAttempts: 0 },
+};
+
 const DEFAULT_STATE: SimulatorPersistentState = {
   routingMode: "LIVE",
   selectedCohort: "veteran_whale",
@@ -74,9 +88,21 @@ const DEFAULT_STATE: SimulatorPersistentState = {
     emea: true,
     na: true,
   },
+  cohortStats: { ...DEFAULT_COHORT_STATS },
 };
 
 const CHANNEL_NAME = "omniarcade_simulator_channel";
+
+// Stream Logging Pause Control
+let isStreamLoggingPaused = false;
+
+export function getStreamLoggingPaused(): boolean {
+  return isStreamLoggingPaused;
+}
+
+export function setStreamLoggingPaused(paused: boolean): void {
+  isStreamLoggingPaused = paused;
+}
 
 // Load persistent state from localStorage
 function loadInitialState(): SimulatorPersistentState {
@@ -98,6 +124,20 @@ function loadInitialState(): SimulatorPersistentState {
           apac: parsed.activeTimezones?.apac ?? true,
           emea: parsed.activeTimezones?.emea ?? true,
           na: parsed.activeTimezones?.na ?? true,
+        },
+        cohortStats: {
+          veteran_whale: {
+            playerDeaths: typeof parsed.cohortStats?.veteran_whale?.playerDeaths === "number" ? parsed.cohortStats.veteran_whale.playerDeaths : 0,
+            quitAttempts: typeof parsed.cohortStats?.veteran_whale?.quitAttempts === "number" ? parsed.cohortStats.veteran_whale.quitAttempts : 0,
+          },
+          casual_grinder: {
+            playerDeaths: typeof parsed.cohortStats?.casual_grinder?.playerDeaths === "number" ? parsed.cohortStats.casual_grinder.playerDeaths : 0,
+            quitAttempts: typeof parsed.cohortStats?.casual_grinder?.quitAttempts === "number" ? parsed.cohortStats.casual_grinder.quitAttempts : 0,
+          },
+          new_f2p_onboarding: {
+            playerDeaths: typeof parsed.cohortStats?.new_f2p_onboarding?.playerDeaths === "number" ? parsed.cohortStats.new_f2p_onboarding.playerDeaths : 0,
+            quitAttempts: typeof parsed.cohortStats?.new_f2p_onboarding?.quitAttempts === "number" ? parsed.cohortStats.new_f2p_onboarding.quitAttempts : 0,
+          },
         },
       };
     }
@@ -211,12 +251,39 @@ export function updateSimulatorState(updates: Partial<SimulatorPersistentState>)
       ...currentState.activeTimezones,
       ...(updates.activeTimezones || {}),
     },
+    cohortStats: {
+      ...currentState.cohortStats,
+      ...(updates.cohortStats || {}),
+    },
   };
   notifyStateListeners();
   if (broadcastChannel) {
     broadcastChannel.postMessage({ type: "STATE_CHANGE", state: currentState });
   }
   return currentState;
+}
+
+export function resetCohortStats(cohortId: PlayerCohortId): void {
+  const updatedCohortStats = {
+    ...currentState.cohortStats,
+    [cohortId]: { playerDeaths: 0, quitAttempts: 0 },
+  };
+  updateSimulatorState({ cohortStats: updatedCohortStats });
+}
+
+export function updateCohortStats(
+  cohortId: PlayerCohortId,
+  stats: Partial<CohortStats>
+): void {
+  const current = currentState.cohortStats[cohortId] || { playerDeaths: 0, quitAttempts: 0 };
+  const updatedCohortStats = {
+    ...currentState.cohortStats,
+    [cohortId]: {
+      playerDeaths: typeof stats.playerDeaths === "number" ? stats.playerDeaths : current.playerDeaths,
+      quitAttempts: typeof stats.quitAttempts === "number" ? stats.quitAttempts : current.quitAttempts,
+    },
+  };
+  updateSimulatorState({ cohortStats: updatedCohortStats });
 }
 
 export function onSimulatorStateUpdate(listener: (state: SimulatorPersistentState) => void): () => void {
@@ -267,7 +334,10 @@ export function getStreamLogs(): StreamLogEntry[] {
   return currentLogs;
 }
 
-export function addStreamLogEntry(entry: Omit<StreamLogEntry, "id">): StreamLogEntry {
+export function addStreamLogEntry(entry: Omit<StreamLogEntry, "id">): StreamLogEntry | null {
+  if (isStreamLoggingPaused) {
+    return null;
+  }
   const newEntry: StreamLogEntry = {
     id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
     ...entry,
