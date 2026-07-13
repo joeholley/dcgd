@@ -127,10 +127,12 @@ export function DiurnalSineWaveGraph({
 
       REGIONS.forEach((r) => {
         if (activeTimezones[r.id]) {
-          // Diurnal formula: sin((pi * (hour - (peakHour - 6))) / 12) ^ 2
+          // Diurnal formula with enforced 1% regional wave floor minimum
           const phi = r.peakHourUtc - 6;
           const val = Math.max(0, Math.sin((Math.PI * (hour - phi)) / 12)) ** 2;
-          const ccu = val * r.weight * peakCCU;
+          const regionalPeak = r.weight * peakCCU;
+          const waveFloor = regionalPeak * 0.01; // Minimum CCU never drops below 1% of regional peak
+          const ccu = Math.max(waveFloor, val * regionalPeak);
           regionalVals[r.id] = Math.round(ccu);
           totalVal += ccu;
         }
@@ -147,6 +149,27 @@ export function DiurnalSineWaveGraph({
     }
     return { points, currentUtcHour };
   }, [peakCCU, activeTimezones]);
+
+  // Helper to compute local regional timestamp for a given UTC hour
+  const getRegionalTimestamp = (utcHour: number, regionId: string) => {
+    let offset = 0;
+    let tzLabel = "";
+    if (regionId === "na") {
+      offset = -4; // EDT (UTC-4)
+      tzLabel = "EDT";
+    } else if (regionId === "emea") {
+      offset = 1; // BST (UTC+1)
+      tzLabel = "BST";
+    } else if (regionId === "apac") {
+      offset = 9; // JST (UTC+9)
+      tzLabel = "JST";
+    }
+
+    const regHourFloat = (utcHour + offset + 24) % 24;
+    const h = Math.floor(regHourFloat);
+    const m = Math.floor((regHourFloat % 1) * 60);
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")} ${tzLabel}`;
+  };
 
   // Dimensions for SVG
   const width = 600;
@@ -193,49 +216,51 @@ export function DiurnalSineWaveGraph({
 
   return (
     <div className="bg-slate-950 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-inner font-mono">
-      {/* Header & Regional Timezone Chips */}
+      {/* Header & Control Bar: Repositioned Local Clock to Upper Right */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800 pb-3">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <Globe className="w-4 h-4 text-cyan-400" />
-            <h3 className="font-bold text-white text-xs tracking-wider uppercase">
-              Interactive 24-Hour Simulated Concurrency Graph
-            </h3>
-          </div>
-          <span className="flex items-center gap-1.5 text-[10px] text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-500/30 font-bold shrink-0 shadow-sm">
-            <Clock className="w-3 h-3 text-emerald-400 animate-pulse" />
-            <span>Local Machine Time: {localMachineTime || "--:--:--"}</span>
-          </span>
+        <div className="flex items-center gap-2">
+          <Globe className="w-4 h-4 text-cyan-400" />
+          <h3 className="font-bold text-white text-xs tracking-wider uppercase">
+            Interactive 24-Hour Simulated Concurrency Graph
+          </h3>
         </div>
 
-        {/* Timezone Toggle Chips with Live City Clocks */}
-        <div className="flex items-center flex-wrap gap-2 text-xs">
-          {REGIONS.map((r) => {
-            const isActive = activeTimezones[r.id];
-            return (
-              <button
-                key={r.id}
-                type="button"
-                onClick={() => onTimezoneToggle(r.id)}
-                className={cn(
-                  "px-3 py-1 rounded-xl border flex items-center gap-2 transition-all cursor-pointer",
-                  isActive
-                    ? `${r.bgBadge} ${r.borderBadge} font-bold shadow-sm`
-                    : "bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300"
-                )}
-              >
-                <span
-                  className="w-2.5 h-2.5 rounded-full shrink-0"
-                  style={{ backgroundColor: isActive ? r.color : "#475569" }}
-                />
-                <span>{r.name} ({r.city})</span>
-                <span className="flex items-center gap-1 opacity-80 text-[10px] bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">
-                  <Clock className="w-3 h-3" />
-                  {cityTimes[r.id] || "--:--"}
-                </span>
-              </button>
-            );
-          })}
+        {/* Upper-Right Control Header: Timezone Toggle Chips & Local Machine Time Clock */}
+        <div className="flex items-center flex-wrap gap-3 text-xs">
+          <div className="flex items-center flex-wrap gap-2">
+            {REGIONS.map((r) => {
+              const isActive = activeTimezones[r.id];
+              return (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => onTimezoneToggle(r.id)}
+                  className={cn(
+                    "px-3 py-1 rounded-xl border flex items-center gap-2 transition-all cursor-pointer",
+                    isActive
+                      ? `${r.bgBadge} ${r.borderBadge} font-bold shadow-sm`
+                      : "bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300"
+                  )}
+                >
+                  <span
+                    className="w-2.5 h-2.5 rounded-full shrink-0"
+                    style={{ backgroundColor: isActive ? r.color : "#475569" }}
+                  />
+                  <span>{r.name} ({r.city})</span>
+                  <span className="flex items-center gap-1 opacity-80 text-[10px] bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">
+                    <Clock className="w-3 h-3" />
+                    {cityTimes[r.id] || "--:--"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Local Machine Time Relocated to Upper-Right Header */}
+          <span className="flex items-center gap-1.5 text-[10px] text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-500/30 font-bold shrink-0 shadow-sm ml-auto font-mono">
+            <Clock className="w-3 h-3 text-emerald-400 animate-pulse" />
+            <span>Local: {localMachineTime || "--:--:--"}</span>
+          </span>
         </div>
       </div>
 
@@ -362,7 +387,7 @@ export function DiurnalSineWaveGraph({
           )}
         </svg>
 
-        {/* Hover Readout Tooltip Overlay */}
+        {/* Hover Readout Tooltip Overlay with Regional Timestamps */}
         {hoveredPoint && (
           <div className="absolute top-3 right-3 bg-slate-900/95 border border-slate-700 p-3 rounded-xl shadow-2xl text-[11px] space-y-1.5 backdrop-blur z-20 pointer-events-none">
             <div className="flex justify-between items-center text-slate-400 font-bold border-b border-slate-800 pb-1 gap-4">
@@ -375,7 +400,7 @@ export function DiurnalSineWaveGraph({
                 <div key={r.id} className="flex justify-between items-center gap-4">
                   <span className="flex items-center gap-1.5" style={{ color: r.color }}>
                     <span className="w-2 h-2 rounded-full" style={{ backgroundColor: r.color }} />
-                    {r.name}:
+                    {r.name} ({getRegionalTimestamp(hoveredPoint.hour, r.id)}):
                   </span>
                   <span className="font-bold text-slate-200">
                     {activeTimezones[r.id]

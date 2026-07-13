@@ -6,7 +6,7 @@
  */
 
 export type RoutingMode = "LIVE" | "MOCKED";
-export type PlayerCohortId = "veteran_whale" | "casual_grinder" | "new_f2p_onboarding";
+export type PlayerCohortId = "Whale" | "Dolphin" | "Minnow" | "F2P";
 export type AnomalyType = "none" | "high_churn_boss_deaths" | "level_2_bottleneck" | "toxic_chat";
 
 export interface CohortStats {
@@ -41,6 +41,7 @@ export interface StreamLogEntry {
   direction: "OUTGOING" | "INCOMING";
   eventType: string;
   transport: string;
+  backend_mode: RoutingMode;
   pubsubTopic?: string;
   gcpConsoleUrl?: string;
   success: boolean;
@@ -73,15 +74,16 @@ export function buildGcpConsolePubSubUrl(
 }
 
 const DEFAULT_COHORT_STATS: CohortStatsMap = {
-  veteran_whale: { playerDeaths: 0, quitAttempts: 0 },
-  casual_grinder: { playerDeaths: 0, quitAttempts: 0 },
-  new_f2p_onboarding: { playerDeaths: 0, quitAttempts: 0 },
+  Whale: { playerDeaths: 0, quitAttempts: 0 },
+  Dolphin: { playerDeaths: 0, quitAttempts: 0 },
+  Minnow: { playerDeaths: 0, quitAttempts: 0 },
+  F2P: { playerDeaths: 0, quitAttempts: 0 },
 };
 
 const DEFAULT_STATE: SimulatorPersistentState = {
   routingMode: "LIVE",
-  selectedCohort: "veteran_whale",
-  peakCCU: 14280,
+  selectedCohort: "Whale",
+  peakCCU: 250000,
   activeAnomaly: "none",
   activeTimezones: {
     apac: true,
@@ -113,10 +115,10 @@ function loadInitialState(): SimulatorPersistentState {
       const parsed = JSON.parse(raw);
       return {
         routingMode: parsed.routingMode === "MOCKED" ? "MOCKED" : "LIVE",
-        selectedCohort: ["veteran_whale", "casual_grinder", "new_f2p_onboarding"].includes(parsed.selectedCohort)
+        selectedCohort: ["Whale", "Dolphin", "Minnow", "F2P"].includes(parsed.selectedCohort)
           ? parsed.selectedCohort
-          : "veteran_whale",
-        peakCCU: typeof parsed.peakCCU === "number" ? parsed.peakCCU : 14280,
+          : "Whale",
+        peakCCU: typeof parsed.peakCCU === "number" ? parsed.peakCCU : 250000,
         activeAnomaly: ["none", "high_churn_boss_deaths", "level_2_bottleneck", "toxic_chat"].includes(parsed.activeAnomaly)
           ? parsed.activeAnomaly
           : "none",
@@ -126,17 +128,21 @@ function loadInitialState(): SimulatorPersistentState {
           na: parsed.activeTimezones?.na ?? true,
         },
         cohortStats: {
-          veteran_whale: {
-            playerDeaths: typeof parsed.cohortStats?.veteran_whale?.playerDeaths === "number" ? parsed.cohortStats.veteran_whale.playerDeaths : 0,
-            quitAttempts: typeof parsed.cohortStats?.veteran_whale?.quitAttempts === "number" ? parsed.cohortStats.veteran_whale.quitAttempts : 0,
+          Whale: {
+            playerDeaths: typeof parsed.cohortStats?.Whale?.playerDeaths === "number" ? parsed.cohortStats.Whale.playerDeaths : 0,
+            quitAttempts: typeof parsed.cohortStats?.Whale?.quitAttempts === "number" ? parsed.cohortStats.Whale.quitAttempts : 0,
           },
-          casual_grinder: {
-            playerDeaths: typeof parsed.cohortStats?.casual_grinder?.playerDeaths === "number" ? parsed.cohortStats.casual_grinder.playerDeaths : 0,
-            quitAttempts: typeof parsed.cohortStats?.casual_grinder?.quitAttempts === "number" ? parsed.cohortStats.casual_grinder.quitAttempts : 0,
+          Dolphin: {
+            playerDeaths: typeof parsed.cohortStats?.Dolphin?.playerDeaths === "number" ? parsed.cohortStats.Dolphin.playerDeaths : 0,
+            quitAttempts: typeof parsed.cohortStats?.Dolphin?.quitAttempts === "number" ? parsed.cohortStats.Dolphin.quitAttempts : 0,
           },
-          new_f2p_onboarding: {
-            playerDeaths: typeof parsed.cohortStats?.new_f2p_onboarding?.playerDeaths === "number" ? parsed.cohortStats.new_f2p_onboarding.playerDeaths : 0,
-            quitAttempts: typeof parsed.cohortStats?.new_f2p_onboarding?.quitAttempts === "number" ? parsed.cohortStats.new_f2p_onboarding.quitAttempts : 0,
+          Minnow: {
+            playerDeaths: typeof parsed.cohortStats?.Minnow?.playerDeaths === "number" ? parsed.cohortStats.Minnow.playerDeaths : 0,
+            quitAttempts: typeof parsed.cohortStats?.Minnow?.quitAttempts === "number" ? parsed.cohortStats.Minnow.quitAttempts : 0,
+          },
+          F2P: {
+            playerDeaths: typeof parsed.cohortStats?.F2P?.playerDeaths === "number" ? parsed.cohortStats.F2P.playerDeaths : 0,
+            quitAttempts: typeof parsed.cohortStats?.F2P?.quitAttempts === "number" ? parsed.cohortStats.F2P.quitAttempts : 0,
           },
         },
       };
@@ -334,12 +340,13 @@ export function getStreamLogs(): StreamLogEntry[] {
   return currentLogs;
 }
 
-export function addStreamLogEntry(entry: Omit<StreamLogEntry, "id">): StreamLogEntry | null {
+export function addStreamLogEntry(entry: Omit<StreamLogEntry, "id" | "backend_mode"> & { backend_mode?: RoutingMode }): StreamLogEntry | null {
   if (isStreamLoggingPaused) {
     return null;
   }
   const newEntry: StreamLogEntry = {
     id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+    backend_mode: entry.backend_mode || currentState.routingMode,
     ...entry,
   };
   currentLogs = [newEntry, ...currentLogs];

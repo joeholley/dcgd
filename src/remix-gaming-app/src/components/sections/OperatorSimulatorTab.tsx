@@ -121,7 +121,7 @@ export function OperatorSimulatorTab({ routingMode }: OperatorSimulatorTabProps)
             <div className="flex justify-between items-center text-xs">
               <label className="text-slate-300 font-semibold flex items-center gap-1.5">
                 <Activity className="w-4 h-4 text-blue-400" />
-                Simulated Global PCCU:
+                Simulated Global CCU/PCCU:
               </label>
 
               {/* Numeric Input Field */}

@@ -295,6 +295,7 @@ async function verifyDataplexPolicyAndPrecache(
       player_id: playerId,
       churn_score: churnScore,
       offer: certifiedOffer,
+      backend_mode: "LIVE",
       message: "Dataplex policy aspect verified. Offer pre-cached for <300ms execution.",
       timestamp: new Date().toISOString(),
     });
@@ -399,6 +400,7 @@ function runSimulationTick() {
 
     simulatorState.totalEventsPublished++;
 
+    const backendMode = simulatorState.isRunning ? "LIVE" : "MOCK";
     const ssePayload = {
       ...telemetryPayload,
       predicted_churn_score: predictedChurnScore,
@@ -407,6 +409,7 @@ function runSimulationTick() {
       total_events_published: simulatorState.totalEventsPublished,
       current_ccu: simulatorState.currentCCU,
       active_anomaly: simulatorState.activeAnomaly,
+      backend_mode: backendMode,
     };
 
     broadcastSSE("telemetry_update", ssePayload);
@@ -627,6 +630,8 @@ async function startServer() {
       // 4. Measure execution latency after calculation
       const executionLatencyMs = Date.now() - startTime;
       
+      const backendMode = req.body?.backend_mode || (pubsubMessageId && !pubsubMessageId.startsWith("mock_") ? "LIVE" : "MOCK");
+
       const ssePayload = {
         session_id,
         player_id,
@@ -641,19 +646,27 @@ async function startServer() {
         latency_ms: executionLatencyMs,
         offer_precached: !!precachedOffer,
         offer: predictedChurnScore >= 0.85 ? (precachedOffer || null) : null,
+        backend_mode: backendMode,
       };
 
       // Stream updated churn score & potential guardrail offer via SSE
       broadcastSSE("telemetry_update", ssePayload);
 
       if (predictedChurnScore >= 0.85 && ssePayload.offer) {
-        broadcastSSE("churn_guardrail_triggered", {
+        const offerPayload = {
           player_id,
+          exemplar_id: player_id,
+          offer_name: ssePayload.offer.sku || ssePayload.offer.title || "frost_giant_shield_pack",
           churn_score: predictedChurnScore,
           offer: ssePayload.offer,
           latency_ms: executionLatencyMs,
+          backend_mode: backendMode,
           timestamp: new Date().toISOString(),
-        });
+        };
+
+        broadcastSSE("churn_guardrail_triggered", offerPayload);
+        broadcastSSE("offer_approval", offerPayload);
+        broadcastSSE("offer_notification", offerPayload);
       }
 
       return res.status(200).json({
@@ -898,6 +911,94 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
   });
 
   // --------------------------------------------------------------------------
+  // 4b. Cohort Exemplars Resolution Endpoint (/api/exemplars)
+  // --------------------------------------------------------------------------
+  app.get("/api/exemplars", async (_req: Request, res: Response) => {
+    const tiers = ["Whale", "Dolphin", "Minnow", "F2P"] as const;
+    const defaultExemplars: Record<string, any> = {
+      Whale: { player_id: "Player_0042", payer_tier: "Whale", total_iap_spend: 750, estimated_ltv: 1250 },
+      Dolphin: { player_id: "Player_0188", payer_tier: "Dolphin", total_iap_spend: 120, estimated_ltv: 350 },
+      Minnow: { player_id: "Player_0512", payer_tier: "Minnow", total_iap_spend: 15, estimated_ltv: 35 },
+      F2P: { player_id: "Player_1024", payer_tier: "F2P", total_iap_spend: 0, estimated_ltv: 0 },
+    };
+
+    const results: Record<string, any> = {};
+
+    for (const tier of tiers) {
+      let tierWhere = `payer_tier = '${tier}'`;
+      if (tier === "Whale") {
+        tierWhere = `(payer_tier = 'Whale' OR total_iap_spend > 500.0)`;
+      } else if (tier === "Dolphin") {
+        tierWhere = `(payer_tier = 'Dolphin' OR (total_iap_spend >= 50.0 AND total_iap_spend <= 500.0))`;
+      } else if (tier === "Minnow") {
+        tierWhere = `(payer_tier = 'Minnow' OR (total_iap_spend > 0.0 AND total_iap_spend < 50.0))`;
+      } else if (tier === "F2P") {
+        tierWhere = `(payer_tier = 'F2P' OR total_iap_spend = 0.0)`;
+      }
+
+      const sql = `
+        SELECT
+          player_id,
+          COALESCE(payer_tier, '${tier}') AS payer_tier,
+          COALESCE(total_iap_spend, 0.0) AS total_iap_spend,
+          days_since_last_login,
+          favorite_category,
+          consecutive_deaths,
+          session_duration_seconds,
+          is_churned
+        FROM \`${PROJECT_ID}.omniarcade_gold.gold_player_360\`
+        WHERE ${tierWhere}
+        ORDER BY RAND()
+        LIMIT 1
+      `;
+
+      try {
+        const rows = await executeCustomQuery(sql);
+        if (rows && rows.length > 0) {
+          const row = rows[0];
+          const spend = Number(row.total_iap_spend || 0);
+
+          let estimatedLtv: number | null = null;
+          try {
+            const ltvSql = `
+              SELECT predicted_ltv
+              FROM ML.PREDICT(MODEL \`${PROJECT_ID}.omniarcade_gold.predictive_ltv_model\`,
+                (SELECT @player_id AS player_id, @spend AS total_iap_spend)
+              )
+            `;
+            const ltvRows = await executeCustomQuery(ltvSql, { player_id: row.player_id, spend });
+            if (ltvRows && ltvRows.length > 0 && ltvRows[0].predicted_ltv != null) {
+              estimatedLtv = Math.round(Number(ltvRows[0].predicted_ltv));
+            }
+          } catch (e) {
+            // Predictive LTV model fallback rule
+          }
+
+          if (estimatedLtv === null) {
+            if (tier === "Whale") estimatedLtv = Math.min(1500, Math.round(spend * 1.5 + 200));
+            else if (tier === "Dolphin") estimatedLtv = 500;
+            else if (tier === "Minnow") estimatedLtv = 50;
+            else estimatedLtv = 0;
+          }
+
+          results[tier] = {
+            player_id: row.player_id || defaultExemplars[tier].player_id,
+            payer_tier: tier,
+            total_iap_spend: Math.round(spend),
+            estimated_ltv: estimatedLtv,
+          };
+        } else {
+          results[tier] = defaultExemplars[tier];
+        }
+      } catch (err) {
+        results[tier] = defaultExemplars[tier];
+      }
+    }
+
+    return res.json({ success: true, exemplars: results });
+  });
+
+  // --------------------------------------------------------------------------
   // 5. BigQuery Analytical REST Endpoints for Overview & Operations Dashboards
   // --------------------------------------------------------------------------
   app.get("/api/analytics/player360", async (req: Request, res: Response) => {
@@ -943,6 +1044,221 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       console.error("[Analytics API Error - Campaigns]:", err);
       res.status(500).json({ error: err?.message || "Campaign analytics query failed" });
     }
+  });
+
+  // In-memory cache for cohort exemplars
+  let cachedExemplars: any[] | null = null;
+  let cachedExemplarsMode: "LIVE" | "MOCK" = "MOCK";
+
+  const DEFAULT_MOCK_EXEMPLARS = [
+    {
+      player_id: "player_cosmic_whale_42",
+      payer_tier: "Whale",
+      total_iap_spend: 750.00,
+      predicted_ltv: 1500.00,
+      days_since_last_login: 1,
+      favorite_category: "Hardcore Boss Raids",
+      consecutive_deaths: 3,
+      session_duration_seconds: 420,
+      is_churned: false,
+    },
+    {
+      player_id: "player_hyper_pacer",
+      payer_tier: "Dolphin",
+      total_iap_spend: 120.00,
+      predicted_ltv: 500.00,
+      days_since_last_login: 2,
+      favorite_category: "Speed Run",
+      consecutive_deaths: 1,
+      session_duration_seconds: 300,
+      is_churned: false,
+    },
+    {
+      player_id: "player_impulse_buyer_12",
+      payer_tier: "Minnow",
+      total_iap_spend: 15.00,
+      predicted_ltv: 50.00,
+      days_since_last_login: 4,
+      favorite_category: "Skins & Cosmetics",
+      consecutive_deaths: 2,
+      session_duration_seconds: 180,
+      is_churned: false,
+    },
+    {
+      player_id: "player_free_runner_88",
+      payer_tier: "F2P",
+      total_iap_spend: 0.00,
+      predicted_ltv: 0.00,
+      days_since_last_login: 0,
+      favorite_category: "Casual Arcade",
+      consecutive_deaths: 0,
+      session_duration_seconds: 600,
+      is_churned: false,
+    },
+  ];
+
+  const TIER_LTV_UPPER_BOUNDS: Record<string, number> = {
+    Whale: 1500,
+    Dolphin: 500,
+    Minnow: 50,
+    F2P: 0,
+  };
+
+  // Cohort Exemplars Endpoint (/api/analytics/exemplars)
+  app.get("/api/analytics/exemplars", async (req: Request, res: Response) => {
+    try {
+      const forceRefresh = req.query.force === "true" || req.query.refresh === "true";
+      const isMockRequested = req.query.mode === "mock";
+
+      if (!forceRefresh && cachedExemplars !== null && !isMockRequested) {
+        return res.json({
+          success: true,
+          mode: cachedExemplarsMode,
+          exemplars: cachedExemplars,
+          cached: true,
+        });
+      }
+
+      if (isMockRequested) {
+        return res.json({
+          success: true,
+          mode: "MOCK",
+          exemplars: DEFAULT_MOCK_EXEMPLARS,
+          cached: false,
+        });
+      }
+
+      // Query BigQuery gold_player_360 (ORDER BY RAND() LIMIT 1 per tier)
+      const tiers = ["Whale", "Dolphin", "Minnow", "F2P"];
+      const liveExemplars: any[] = [];
+
+      for (const tier of tiers) {
+        const exemplarQuery = `
+          SELECT
+            player_id,
+            COALESCE(payer_tier, @target_tier) AS payer_tier,
+            CAST(total_iap_spend AS FLOAT64) AS total_iap_spend,
+            days_since_last_login,
+            favorite_category,
+            consecutive_deaths,
+            session_duration_seconds,
+            is_churned
+          FROM \`${PROJECT_ID}.omniarcade_gold.gold_player_360\`
+          WHERE payer_tier = @target_tier
+             OR ( @target_tier = 'Whale' AND total_iap_spend > 500.0 )
+             OR ( @target_tier = 'F2P' AND (payer_tier IS NULL OR total_iap_spend = 0.0) )
+          ORDER BY RAND()
+          LIMIT 1;
+        `;
+
+        const bqRows = await executeCustomQuery(exemplarQuery, { target_tier: tier }).catch(() => null);
+
+        if (bqRows && bqRows.length > 0) {
+          const row = bqRows[0];
+          const fallbackLtv = TIER_LTV_UPPER_BOUNDS[tier] ?? 0;
+          let predictedLtv = fallbackLtv;
+
+          // Query omniarcade_gold.predictive_ltv_model
+          try {
+            const modelQuery = `
+              SELECT * FROM ML.PREDICT(
+                MODEL \`${PROJECT_ID}.omniarcade_gold.predictive_ltv_model\`,
+                (
+                  SELECT
+                    @player_id AS player_id,
+                    @payer_tier AS payer_tier,
+                    CAST(@total_iap_spend AS NUMERIC) AS total_iap_spend,
+                    @days_since_last_login AS days_since_last_login,
+                    @favorite_category AS favorite_category,
+                    @consecutive_deaths AS consecutive_deaths,
+                    @session_duration_seconds AS session_duration_seconds
+                )
+              )
+            `;
+
+            const modelRows = await executeCustomQuery(modelQuery, {
+              player_id: row.player_id,
+              payer_tier: tier,
+              total_iap_spend: row.total_iap_spend || 0,
+              days_since_last_login: row.days_since_last_login || 0,
+              favorite_category: row.favorite_category || "General",
+              consecutive_deaths: row.consecutive_deaths || 0,
+              session_duration_seconds: row.session_duration_seconds || 300,
+            }).catch(() => null);
+
+            if (modelRows && modelRows.length > 0) {
+              const rawVal = modelRows[0].predicted_ltv ?? modelRows[0].predicted_total_iap_spend ?? modelRows[0].predicted_label;
+              if (typeof rawVal === "number" && !isNaN(rawVal) && rawVal >= 0) {
+                predictedLtv = Math.round(rawVal * 100) / 100;
+              }
+            }
+          } catch (modelErr) {
+            console.warn(`[Exemplars API] Predictive LTV model query unavailable for ${tier}, using tier fallback $${fallbackLtv}`);
+          }
+
+          liveExemplars.push({
+            player_id: row.player_id,
+            payer_tier: tier,
+            total_iap_spend: row.total_iap_spend || 0,
+            predicted_ltv: predictedLtv,
+            days_since_last_login: row.days_since_last_login || 0,
+            favorite_category: row.favorite_category || "General",
+            consecutive_deaths: row.consecutive_deaths || 0,
+            session_duration_seconds: row.session_duration_seconds || 300,
+            is_churned: !!row.is_churned,
+          });
+        }
+      }
+
+      if (liveExemplars.length === 4) {
+        cachedExemplars = liveExemplars;
+        cachedExemplarsMode = "LIVE";
+        return res.json({
+          success: true,
+          mode: "LIVE",
+          exemplars: cachedExemplars,
+          cached: false,
+        });
+      }
+    } catch (err: any) {
+      console.warn(`[Exemplars API] Error fetching live exemplars: ${err.message}`);
+    }
+
+    // Fall back to default fake cohort exemplars
+    cachedExemplars = DEFAULT_MOCK_EXEMPLARS;
+    cachedExemplarsMode = "MOCK";
+    return res.json({
+      success: true,
+      mode: "MOCK",
+      exemplars: cachedExemplars,
+      cached: false,
+    });
+  });
+
+  // Explicit In-Memory Offer Approval Broadcast Endpoint over SSE
+  app.post(["/api/guardrail/offer-approval", "/api/offer/approve"], (req: Request, res: Response) => {
+    const { player_id, exemplar_id, offer_name, offer, backend_mode } = req.body || {};
+    const targetPlayerId = player_id || exemplar_id || "player_cosmic_whale_42";
+    const targetOfferName = offer_name || offer?.sku || "frost_giant_shield_pack";
+    const mode = backend_mode || "MOCK";
+
+    const payload = {
+      player_id: targetPlayerId,
+      exemplar_id: targetPlayerId,
+      offer_name: targetOfferName,
+      offer: offer || {
+        sku: targetOfferName,
+        title: "$0.99 Frost Giant Shield Pack",
+        discount_pct: 80,
+      },
+      backend_mode: mode,
+      timestamp: new Date().toISOString(),
+    };
+
+    broadcastSSE("offer_approval", payload);
+    broadcastSSE("offer_notification", payload);
+
+    return res.json({ success: true, broadcasted: payload });
   });
 
   // --------------------------------------------------------------------------

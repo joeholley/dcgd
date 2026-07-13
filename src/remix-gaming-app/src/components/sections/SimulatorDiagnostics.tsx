@@ -78,21 +78,11 @@ export function SimulatorDiagnostics({ routingMode }: SimulatorDiagnosticsProps)
     ? (probeResults?.pubsub || { status: "ACTIVE", latency: "14ms", message: "Topic 'omniarcade-live-telemetry' receiving stream" })
     : { status: "MOCKED", latency: "0ms (Local)", message: "MOCKED (OFFLINE SIMULATION) - In-Memory BroadcastChannel" };
 
-  const bigqueryStatus: ProbeInfo = isLive
-    ? (probeResults?.bigquery || { status: "ACTIVE", latency: "42ms", message: "Table 'omniarcade_gold.gold_player_360' active (1.4M rows)" })
-    : { status: "MOCKED", latency: "0ms (Local)", message: "MOCKED (OFFLINE SIMULATION) - Client-side JSON buffer" };
-
-  const bqmlStatus: ProbeInfo = isLive
-    ? (probeResults?.bqml || { status: "ACTIVE", latency: "88ms", message: "Model 'omniarcade_raw.player_churn_model' (BQML XGBoost 94.2% ROC-AUC)" })
-    : { status: "MOCKED", latency: "0ms (Local)", message: "MOCKED (OFFLINE SIMULATION) - In-memory churn propensity rules" };
-
-  const dataplexStatus: ProbeInfo = isLive
-    ? (probeResults?.dataplex || { status: "ACTIVE", latency: "24ms", message: "Governance Aspect 'liveops-campaign-policy-aspect' verified" })
-    : { status: "MOCKED", latency: "0ms (Local)", message: "MOCKED (OFFLINE SIMULATION) - Static policy aspect schema" };
-
-  const vertexStatus: ProbeInfo = isLive
-    ? (probeResults?.vertex || { status: "ACTIVE", latency: "120ms", message: "Gemini Enterprise Agent Runtime 'omniarcade-guardrail-agent'" })
-    : { status: "MOCKED", latency: "0ms (Local)", message: "MOCKED (OFFLINE SIMULATION) - Canned LLM trace playback" };
+  const firebaseStatus: ProbeInfo = {
+    status: "NOT YET IMPLEMENTED",
+    latency: "N/A",
+    message: "NOT YET IMPLEMENTED - Standalone JSON fallback active for 'player_profile'.${player_id}.'offers_accepted'",
+  };
 
   const services = [
     {
@@ -106,44 +96,14 @@ export function SimulatorDiagnostics({ routingMode }: SimulatorDiagnosticsProps)
       probeCode: "pubsubClient.topic('omniarcade-live-telemetry').exists()",
     },
     {
-      name: "BigQuery Player 360 Storage",
-      target: "Table: omniarcade_gold.gold_player_360",
+      name: "Player Profiles in Firebase Realtime Database",
+      target: "Node: player_profile.${player_id}",
       icon: Database,
       color: "text-amber-400",
       bg: "bg-amber-500/10",
       border: "border-amber-500/20",
-      info: bigqueryStatus,
-      probeCode: "bigqueryClient.dataset('omniarcade_gold').table('gold_player_360').exists()",
-    },
-    {
-      name: "BQML Churn Prediction Engine",
-      target: "Model: omniarcade_raw.player_churn_model",
-      icon: BrainCircuit,
-      color: "text-purple-400",
-      bg: "bg-purple-500/10",
-      border: "border-purple-500/20",
-      info: bqmlStatus,
-      probeCode: "SELECT * FROM omniarcade_raw.INFORMATION_SCHEMA.MODELS WHERE model_name='player_churn_model'",
-    },
-    {
-      name: "Dataplex Knowledge Catalog",
-      target: "Aspect: liveops-campaign-policy-aspect",
-      icon: ShieldCheck,
-      color: "text-emerald-400",
-      bg: "bg-emerald-500/10",
-      border: "border-emerald-500/20",
-      info: dataplexStatus,
-      probeCode: "fetch('https://dataplex.googleapis.com/v1/projects/.../aspectTypes/liveops-campaign-policy-aspect')",
-    },
-    {
-      name: "Gemini Enterprise Agent Runtime",
-      target: "Agent Runtime: omniarcade-guardrail-agent",
-      icon: Bot,
-      color: "text-orange-400",
-      bg: "bg-orange-500/10",
-      border: "border-orange-500/20",
-      info: vertexStatus,
-      probeCode: "fetch('https://us-central1-aiplatform.googleapis.com/v1/.../reasoningEngines/omniarcade-guardrail-agent')",
+      info: firebaseStatus,
+      probeCode: "firebase.database().ref('player_profile').once('value')",
     },
   ];
 
@@ -156,6 +116,13 @@ export function SimulatorDiagnostics({ routingMode }: SimulatorDiagnosticsProps)
           <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 border bg-emerald-500/20 text-emerald-400 border-emerald-500/40">
             <CheckCircle2 className="w-3 h-3 text-emerald-400" />
             <span>{status === "LIVE" ? "LIVE" : status}</span>
+          </span>
+        );
+      case "NOT YET IMPLEMENTED":
+        return (
+          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 border bg-amber-500/20 text-amber-400 border-amber-500/40">
+            <AlertCircle className="w-3 h-3 text-amber-400" />
+            <span>NOT YET IMPLEMENTED</span>
           </span>
         );
       case "DEGRADED":

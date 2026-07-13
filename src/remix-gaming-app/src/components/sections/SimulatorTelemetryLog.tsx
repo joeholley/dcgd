@@ -174,7 +174,8 @@ export function SimulatorTelemetryLog({ routingMode = "LIVE" }: SimulatorTelemet
             const isOutgoing = log.direction === "OUTGOING";
             const isExpanded = !!expandedLogIds[log.id];
             const consoleUrl = log.gcpConsoleUrl || buildGcpConsolePubSubUrl(log.pubsubTopic || "omniarcade-live-telemetry");
-            const isInMemory = routingMode === "MOCKED" || log.transport.includes("In-Memory");
+            const entryMode = log.backend_mode || routingMode;
+            const isInMemory = entryMode === "MOCKED" || log.transport.includes("In-Memory");
 
             return (
               <div
@@ -198,7 +199,7 @@ export function SimulatorTelemetryLog({ routingMode = "LIVE" }: SimulatorTelemet
                     {/* Timestamp */}
                     <span className="text-slate-400 text-[11px] font-mono">{formatTime(log.timestamp)}</span>
 
-                    {/* Direction Badge */}
+                    {/* Direction & Mode Badge */}
                     <span
                       className={cn(
                         "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border",
@@ -211,9 +212,9 @@ export function SimulatorTelemetryLog({ routingMode = "LIVE" }: SimulatorTelemet
                     >
                       {isOutgoing
                         ? isInMemory
-                          ? "OUTGOING -> BroadcastChannel"
-                          : "OUTGOING -> Cloud Pub/Sub"
-                        : "INCOMING <- Agent Event"}
+                          ? "[MOCKED] OUTGOING -> BroadcastChannel"
+                          : "[LIVE] OUTGOING -> Cloud Pub/Sub"
+                        : `[${entryMode}] INCOMING <- Agent Event`}
                     </span>
 
                     <span className="text-white font-bold text-[11px]">{log.eventType}</span>
@@ -224,8 +225,8 @@ export function SimulatorTelemetryLog({ routingMode = "LIVE" }: SimulatorTelemet
                       {log.transport}
                     </span>
 
-                    {/* Clickable GCP Console Link (Hidden in MOCKED mode) */}
-                    {routingMode !== "MOCKED" && (
+                    {/* Clickable GCP Console Link (Hidden if event was captured in MOCKED mode) */}
+                    {entryMode === "LIVE" && (
                       <a
                         href={consoleUrl}
                         target="_blank"

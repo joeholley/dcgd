@@ -153,9 +153,11 @@ export function SimulatorInterface() {
         {/* Persistent Summary Metadata Bar */}
         <div className="flex items-center gap-4 text-slate-400 text-xs">
           <span className="flex items-center gap-1.5">
-            {simState.selectedCohort === "casual_grinder" ? (
+            {simState.selectedCohort === "Dolphin" ? (
               <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-            ) : simState.selectedCohort === "new_f2p_onboarding" ? (
+            ) : simState.selectedCohort === "Minnow" ? (
+              <UserCheck className="w-3.5 h-3.5 text-purple-400" />
+            ) : simState.selectedCohort === "F2P" ? (
               <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
             ) : (
               <Crown className="w-3.5 h-3.5 text-amber-400" />
