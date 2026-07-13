@@ -15,6 +15,9 @@
 
 set -eo pipefail
 
+unset PYTHONPATH
+export PATH="$HOME/bin:$HOME/.bin:$PATH"
+
 # Color codes for terminal logging
 BOLD="\033[1m"
 GREEN="\033[0;32m"
@@ -314,10 +317,6 @@ if [ "$RUN_STEP_3" = true ] || [ "$RUN_STEP_5" = true ]; then
   check_tool "bq" "bq version"
 fi
 
-if [ "$RUN_STEP_3" = true ]; then
-  check_tool "node" "node --version"
-  check_tool "npm" "npm --version"
-fi
 
 if [ "$RUN_STEP_2" = true ] || [ "$RUN_STEP_4" = true ] || [ "$RUN_STEP_6" = true ]; then
   check_tool "python3" "python3 --version"
@@ -368,6 +367,8 @@ if [ "$RUN_STEP_1" = true ]; then
         mv "${TF_DIR}/terraform.tfstate" "${TF_DIR}/terraform.tfstate.bak.$(date +%s)"
       fi
     fi
+
+    export GOOGLE_OAUTH_ACCESS_TOKEN="$(gcloud auth print-access-token 2>/dev/null || true)"
 
     log_info "Running 'terraform init'..."
     terraform -chdir="${TF_DIR}" init -input=false
@@ -488,6 +489,16 @@ if [ "$RUN_STEP_3" = true ]; then
         SELECT 1 FROM \`${GCP_PROJECT}.central_identity.players\` LIMIT 1
       );
 
+      CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.omniarcade_raw.gcp_players\` (
+        player_id STRING,
+        payer_tier STRING,
+        total_iap_spend FLOAT64,
+        days_since_last_login INT64,
+        favorite_category STRING,
+        created_at TIMESTAMP,
+        region_code STRING
+      );
+
       INSERT INTO \`${GCP_PROJECT}.omniarcade_raw.gcp_players\`
       (player_id, payer_tier, total_iap_spend, days_since_last_login, favorite_category, created_at, region_code)
       SELECT
@@ -501,6 +512,15 @@ if [ "$RUN_STEP_3" = true ]; then
       FROM \`${GCP_PROJECT}.central_identity.players\`
       WHERE user_id NOT IN (SELECT player_id FROM \`${GCP_PROJECT}.omniarcade_raw.gcp_players\`);
 
+      CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.omniarcade_raw.live_session_events\` (
+        session_id STRING,
+        player_id STRING,
+        event_type STRING,
+        timestamp TIMESTAMP,
+        session_duration_seconds INT64,
+        consecutive_deaths INT64
+      );
+
       INSERT INTO \`${GCP_PROJECT}.omniarcade_raw.live_session_events\` (session_id, player_id, event_type, timestamp, session_duration_seconds, consecutive_deaths)
       SELECT
         CONCAT('EVT-', LPAD(CAST(id AS STRING), 8, '0')) AS session_id,
@@ -511,6 +531,14 @@ if [ "$RUN_STEP_3" = true ]; then
         MOD(id, 5) AS consecutive_deaths
       FROM UNNEST(GENERATE_ARRAY(1, 2000)) AS id
       WHERE NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.omniarcade_raw.live_session_events\` LIMIT 1);
+
+      CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.omniarcade_raw.iap_transactions\` (
+        transaction_id STRING,
+        player_id STRING,
+        item_id STRING,
+        amount_usd NUMERIC,
+        timestamp TIMESTAMP
+      );
 
       INSERT INTO \`${GCP_PROJECT}.omniarcade_raw.iap_transactions\` (transaction_id, player_id, item_id, amount_usd, timestamp)
       SELECT
@@ -531,44 +559,30 @@ if [ "$RUN_STEP_3" = true ]; then
 }
 EOF
 
-    # Always overwrite workflow_settings.yaml to target the active project and location dynamically
     cat <<EOF > "${DATAFORM_DIR}/workflow_settings.yaml"
-dataformCoreVersion: 3.0.0
-defaultProject: ${GCP_PROJECT}
+dataformCoreVersion: 3.0.56
 defaultLocation: ${GCP_REGION}
 datasetSuffix: ""
 defaultAssertionDataset: dataform_assertions
 EOF
 
-    # Remove legacy package.json if present (Dataform v3 rejects package.json when workflow_settings.yaml is used)
-    rm -f "${DATAFORM_DIR}/package.json"
+    log_info "Ensuring Cloud Build service account IAM permissions for BigQuery Dataform execution..."
+    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/bigquery.dataEditor"
+    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/bigquery.jobUser"
+    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/storage.objectViewer"
+    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/bigquery.dataEditor"
+    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/bigquery.jobUser"
+    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/logging.logWriter"
+    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/logging.logWriter"
 
-    run_status=0
-    log_file=$(mktemp)
+    log_info "Submitting Cloud Build job to execute Dataform Medallion pipeline..."
+    gcloud builds submit \
+      --config="${GAMING_DIR}/cloudbuild-dataform.yaml" \
+      --substitutions=_PROJECT_ID="${GCP_PROJECT}",_LOCATION="${GCP_REGION}" \
+      --project="${GCP_PROJECT}" \
+      "${DATAFORM_DIR}"
 
-    log_info "Running Dataform Medallion pipeline..."
-    if command -v dataform &> /dev/null; then
-      dataform run "${DATAFORM_DIR}" --default-location="${GCP_REGION}" --vars=project_id:${GCP_PROJECT},industry:games > "$log_file" 2>&1 || run_status=$?
-    elif command -v npx &> /dev/null; then
-      npx --yes @dataform/cli run "${DATAFORM_DIR}" --default-location="${GCP_REGION}" --vars=project_id:${GCP_PROJECT},industry:games > "$log_file" 2>&1 || run_status=$?
-    else
-      log_error "Neither 'dataform' nor 'npx' CLI utility was found in PATH."
-      rm -f "$log_file"
-      exit 1
-    fi
-
-    cat "$log_file"
-
-    if [ $run_status -ne 0 ]; then
-      log_error "Dataform execution failed (exit code $run_status). Filtering log for errors/failures:"
-      echo -e "${RED}"
-      grep -i -E "error|fail|exception|denied|invalid" "$log_file" || true
-      echo -e "${NC}"
-      rm -f "$log_file"
-      exit $run_status
-    fi
-    rm -f "$log_file"
-    log_success "Step 3 Dataform Gold analytical tables built."
+    log_success "Step 3 Dataform Gold analytical tables built via Cloud Build."
   else
     log_error "Dataform directory ${DATAFORM_DIR} not found."
     exit 1
@@ -590,19 +604,19 @@ if [ "$RUN_STEP_4" = true ]; then
 
   if [ -f "${SCRIPTS_DIR}/01_create_glossary.py" ]; then
     log_info "Launching 01_create_glossary.py (background)..."
-    python3 "${SCRIPTS_DIR}/01_create_glossary.py" &
+    PYTHONPATH="/usr/lib/google-cloud-sdk/lib/third_party:/usr/lib/google-cloud-sdk/lib:${PYTHONPATH:-}" python3 "${SCRIPTS_DIR}/01_create_glossary.py" &
     PIDS+=($!)
   fi
 
   if [ -f "${SCRIPTS_DIR}/08_create_churn_guardrail_aspects.py" ]; then
     log_info "Launching 08_create_churn_guardrail_aspects.py (background)..."
-    python3 "${SCRIPTS_DIR}/08_create_churn_guardrail_aspects.py" &
+    PYTHONPATH="/usr/lib/google-cloud-sdk/lib/third_party:/usr/lib/google-cloud-sdk/lib:${PYTHONPATH:-}" python3 "${SCRIPTS_DIR}/08_create_churn_guardrail_aspects.py" &
     PIDS+=($!)
   fi
 
   if [ -f "${SCRIPTS_DIR}/07_create_lineage.py" ]; then
     log_info "Launching 07_create_lineage.py (background)..."
-    python3 "${SCRIPTS_DIR}/07_create_lineage.py" &
+    PYTHONPATH="/usr/lib/google-cloud-sdk/lib/third_party:/usr/lib/google-cloud-sdk/lib:${PYTHONPATH:-}" python3 "${SCRIPTS_DIR}/07_create_lineage.py" &
     PIDS+=($!)
   fi
 
@@ -632,97 +646,6 @@ fi
 if [ "$RUN_STEP_5" = true ]; then
   log_step "STEP 5: In-Warehouse BQML Churn Model Training & Validation"
 
-  log_info "Hydrating BigQuery Silver and Gold analytics tables before model training..."
-  bq query --location="${GCP_REGION}" --use_legacy_sql=false "
-    -- 1. Hydrate gold_player_360 from raw gcp_players & live_session_events
-    MERGE \`${GCP_PROJECT}.omniarcade_gold.gold_player_360\` target
-    USING (
-      SELECT 
-        p.player_id,
-        p.player_id AS username,
-        p.payer_tier AS spend_tier,
-        p.payer_tier,
-        CAST(p.total_iap_spend AS NUMERIC) AS ltv_dollars,
-        CAST(p.total_iap_spend AS NUMERIC) AS total_iap_spend,
-        CAST(NULL AS FLOAT64) AS churn_risk_score,
-        CAST(NULL AS FLOAT64) AS churn_probability,
-        p.days_since_last_login,
-        p.favorite_category,
-        CAST(COALESCE(s.consecutive_deaths, 0) AS INT64) AS consecutive_deaths,
-        CAST(COALESCE(s.session_duration_seconds, 0) AS INT64) AS session_duration_seconds,
-        CAST(CASE WHEN p.days_since_last_login > 15 THEN 1 ELSE 0 END AS INT64) AS is_churned,
-        p.created_at AS last_active_ts,
-        p.created_at AS last_active_timestamp
-      FROM \`${GCP_PROJECT}.omniarcade_raw.gcp_players\` p
-      LEFT JOIN (
-        SELECT 
-          player_id,
-          MAX(consecutive_deaths) AS consecutive_deaths,
-          AVG(session_duration_seconds) AS session_duration_seconds
-        FROM \`${GCP_PROJECT}.omniarcade_raw.live_session_events\`
-        GROUP BY player_id
-      ) s ON p.player_id = s.player_id
-    ) source
-    ON target.player_id = source.player_id
-    WHEN NOT MATCHED THEN
-      INSERT (player_id, username, spend_tier, payer_tier, ltv_dollars, total_iap_spend, churn_risk_score, churn_probability, days_since_last_login, favorite_category, consecutive_deaths, session_duration_seconds, is_churned, last_active_ts, last_active_timestamp)
-      VALUES (source.player_id, source.username, source.spend_tier, source.payer_tier, source.ltv_dollars, source.total_iap_spend, source.churn_risk_score, source.churn_probability, source.days_since_last_login, source.favorite_category, source.consecutive_deaths, source.session_duration_seconds, source.is_churned, source.last_active_ts, source.last_active_timestamp);
-
-    -- 2. Hydrate gold_regional_kpis
-    INSERT INTO \`${GCP_PROJECT}.omniarcade_gold.gold_regional_kpis\`
-    (region, country, country_code, country_name, dau, mau, arpu, arpu_dollars, total_revenue, total_revenue_dollars, avg_ping_ms, last_updated, updated_at)
-    SELECT
-      CASE region_code WHEN 'US' THEN 'North America' WHEN 'EU' THEN 'Europe' WHEN 'APAC' THEN 'Asia-Pacific' ELSE 'Latin America' END AS region,
-      CASE region_code WHEN 'US' THEN 'United States' WHEN 'EU' THEN 'Germany' WHEN 'APAC' THEN 'Japan' ELSE 'Brazil' END AS country,
-      region_code AS country_code,
-      CASE region_code WHEN 'US' THEN 'United States' WHEN 'EU' THEN 'Germany' WHEN 'APAC' THEN 'Japan' ELSE 'Brazil' END AS country_name,
-      CAST(COUNT(DISTINCT player_id) AS INT64) AS dau,
-      CAST(COUNT(DISTINCT player_id) * 3 AS INT64) AS mau,
-      CAST(AVG(total_iap_spend) AS NUMERIC) AS arpu,
-      CAST(AVG(total_iap_spend) AS NUMERIC) AS arpu_dollars,
-      CAST(SUM(total_iap_spend) AS NUMERIC) AS total_revenue,
-      CAST(SUM(total_iap_spend) AS NUMERIC) AS total_revenue_dollars,
-      ROUND(45.0 + RAND() * 120.0, 1) AS avg_ping_ms,
-      CURRENT_TIMESTAMP() AS last_updated,
-      CURRENT_TIMESTAMP() AS updated_at
-    FROM \`${GCP_PROJECT}.omniarcade_raw.gcp_players\`
-    GROUP BY region_code
-    HAVING NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.omniarcade_gold.gold_regional_kpis\` LIMIT 1);
-
-    -- 3. Hydrate gold_campaign_analytics
-    INSERT INTO \`${GCP_PROJECT}.omniarcade_gold.gold_campaign_analytics\`
-    (campaign_id, campaign_name, target_segment, offer_sku, ad_network, age_bracket, ad_spend, incremental_revenue_dollars, total_installs, roas)
-    SELECT * FROM UNNEST([
-      STRUCT('CAM-001' AS campaign_id, 'Summer Churn Recovery' AS campaign_name, 'Whale' AS target_segment, 'sku_skin_fire_dragon' AS offer_sku, 'Google Ads' AS ad_network, 'Adult' AS age_bracket, CAST(5000.00 AS NUMERIC) AS ad_spend, CAST(12500.00 AS NUMERIC) AS incremental_revenue_dollars, 450 AS total_installs, 2.5 AS roas),
-      STRUCT('CAM-002', 'Mobile Launch Burst', 'Dolphin', 'sku_pass_season_1', 'YouTube', 'Teen', CAST(8000.00 AS NUMERIC), CAST(18400.00 AS NUMERIC), 1200, 2.3),
-      STRUCT('CAM-003', 'Japan RPG Whale Target', 'Whale', 'sku_gems_pack_large', 'Google Ads', 'Adult', CAST(3000.00 AS NUMERIC), CAST(11100.00 AS NUMERIC), 180, 3.7)
-    ])
-    WHERE NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.omniarcade_gold.gold_campaign_analytics\` LIMIT 1);
-
-    -- 4. Hydrate silver_server_latency (table table_id = 'server_latency')
-    INSERT INTO \`${GCP_PROJECT}.omniarcade_silver.server_latency\`
-    (server_region, server_id, ccu, avg_ping_ms, packet_loss_pct, frame_rate_drops, timestamp)
-    SELECT * FROM UNNEST([
-      STRUCT('US-EAST' AS server_region, 'srv-us-east-01' AS server_id, 450 AS ccu, 24.5 AS avg_ping_ms, 0.05 AS packet_loss_pct, 12 AS frame_rate_drops, CURRENT_TIMESTAMP() AS timestamp),
-      STRUCT('US-WEST', 'srv-us-west-01', 320, 32.1, 0.08, 8, CURRENT_TIMESTAMP()),
-      STRUCT('EU-CENTRAL', 'srv-eu-central-01', 600, 18.2, 0.02, 15, CURRENT_TIMESTAMP()),
-      STRUCT('APAC-EAST', 'srv-apac-east-01', 520, 42.4, 0.15, 22, CURRENT_TIMESTAMP())
-    ])
-    WHERE NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.omniarcade_silver.server_latency\` LIMIT 1);
-
-    -- 5. Hydrate gold_level_difficulty_funnel
-    INSERT INTO \`${GCP_PROJECT}.omniarcade_gold.gold_level_difficulty_funnel\`
-    (level_number, level_name, total_starts, total_completions, total_failures, total_resets, completion_rate_pct, avg_moves_used)
-    SELECT * FROM UNNEST([
-      STRUCT(1 AS level_number, 'Tutorial Island' AS level_name, 1000 AS total_starts, 980 AS total_completions, 15 AS total_failures, 5 AS total_resets, 98.0 AS completion_rate_pct, 12.5 AS avg_moves_used),
-      STRUCT(2, 'The Dark Forest', 950, 850, 80, 20, 89.5, 18.4),
-      STRUCT(3, 'Dragon Chasm', 820, 610, 180, 30, 74.4, 25.1),
-      STRUCT(4, 'Shadow Citadel (Spike)', 580, 290, 250, 40, 50.0, 38.6),
-      STRUCT(5, 'The Eternal Gate', 250, 220, 20, 10, 88.0, 32.2)
-    ])
-    WHERE NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.omniarcade_gold.gold_level_difficulty_funnel\` LIMIT 1);
-  "
-
   log_info "Training BQML Logistic Regression model 'omniarcade_raw.player_churn_model'..."
   bq query --location="${GCP_REGION}" --use_legacy_sql=false "CALL \`${GCP_PROJECT}.omniarcade_raw.train_churn_model\`();"
 
@@ -736,6 +659,15 @@ fi
 # ==============================================================================
 if [ "$RUN_STEP_6" = true ]; then
   log_step "STEP 6: Vertex AI Agent Engine / ADK Agent Deployment"
+
+  log_info "Ensuring Reasoning Engine Service Agent IAM permissions..."
+  gcloud services identity create --service=reasoningengine.googleapis.com --project="${GCP_PROJECT}" &>/dev/null || true
+  grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" "roles/artifactregistry.reader" || true
+  grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" "roles/bigquery.dataEditor" || true
+  grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" "roles/bigquery.jobUser" || true
+  grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" "roles/bigquery.dataViewer" || true
+  grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" "roles/dataplex.viewer" || true
+  grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" "roles/aiplatform.user" || true
 
   AGENT_TARGET="${AGENT_TARGET:-kc}"
   AGENT_DEPLOY_SCRIPT="${GAMING_DIR}/agents/deploy_agents.sh"
@@ -779,20 +711,12 @@ if [ "$RUN_STEP_6" = true ]; then
         log_info "Forcing rebuild of agent_kc container..."
       fi
       
-      # Pull latest for caching
-      docker pull "${AGENT_IMAGE_URI}:latest" || true
-      
-      # Build the image using docker cache
-      docker build \
-        --cache-from "${AGENT_IMAGE_URI}:latest" \
-        -t "${AGENT_IMAGE_URI}:latest" \
-        -t "${AGENT_IMAGE_URI}:${GIT_COMMIT_HASH}" \
-        -f "${GAMING_DIR}/agents/agent_kc/Dockerfile" \
+      # Build and push container image using Cloud Build
+      gcloud builds submit \
+        --tag="${AGENT_IMAGE_URI}:${GIT_COMMIT_HASH}" \
+        --tag="${AGENT_IMAGE_URI}:latest" \
+        --project="${GCP_PROJECT}" \
         "${GAMING_DIR}/agents/agent_kc"
-        
-      # Push tags to registry
-      docker push "${AGENT_IMAGE_URI}:latest"
-      docker push "${AGENT_IMAGE_URI}:${GIT_COMMIT_HASH}"
       log_success "Successfully compiled and pushed agent_kc container image."
     fi
     
@@ -802,7 +726,7 @@ if [ "$RUN_STEP_6" = true ]; then
 
   if [ -f "$AGENT_DEPLOY_SCRIPT" ]; then
     log_info "Executing ADK agent deployment script: ${AGENT_DEPLOY_SCRIPT} (target: ${AGENT_TARGET})..."
-    GOOGLE_CLOUD_PROJECT="${GCP_PROJECT}" GOOGLE_CLOUD_LOCATION="${GCP_REGION}" bash "$AGENT_DEPLOY_SCRIPT" "${AGENT_TARGET}"
+    PYTHONPATH="/usr/lib/google-cloud-sdk/lib/third_party:/usr/lib/google-cloud-sdk/lib:${PYTHONPATH:-}" GOOGLE_CLOUD_PROJECT="${GCP_PROJECT}" GOOGLE_CLOUD_LOCATION="${GCP_REGION}" bash "$AGENT_DEPLOY_SCRIPT" "${AGENT_TARGET}"
     log_success "Step 6 Vertex AI Agent Engine / ADK Agent(s) (${AGENT_TARGET}) deployed successfully."
   else
     log_error "Agent deployment script ${AGENT_DEPLOY_SCRIPT} not found."
