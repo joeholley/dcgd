@@ -65,7 +65,7 @@ flowchart TD
     - Displays developer-facing operational aspects of the offer:
       - Target Cohort (e.g., *Cosmic Raider RPG - Veteran Whale Cohort*)
       - Certified Reward SKU (e.g., `frost_giant_shield_pack`)
-      - Dataplex Aspect ID (`liveops-campaign-policy-aspect`)
+      - Dataplex Aspect ID (`gaming-campaign-policy-aspect`)
       - Max Allowed Discount Boundary (e.g., `85%`)
       - Priority & Estimated LTV at risk ($85K exposure).
   - **RIGHT SIDE**: **Developer Approval Gate / Status Chip**:
@@ -147,15 +147,15 @@ sequenceDiagram
   - Selector for mock game profiles (starts with *Cosmic Raider RPG* Frost Giant boss fight).
   - Relocated game client UI from LiveOps Guardrail with simulated telemetry actions (*Fail Encounter*, *Quit Mission*, *Accept & Purchase Offer*).
   - *Telemetry Stream Integration TODO*:
-    `// TODO: [Backend Integration - Telemetry Stream] Wire up real-time gRPC / WebSockets stream to Cloud Pub/Sub topic 'omniarcade-live-telemetry'`
+    `// TODO: [Backend Integration - Telemetry Stream] Wire up real-time gRPC / WebSockets stream to Cloud Pub/Sub topic 'gaming-live-telemetry'`
 
 ### 2.4. Simulator Cloud Diagnostics Page (`SimulatorDiagnostics.tsx`)
 - **UI & Dynamic Health State**:
   - Complete UI displaying health / connectivity status for all GCP resources:
-    1. **Cloud Pub/Sub**: Topic `omniarcade-live-telemetry`
-    2. **BigQuery**: Dataset `omniarcade_gold` / Table `gold_player_360`
-    3. **BQML**: Model `omniarcade_raw.player_churn_model`
-    4. **Dataplex Knowledge Catalog**: Governance Aspect `liveops-campaign-policy-aspect`
+    1. **Cloud Pub/Sub**: Topic `gaming-live-telemetry`
+    2. **BigQuery**: Dataset `gaming_gold` / Table `gold_player_360`
+    3. **BQML**: Model `gaming_raw.gaming_player_churn_model`
+    4. **Dataplex Knowledge Catalog**: Governance Aspect `gaming-campaign-policy-aspect`
     5. **Vertex AI / Gemini Enterprise**: Agent Engine `omniarcade-guardrail-agent`
   - In **LIVE Mode**: Probes display active connection metrics or simulated live ping status.
   - In **MOCKED Mode**: Probes clearly display `MOCKED (OFFLINE SIMULATION)` status.
@@ -164,10 +164,10 @@ sequenceDiagram
 
 | Component / Service | Integration Target (Where to Wire Live API) | Code File & TODO Placement |
 | :--- | :--- | :--- |
-| **Cloud Pub/Sub Probe** | `@google-cloud/pubsub` `topic.exists()` check | `SimulatorDiagnostics.tsx` -> `// TODO: [Backend Probe] Wire up pubsubClient.topic('omniarcade-live-telemetry').exists()` |
-| **BigQuery Table Probe** | `@google-cloud/bigquery` table metadata ping | `SimulatorDiagnostics.tsx` -> `// TODO: [Backend Probe] Wire up bigqueryClient.dataset('omniarcade_gold').table('gold_player_360').exists()` |
-| **BQML Model Probe** | BigQuery ML model metadata query (`INFORMATION_SCHEMA.MODELS`) | `SimulatorDiagnostics.tsx` -> `// TODO: [Backend Probe] Wire up SELECT * FROM omniarcade_raw.INFORMATION_SCHEMA.MODELS WHERE model_name='player_churn_model'` |
-| **Dataplex Aspect Probe** | Dataplex REST API `entries:search` or AspectType lookup | `SimulatorDiagnostics.tsx` -> `// TODO: [Backend Probe] Wire up fetch('https://dataplex.googleapis.com/v1/projects/.../aspectTypes/liveops-campaign-policy-aspect')` |
+| **Cloud Pub/Sub Probe** | `@google-cloud/pubsub` `topic.exists()` check | `SimulatorDiagnostics.tsx` -> `// TODO: [Backend Probe] Wire up pubsubClient.topic('gaming-live-telemetry').exists()` |
+| **BigQuery Table Probe** | `@google-cloud/bigquery` table metadata ping | `SimulatorDiagnostics.tsx` -> `// TODO: [Backend Probe] Wire up bigqueryClient.dataset('gaming_gold').table('gold_player_360').exists()` |
+| **BQML Model Probe** | BigQuery ML model metadata query (`INFORMATION_SCHEMA.MODELS`) | `SimulatorDiagnostics.tsx` -> `// TODO: [Backend Probe] Wire up SELECT * FROM gaming_raw.INFORMATION_SCHEMA.MODELS WHERE model_name='gaming_player_churn_model'` |
+| **Dataplex Aspect Probe** | Dataplex REST API `entries:search` or AspectType lookup | `SimulatorDiagnostics.tsx` -> `// TODO: [Backend Probe] Wire up fetch('https://dataplex.googleapis.com/v1/projects/.../aspectTypes/gaming-campaign-policy-aspect')` |
 | **Vertex AI Agent Probe** | Vertex AI Reasoning Engine `reasoningEngines.get` API | `SimulatorDiagnostics.tsx` -> `// TODO: [Backend Probe] Wire up fetch('https://us-central1-aiplatform.googleapis.com/v1/.../reasoningEngines/omniarcade-guardrail-agent')` |
 | **Telemetry Event Stream** | `/api/telemetry/stream` POST endpoint | `src/services/simulatorBridge.ts` -> `// TODO: [Backend Integration] Wire up live gRPC / HTTP2 stream to Cloud Pub/Sub ingestion gateway` |
 | **LLM Trace Diagnostics** | `/api/chat` or Vertex AI Reasoning Engine WebSocket | `AgenticWorkflows.tsx` -> `// TODO: [Backend Integration] Wire up WebSocket listener for live Gemini LLM reasoning step-by-step trace` |

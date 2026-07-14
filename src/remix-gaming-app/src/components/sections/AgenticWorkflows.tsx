@@ -52,7 +52,7 @@ const getPipelineNodes = (
     if (routingMode === "LIVE") {
       return [
         { label: "Simulator Client", sub: "Live telemetry stream", status: isFinished ? "completed" : (currentStep > 0 ? "completed" : (currentStep === 0 ? "active" : "pending")), icon: Gamepad2, cloud: "Game Client" },
-        { label: "Pub/Sub", sub: "omniarcade-live-telemetry", status: isFinished ? "completed" : (currentStep > 1 ? "completed" : (currentStep === 1 ? "active" : "pending")), icon: Server, cloud: "GCP Ingestion" },
+        { label: "Pub/Sub", sub: "gaming-live-telemetry", status: isFinished ? "completed" : (currentStep > 1 ? "completed" : (currentStep === 1 ? "active" : "pending")), icon: Server, cloud: "GCP Ingestion" },
         { label: "BigQuery", sub: "gold_player_360 table", status: isFinished ? "completed" : (currentStep > 2 ? "completed" : (currentStep === 2 ? "active" : "pending")), icon: Database, cloud: "GCP Storage" },
         { label: "BQML & Dataplex", sub: "Churn model & policy aspect", status: isFinished ? "completed" : (currentStep > 3 ? "completed" : (currentStep === 3 ? "active" : "pending")), icon: BrainCircuit, cloud: "GCP ML & Gov" },
         { label: "Gemini Enterprise", sub: "Agent offer decision", status: isFinished ? "completed" : "pending", icon: Bot, cloud: "Vertex AI" }
@@ -256,13 +256,13 @@ export function AgenticWorkflows() {
     "Automated Player Retention Promo": {
       thinking: [
         "[1/4] Constructing Vertex AI prompt buffer with player telemetry stream...",
-        "[2/4] Querying Dataplex Knowledge Catalog for governance aspect 'liveops-campaign-policy-aspect'...",
-        "[3/4] Evaluating BQML churn prediction model ('player_churn_model' -> 89% score)...",
+        "[2/4] Querying Dataplex Knowledge Catalog for governance aspect 'gaming-campaign-policy-aspect'...",
+        "[3/4] Evaluating BQML churn prediction model ('gaming_player_churn_model' -> 89% score)...",
         "[4/4] Policy verified: Max discount limit 85% honored. Issuing certified offer SKU 'frost_giant_shield_pack'."
       ],
       finding: "Critical level decline detected for 'Realm of Eldoria RPG' veteran whale cohort after 4 consecutive Frost Giant wipeouts.",
       impact: "Potential $85K user lifetime value (LTV) churn exposure over current season.",
-      recommendation: "Inject dynamic $0.99 Frost Giant Shield & Resurrect Crate (80% discount). Policy Aspect ID: liveops-campaign-policy-aspect.",
+      recommendation: "Inject dynamic $0.99 Frost Giant Shield & Resurrect Crate (80% discount). Policy Aspect ID: gaming-campaign-policy-aspect.",
       nextSteps: ["Send In-Game Gift", "Auto-Notify Team", "Update Segment Tag"]
     },
     "Fraud & Cheat Detection Agent": {
@@ -542,7 +542,7 @@ export function AgenticWorkflows() {
                             </div>
                             <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                               <span className="text-[10px] text-slate-400 font-bold uppercase block">Dataplex Aspect ID:</span>
-                              <span className="font-bold text-slate-700">liveops-campaign-policy-aspect</span>
+                              <span className="font-bold text-slate-700">gaming-campaign-policy-aspect</span>
                             </div>
                             <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                               <span className="text-[10px] text-slate-400 font-bold uppercase block">Max Discount Boundary:</span>
@@ -577,7 +577,7 @@ export function AgenticWorkflows() {
                                 {/* Hover Tooltip detailing policy decision rationale */}
                                 <div className="absolute top-full left-0 right-0 mt-2 p-4 rounded-xl bg-slate-900 text-white font-mono text-[11px] shadow-2xl opacity-0 group-hover:opacity-100 transition-all z-30 border border-slate-700 space-y-1">
                                   <p className="font-bold text-emerald-400">[DATAPLEX POLICY COMPLIANCE VERIFIED]</p>
-                                  <p>- Aspect Check: `liveops-campaign-policy-aspect` PASSED</p>
+                                  <p>- Aspect Check: `gaming-campaign-policy-aspect` PASSED</p>
                                   <p>- Max Discount Boundary (85% limit) honored (Requested: 80%)</p>
                                   <p>- BQML Churn Score: 0.89 (High risk threshold: 0.70)</p>
                                   <p>- Target Segment: Veteran Whale Cohort</p>

@@ -110,14 +110,14 @@ export interface StreamLogEntry {
   direction: "OUTGOING" | "INCOMING";
   eventType: string;
   transport: string;
-  pubsubTopic?: string; // e.g. "omniarcade-live-telemetry"
+  pubsubTopic?: string; // e.g. "gaming-live-telemetry"
   gcpConsoleUrl?: string; // Constructed link to Cloud Console Web UI
   success: boolean;
   errorMessage?: string;
   payload: Record<string, any>;
 }
 
-export function buildGcpConsolePubSubUrl(topicName: string = "omniarcade-live-telemetry", projectId: string = "omniarcade-demo"): string {
+export function buildGcpConsolePubSubUrl(topicName: string = "gaming-live-telemetry", projectId: string = "gaming-demo"): string {
   return `https://console.cloud.google.com/pubsub/topics/${topicName}?project=${projectId}`;
 }
 ```
@@ -175,7 +175,7 @@ Positioned directly adjacent to the mock client, providing full visibility into 
   - **Clickable GCP Console Link**:
     - Next to each outgoing telemetry log line, render a clickable button/link:
       `[Open in GCP Console ↗]`
-    - Link Target: `https://console.cloud.google.com/cloudpubsub/topic/detail/omniarcade-live-telemetry?project=omniarcade-demo`
+    - Link Target: `https://console.cloud.google.com/cloudpubsub/topic/detail/gaming-live-telemetry?project=gaming-demo`
     - Target: Opens in new browser tab (`target="_blank" rel="noopener noreferrer"`).
   - **Expandable JSON Message Payload**: Expandable JSON pre container displaying full payload including `cohortId`, `userId`, `bossHealth`, `playerDeaths`, `pubsubMessageId`, `bqmlPredictedScore`.
 

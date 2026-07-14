@@ -43,7 +43,7 @@ Checked all imports referencing the `google-adk` package across the agent codeba
   * `from google.adk.sessions import InMemorySessionService`
   * `from google.adk.tools import FunctionTool`
   * `from google.adk.artifacts import GcsArtifactService, InMemoryArtifactService`
-  * `from google.adk.plugins.bigquery_agent_analytics_plugin import BigQueryAgentAnalyticsPlugin`
+  * `from google.adk.plugins.bigquery_gaming_agent_analytics_plugin import BigQueryAgentAnalyticsPlugin`
 
 All references are standard, well-structured, and consistent with the other validated agents in the repository (e.g., `agent_basic`, `marketing_agent_swarm`).
 

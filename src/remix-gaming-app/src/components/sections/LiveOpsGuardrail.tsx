@@ -110,7 +110,7 @@ export function LiveOpsGuardrail() {
     original_price: 4.99,
     discount_pct: 80,
     certified_by: "dataplex_policy_aspect",
-    policy_aspect_id: "liveops-campaign-policy-aspect",
+    policy_aspect_id: "gaming-campaign-policy-aspect",
     policy_status: "APPROVED",
     max_allowed_discount: 0.85,
     player_tier: "Whale",
@@ -322,7 +322,7 @@ export function LiveOpsGuardrail() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-xl font-bold tracking-tight text-white">LiveOps Guardrail Split-Screen View</h1>
-              <DataModeBadge mode="live" source="omniarcade-live-telemetry" details="Cloud Pub/Sub + BQML ML.PREDICT + Dataplex Aspect Verification" />
+              <DataModeBadge mode="live" source="gaming-live-telemetry" details="Cloud Pub/Sub + BQML ML.PREDICT + Dataplex Aspect Verification" />
             </div>
             <p className="text-xs text-slate-400 font-light mt-0.5">
               Closed-loop Pub/Sub telemetry, BQML churn prediction, Dataplex aspect verification & &lt;300ms pop-up execution.
@@ -617,7 +617,7 @@ export function LiveOpsGuardrail() {
                 <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">BQML Logistic Model</span>
                 <h3 className="text-lg font-bold text-white">Real-Time Churn Propensity</h3>
                 <p className="text-xs text-slate-400 font-light mt-1">
-                  Trained on <code className="text-blue-400">omniarcade_raw.player_churn_model</code> via BigQuery ML.
+                  Trained on <code className="text-blue-400">gaming_raw.gaming_player_churn_model</code> via BigQuery ML.
                 </p>
               </div>
 
@@ -697,7 +697,7 @@ export function LiveOpsGuardrail() {
                 </span>
               </div>
               <span className="text-[10px] font-mono text-slate-500">
-                Topic: <code className="text-slate-300">omniarcade-live-telemetry</code>
+                Topic: <code className="text-slate-300">gaming-live-telemetry</code>
               </span>
             </div>
 

@@ -4,7 +4,7 @@
 
 This engineering plan details the end-to-end integration of a new **BigQuery ML Predictive LTV Model (`BOOSTED_TREE_REGRESSOR`)** into the OmniArcade Data & AI Operations Platform.
 
-The new model predicts total future player Lifetime Value (LTV / `total_iap_spend`) using real-time feature vectors compiled in `omniarcade_gold.gold_player_360` (`consecutive_deaths`, `session_duration_seconds`, `days_since_last_login`, `payer_tier`, `favorite_category`).
+The new model predicts total future player Lifetime Value (LTV / `total_iap_spend`) using real-time feature vectors compiled in `gaming_gold.gold_player_360` (`consecutive_deaths`, `session_duration_seconds`, `days_since_last_login`, `payer_tier`, `favorite_category`).
 
 This plan covers four core system integration areas:
 1. **Target Architecture Infrastructure (Terraform & SQL Routines)** in [`src/retail-data-and-ai-demo`](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/src/retail-data-and-ai-demo).
@@ -21,21 +21,21 @@ sequenceDiagram
     autonumber
     actor Dev as Ops/Deployer
     participant Script as Master Deploy Script (deploy-demo.sh)
-    participant BQ as BigQuery (omniarcade_gold)
+    participant BQ as BigQuery (gaming_gold)
     participant Health as Health Monitor (/api/system/gcp-health)
     participant UI as Operations Dashboard (GCPHealth.tsx)
     participant Agent as Gemini Enterprise Agent (agent_kc)
 
     rect rgb(20, 30, 50)
         note right of Script: Phase 1: Infrastructure & Automation
-        Script->>BQ: Run Terraform / SQL Procedure (train_predictive_ltv_model)
-        BQ->>BQ: CREATE OR REPLACE MODEL omniarcade_gold.predictive_ltv_model
+        Script->>BQ: Run Terraform / SQL Procedure (train_gaming_predictive_ltv_model)
+        BQ->>BQ: CREATE OR REPLACE MODEL gaming_gold.gaming_predictive_ltv_model
     end
 
     rect rgb(25, 45, 30)
         note right of Health: Phase 2: Operations Cloud Health Dashboard
         UI->>Health: GET /api/system/gcp-health
-        Health->>BQ: Execute ML.PREDICT probe against predictive_ltv_model
+        Health->>BQ: Execute ML.PREDICT probe against gaming_predictive_ltv_model
         BQ-->>Health: Returns status LIVE & latency ms
         Health-->>UI: Displays "BQML Predictive LTV Model" status card
     end
@@ -43,7 +43,7 @@ sequenceDiagram
     rect rgb(45, 25, 50)
         note right of Agent: Phase 3: Agent KC Reasoning & Tool Access
         Agent->>BQ: search_entries / get_context (Dataplex catalog lookup)
-        Agent->>BQ: run_sql ("SELECT * FROM ML.PREDICT(MODEL predictive_ltv_model, ...)")
+        Agent->>BQ: run_sql ("SELECT * FROM ML.PREDICT(MODEL gaming_predictive_ltv_model, ...)")
         BQ-->>Agent: Returns predicted LTV $ value per player
     end
 ```
@@ -64,7 +64,7 @@ To align with the target architecture defined in `src/retail-data-and-ai-demo`, 
 Create `train-predictive-ltv-model.sql.tftpl`:
 ```sql
 -- Procedure to train BQML Boosted Tree Regressor LTV Prediction Model
-CREATE OR REPLACE MODEL `${gold_dataset_id}.predictive_ltv_model`
+CREATE OR REPLACE MODEL `${gold_dataset_id}.gaming_predictive_ltv_model`
 OPTIONS (
   MODEL_TYPE = 'BOOSTED_TREE_REGRESSOR',
   INPUT_LABEL_COLS = ['total_iap_spend']
@@ -83,10 +83,10 @@ WHERE total_iap_spend IS NOT NULL;
 #### Step 1.2: Add Terraform Routine Resource
 In `games-bigquery-procedure.tf`, add the routine resource:
 ```hcl
-resource "google_bigquery_routine" "train_predictive_ltv_model" {
+resource "google_bigquery_routine" "train_gaming_predictive_ltv_model" {
   project      = local.bq_data_project_id
   dataset_id   = local.gold_dataset_id
-  routine_id   = "train_predictive_ltv_model"
+  routine_id   = "train_gaming_predictive_ltv_model"
   routine_type = "PROCEDURE"
   language     = "SQL"
 
@@ -96,7 +96,7 @@ resource "google_bigquery_routine" "train_predictive_ltv_model" {
   })
 
   depends_on = [
-    google_bigquery_dataset.omniarcade_gold
+    google_bigquery_dataset.gaming_gold
   ]
 }
 ```
@@ -114,9 +114,9 @@ Update Step 5 of [`deploy-demo.sh`](file:///usr/local/google/home/joeholley/Docu
 In `Step 5: In-Warehouse BQML Churn Model Training & Validation`, append the training execution:
 
 ```bash
-  log_info "Training BQML Boosted Tree Regressor model 'omniarcade_gold.predictive_ltv_model'..."
+  log_info "Training BQML Boosted Tree Regressor model 'gaming_gold.gaming_predictive_ltv_model'..."
   bq query --location="${GCP_REGION}" --use_legacy_sql=false "
-    CREATE OR REPLACE MODEL \`${GCP_PROJECT}.omniarcade_gold.predictive_ltv_model\`
+    CREATE OR REPLACE MODEL \`${GCP_PROJECT}.gaming_gold.gaming_predictive_ltv_model\`
     OPTIONS (
       MODEL_TYPE = 'BOOSTED_TREE_REGRESSOR',
       INPUT_LABEL_COLS = ['total_iap_spend']
@@ -128,7 +128,7 @@ In `Step 5: In-Warehouse BQML Churn Model Training & Validation`, append the tra
       session_duration_seconds,
       favorite_category,
       total_iap_spend
-    FROM \`${GCP_PROJECT}.omniarcade_gold.gold_player_360\`;
+    FROM \`${GCP_PROJECT}.gaming_gold.gold_player_360\`;
   "
   log_success "Step 5 Predictive LTV & Churn BQML models trained successfully."
 ```
@@ -145,7 +145,7 @@ To report real-time connectivity, latency, and operational health for the Predic
 - Auxiliary Python Health Endpoint: [`src/gamingdatademo/website-live/app.py`](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/src/gamingdatademo/website-live/app.py) & [`src/gamingdatademo/website-live/static/health.html`](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/src/gamingdatademo/website-live/static/health.html)
 
 #### Step 3.1: Add Backend Probe in `server.ts`
-1. Define constant `BQML_LTV_MODEL_NAME = "omniarcade_gold.predictive_ltv_model"`.
+1. Define constant `BQML_LTV_MODEL_NAME = "gaming_gold.gaming_predictive_ltv_model"`.
 2. Add `testBQMLLTV` probe to `/api/system/gcp-health`:
 ```typescript
 const testBQMLLTV = async () => {
@@ -185,7 +185,7 @@ interface GCPHealthResponse {
 {
   key: "bqml_ltv" as const,
   name: "BQML Predictive LTV Model",
-  description: "In-warehouse ML.PREDICT boosted tree regressor (omniarcade_gold.predictive_ltv_model)",
+  description: "In-warehouse ML.PREDICT boosted tree regressor (gaming_gold.gaming_predictive_ltv_model)",
   icon: BrainCircuit,
 }
 ```
@@ -206,8 +206,8 @@ Add explicit documentation on available BQML predictive models to the agent's sy
 
 ```markdown
 ## In-Warehouse BigQuery ML Models:
-- **Churn Propensity Model (`omniarcade_raw.player_churn_model`)**: Logistic regression model predicting player churn probability (0.0 to 1.0).
-- **Predictive LTV Model (`omniarcade_gold.predictive_ltv_model`)**: Boosted tree regressor predicting total future player LTV (`total_iap_spend`) based on player feature vectors (`payer_tier`, `days_since_last_login`, `consecutive_deaths`, `session_duration_seconds`, `favorite_category`).
+- **Churn Propensity Model (`gaming_raw.gaming_player_churn_model`)**: Logistic regression model predicting player churn probability (0.0 to 1.0).
+- **Predictive LTV Model (`gaming_gold.gaming_predictive_ltv_model`)**: Boosted tree regressor predicting total future player LTV (`total_iap_spend`) based on player feature vectors (`payer_tier`, `days_since_last_login`, `consecutive_deaths`, `session_duration_seconds`, `favorite_category`).
 
 ## Querying BigQuery ML Models:
 When asked to forecast player value, future revenue, or lifetime value (LTV):
@@ -218,10 +218,10 @@ SELECT
   p.payer_tier,
   p.total_iap_spend AS current_ltv,
   ROUND(m.predicted_total_iap_spend, 2) AS predicted_future_ltv
-FROM `${PROJECT_ID}.omniarcade_gold.gold_player_360` p
+FROM `${PROJECT_ID}.gaming_gold.gold_player_360` p
 CROSS JOIN UNNEST(
   ML.PREDICT(
-    MODEL `${PROJECT_ID}.omniarcade_gold.predictive_ltv_model`,
+    MODEL `${PROJECT_ID}.gaming_gold.gaming_predictive_ltv_model`,
     (
       SELECT
         payer_tier,
@@ -230,7 +230,7 @@ CROSS JOIN UNNEST(
         session_duration_seconds,
         favorite_category,
         total_iap_spend
-      FROM `${PROJECT_ID}.omniarcade_gold.gold_player_360`
+      FROM `${PROJECT_ID}.gaming_gold.gold_player_360`
       WHERE player_id = p.player_id
     )
   )
@@ -243,7 +243,7 @@ CROSS JOIN UNNEST(
 Update Dataplex scripts in `src/gamingdatademo/scripts/`:
 1. Register glossary term `predictive-ltv-model` in `01_create_glossary.py` with definition:
    *"In-warehouse BQML Boosted Tree Regressor model estimating total player lifetime value based on activity, death rate, and spend history."*
-2. Bind aspect tag metadata to `omniarcade_gold.predictive_ltv_model` in Dataplex Knowledge Catalog so `search_entries("predictive ltv")` returns full context.
+2. Bind aspect tag metadata to `gaming_gold.gaming_predictive_ltv_model` in Dataplex Knowledge Catalog so `search_entries("predictive ltv")` returns full context.
 
 ---
 
@@ -255,11 +255,11 @@ After implementing the code changes according to this plan, execute the followin
    ```bash
    ./deploy-demo.sh --steps 1,5
    ```
-   *Expected Outcome*: BigQuery dataset `omniarcade_gold` contains routine `train_predictive_ltv_model` and model `predictive_ltv_model`.
+   *Expected Outcome*: BigQuery dataset `gaming_gold` contains routine `train_gaming_predictive_ltv_model` and model `gaming_predictive_ltv_model`.
 
 2. **Verify Model Training Execution via BQ CLI**:
    ```bash
-   bq query --use_legacy_sql=false "SELECT * FROM ML.EVALUATE(MODEL \`omniarcade_gold.predictive_ltv_model\`)"
+   bq query --use_legacy_sql=false "SELECT * FROM ML.EVALUATE(MODEL \`gaming_gold.gaming_predictive_ltv_model\`)"
    ```
    *Expected Outcome*: Evaluation metrics (mean_absolute_error, mean_squared_error, r2_score) returned successfully.
 
@@ -275,7 +275,7 @@ After implementing the code changes according to this plan, execute the followin
    agents-cli playground
    # Prompt: "Predict the future LTV for our top 5 players using the predictive LTV BQML model"
    ```
-   *Expected Outcome*: `agent_kc` executes `search_entries` or `run_sql` targeting `omniarcade_gold.predictive_ltv_model` and returns structured player LTV predictions.
+   *Expected Outcome*: `agent_kc` executes `search_entries` or `run_sql` targeting `gaming_gold.gaming_predictive_ltv_model` and returns structured player LTV predictions.
 
 ---
 

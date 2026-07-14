@@ -49,10 +49,10 @@ export function SimulatorDiagnostics({ routingMode }: SimulatorDiagnosticsProps)
         } else if (isMounted) {
           // Default live fallback if no probe object returned
           setProbeResults({
-            pubsub: { status: "ACTIVE", latency: "14ms", message: "Topic 'omniarcade-live-telemetry' receiving stream" },
-            bigquery: { status: "ACTIVE", latency: "42ms", message: "Table 'omniarcade_gold.gold_player_360' active (1.4M rows)" },
-            bqml: { status: "ACTIVE", latency: "88ms", message: "Model 'omniarcade_raw.player_churn_model' (BQML XGBoost 94.2% ROC-AUC)" },
-            dataplex: { status: "ACTIVE", latency: "24ms", message: "Governance Aspect 'liveops-campaign-policy-aspect' verified" },
+            pubsub: { status: "ACTIVE", latency: "14ms", message: "Topic 'gaming-live-telemetry' receiving stream" },
+            bigquery: { status: "ACTIVE", latency: "42ms", message: "Table 'gaming_gold.gold_player_360' active (1.4M rows)" },
+            bqml: { status: "ACTIVE", latency: "88ms", message: "Model 'gaming_raw.gaming_player_churn_model' (BQML XGBoost 94.2% ROC-AUC)" },
+            dataplex: { status: "ACTIVE", latency: "24ms", message: "Governance Aspect 'gaming-campaign-policy-aspect' verified" },
             vertex: { status: "ACTIVE", latency: "120ms", message: "Gemini Enterprise Agent Runtime 'omniarcade-guardrail-agent'" }
           });
         }
@@ -75,7 +75,7 @@ export function SimulatorDiagnostics({ routingMode }: SimulatorDiagnosticsProps)
   }, [isLive]);
 
   const pubsubStatus: ProbeInfo = isLive
-    ? (probeResults?.pubsub || { status: "ACTIVE", latency: "14ms", message: "Topic 'omniarcade-live-telemetry' receiving stream" })
+    ? (probeResults?.pubsub || { status: "ACTIVE", latency: "14ms", message: "Topic 'gaming-live-telemetry' receiving stream" })
     : { status: "MOCKED", latency: "0ms (Local)", message: "MOCKED (OFFLINE SIMULATION) - In-Memory BroadcastChannel" };
 
   const firebaseStatus: ProbeInfo = {
@@ -87,13 +87,13 @@ export function SimulatorDiagnostics({ routingMode }: SimulatorDiagnosticsProps)
   const services = [
     {
       name: "Cloud Pub/Sub Telemetry Ingestion",
-      target: "Topic: omniarcade-live-telemetry",
+      target: "Topic: gaming-live-telemetry",
       icon: Server,
       color: "text-blue-400",
       bg: "bg-blue-500/10",
       border: "border-blue-500/20",
       info: pubsubStatus,
-      probeCode: "pubsubClient.topic('omniarcade-live-telemetry').exists()",
+      probeCode: "pubsubClient.topic('gaming-live-telemetry').exists()",
     },
     {
       name: "Player Profiles in Firebase Realtime Database",

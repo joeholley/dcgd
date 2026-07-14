@@ -63,7 +63,7 @@ def main():
     project_id = os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GCP_PROJECT") or os.environ.get("PROJECT_ID")
     location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
     image_uri = os.environ.get("CONTAINER_IMAGE_URI")
-    display_name = os.environ.get("AGENT_DISPLAY_NAME", "OmniArcade KC Agent")
+    display_name = os.environ.get("AGENT_DISPLAY_NAME", "Gaming Knowledge Catalog Agent")
     agent_id = os.environ.get("AGENT_ID")
     
     if not project_id or not image_uri:
@@ -142,7 +142,7 @@ Modify `deploy_kc` in [deploy_agents.sh](file:///usr/local/google/home/joeholley
 -        extra_args+=(--agent_engine_id "${KC_AGENT_ID}")
 -    fi
 -    
--    if run_agents_cli_deploy "OmniArcade KC Agent" "${SCRIPT_DIR}/agent_kc" "${extra_args[@]}"; then
+-    if run_agents_cli_deploy "Gaming Knowledge Catalog Agent" "${SCRIPT_DIR}/agent_kc" "${extra_args[@]}"; then
 -        KC_AGENT_ID=$(cat "${SCRIPT_DIR}/agent_kc.id" 2>/dev/null || true)
 -        export KC_AGENT_ID
 -        # Publish to Gemini Enterprise Agent Registry
@@ -155,9 +155,9 @@ Modify `deploy_kc` in [deploy_agents.sh](file:///usr/local/google/home/joeholley
 +    echo "=== Deploying OmniArcade KC Agent from Container Image ==="
 +    local agent_id_val="${KC_AGENT_ID:-}"
 +    
-+    export CONTAINER_IMAGE_URI="us-central1-docker.pkg.dev/${PROJECT_ID}/agent-images/agent-kc:latest"
++    export CONTAINER_IMAGE_URI="us-central1-docker.pkg.dev/${PROJECT_ID}/gaming-agent-images/agent-kc:latest"
 +    export AGENT_ID="${agent_id_val}"
-+    export AGENT_DISPLAY_NAME="OmniArcade KC Agent"
++    export AGENT_DISPLAY_NAME="Gaming Knowledge Catalog Agent"
 +    
 +    pip install --quiet "google-cloud-aiplatform>=1.60"
 +    python3 "${SCRIPT_DIR}/deploy_container.py"
@@ -186,7 +186,7 @@ Insert container image building, caching, and pushing steps in [cloudbuild-agent
 +      - |
 +        set -euo pipefail
 +        PROJECT_ID=$$(cat /workspace/project_id.txt)
-+        gcloud artifacts repositories create agent-images \
++        gcloud artifacts repositories create gaming-agent-images \
 +          --project="$$PROJECT_ID" \
 +          --repository-format=docker \
 +          --location=us-central1 \
@@ -213,7 +213,7 @@ Insert container image building, caching, and pushing steps in [cloudbuild-agent
 +      - |
 +        set -euo pipefail
 +        PROJECT_ID=$$(cat /workspace/project_id.txt)
-+        docker pull us-central1-docker.pkg.dev/$$PROJECT_ID/agent-images/agent-kc:latest || true
++        docker pull us-central1-docker.pkg.dev/$$PROJECT_ID/gaming-agent-images/agent-kc:latest || true
 +
 +  # ── Step 3.4: Build Docker image using cache ──────────────────────────────
 +  - id: build-image
@@ -224,7 +224,7 @@ Insert container image building, caching, and pushing steps in [cloudbuild-agent
 +      - |
 +        set -euo pipefail
 +        PROJECT_ID=$$(cat /workspace/project_id.txt)
-+        IMAGE="us-central1-docker.pkg.dev/$$PROJECT_ID/agent-images/agent-kc"
++        IMAGE="us-central1-docker.pkg.dev/$$PROJECT_ID/gaming-agent-images/agent-kc"
 +        docker build \
 +          --cache-from "$$IMAGE:latest" \
 +          -t "$$IMAGE:latest" \
@@ -241,7 +241,7 @@ Insert container image building, caching, and pushing steps in [cloudbuild-agent
 +      - |
 +        set -euo pipefail
 +        PROJECT_ID=$$(cat /workspace/project_id.txt)
-+        IMAGE="us-central1-docker.pkg.dev/$$PROJECT_ID/agent-images/agent-kc"
++        IMAGE="us-central1-docker.pkg.dev/$$PROJECT_ID/gaming-agent-images/agent-kc"
 +        docker push "$$IMAGE:latest"
 +        docker push "$$IMAGE:$$COMMIT_SHA"
 +

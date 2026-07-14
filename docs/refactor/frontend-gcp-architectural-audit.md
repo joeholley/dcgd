@@ -16,7 +16,7 @@ This architectural audit evaluates all **15 application sections** across the Om
    - **React Application (`remix-gaming-app`)**: 3 sections are 100% static/client-side timer mocks (Overview, Operations, IT Observatory); 1 section uses local Firestore with mock fallback (Campaign Engine); 2 sections attempt real GCP backend API calls with quiet dev fallbacks (GCP Health, Diagnostics); 2 sections use hybrid SSE or REST proxies with synthetic fallbacks (LiveOps Guardrail, Knowledge Catalog).
    - **Flask Application (`gamingdatademo`)**: 2 sections are 100% static mock (Executive Portfolio, Trust & Safety Observatory); 4 sections contain genuine GCP client code (BigQuery SQL in Difficulty & Marketing Telemetry, Dataplex REST API in Lineage/Table-Info, Vertex AI Reasoning Engine WebSocket in Agent Comparison), but default to cached/offline mock mode in local environments without active GCP credentials.
 2. **Target GCP Infrastructure Alignment**:
-   - `src/retail-data-and-ai-demo` provides production-ready Terraform modules (`infrastructure/terraform/games`), automated Pub/Sub to BigQuery zero-code streaming, BQML logistic regression models (`player_churn_model`), BQ Remote Models (`AI.GENERATE` via `gemini-3.5-flash`), Dataplex business glossaries & policy tags, and ADK multi-agent swarms.
+   - `src/retail-data-and-ai-demo` provides production-ready Terraform modules (`infrastructure/terraform/games`), automated Pub/Sub to BigQuery zero-code streaming, BQML logistic regression models (`gaming_player_churn_model`), BQ Remote Models (`AI.GENERATE` via `gemini-3.5-flash`), Dataplex business glossaries & policy tags, and ADK multi-agent swarms.
 3. **Primary Elevation Opportunity**:
    - Replacing static JSON fallbacks and simulated `setTimeout` progress bars across all 15 sections with live, zero-latency Google Cloud Data & AI services (AlloyDB `pgvector`, Cloud Spanner Graph, BigQuery Active Lakehouse, Dataplex Context API, and Vertex AI Agent Engine swarms).
 
@@ -72,7 +72,7 @@ Provides an executive Game Analytics Overview dashboard, showcasing key operatio
 - **Required GCP Products**: Cloud Pub/Sub, BigQuery Active Lakehouse, AlloyDB for PostgreSQL, Cloud Spanner.
 
 #### 3. GCP Product Integration Opportunities
-- **Product Reference 4 (Active Lakehouse)**: Connect live session event stream to Cloud Pub/Sub topic `omniarcade-live-telemetry` with direct BigQuery subscription into `omniarcade_raw.live_session_events`.
+- **Product Reference 4 (Active Lakehouse)**: Connect live session event stream to Cloud Pub/Sub topic `gaming-live-telemetry` with direct BigQuery subscription into `gaming_raw.live_session_events`.
 - **Product Reference 2 (AlloyDB)**: Execute real-time SQL queries against AlloyDB OLTP tables to render live DAU, CCU, and diamond wallet balances.
 - **Product Reference 3 (Cloud Spanner)**: Utilize Cloud Spanner for globally consistent multi-region player state and transaction ledger updates.
 
@@ -110,7 +110,7 @@ Acts as an enterprise data governance catalog and automatic RLS (Row-Level Secur
 - **Required GCP Products**: Dataplex Knowledge Catalog (Aspect Types, Business Glossaries, Context API), BigQuery Row-Level Security, Vertex AI LLM (Gemini 2.5 Flash).
 
 #### 3. GCP Product Integration Opportunities
-- **Product Reference 5 (Knowledge Catalog)**: Wire search bar directly to Dataplex `searchEntries` and `lookupContext` REST APIs to return real table schemas, policy tags (`fsi_classification`), and custom aspect types (`liveops_campaign_policy_aspect`).
+- **Product Reference 5 (Knowledge Catalog)**: Wire search bar directly to Dataplex `searchEntries` and `lookupContext` REST APIs to return real table schemas, policy tags (`gaming_data_classification`), and custom aspect types (`liveops_campaign_policy_aspect`).
 - **Product Reference 7 (Gemini Enterprise in BQ)**: Use Gemini 2.5 Flash via BQ Remote Models or Vertex AI Reasoning Engine to generate valid, syntactically correct BigQuery Row Access Policy SQL from arbitrary user text.
 
 ---
@@ -123,12 +123,12 @@ Acts as an enterprise data governance catalog and automatic RLS (Row-Level Secur
 A split-screen LiveOps observatory demonstrating real-time player churn detection and automated guardrail offer execution within <300ms. Features an interactive RPG boss encounter, BQML radial churn propensity gauge, Dataplex policy verification audit card, and Cloud Pub/Sub streaming telemetry log.
 
 #### 2. Implied vs. Actual Backend Functionality
-- **Implied Functionality**: Claims closed-loop Pub/Sub telemetry, BQML churn prediction against `omniarcade_raw.player_churn_model`, and Dataplex aspect tag policy verification. Pop-up latency counter: `<300ms`.
+- **Implied Functionality**: Claims closed-loop Pub/Sub telemetry, BQML churn prediction against `gaming_raw.gaming_player_churn_model`, and Dataplex aspect tag policy verification. Pop-up latency counter: `<300ms`.
 - **Actual Implementation**: **Hybrid Real/Mock Gateway**. Connects via Server-Sent Events (`EventSource("/api/guardrail/events")`). Telemetry POSTs to `/api/telemetry/stream` (server.ts l. 259). Pub/Sub and BQML `ML.PREDICT` are attempted but fall back to mock message IDs and dynamic math formulas (`deathWeight + eventWeight`). Dataplex policy precaching (`verifyDataplexPolicyAndPrecache`) is a pure JS mock returning static certified offer SKUs.
-- **Required GCP Products**: Cloud Pub/Sub, BigQuery ML (`player_churn_model`), Dataplex Aspect Types, ADK Policy Tools.
+- **Required GCP Products**: Cloud Pub/Sub, BigQuery ML (`gaming_player_churn_model`), Dataplex Aspect Types, ADK Policy Tools.
 
 #### 3. GCP Product Integration Opportunities
-- **Product Reference 4 (Active Lakehouse / BQML)**: Execute the real BQML `calculate_churn_risk` stored procedure on BigQuery model `omniarcade_raw.player_churn_model` trained on `gold_player_360`.
+- **Product Reference 4 (Active Lakehouse / BQML)**: Execute the real BQML `calculate_churn_risk` stored procedure on BigQuery model `gaming_raw.gaming_player_churn_model` trained on `gold_player_360`.
 - **Product Reference 5 (Dataplex Aspect Types)**: Query real Dataplex aspect metadata (`liveops_campaign_policy_aspect`) to enforce maximum discount caps (e.g., 85%) before authorizing in-game pop-up offers.
 - **Product Reference 6 (ADK Agent Engine)**: Use ADK policy tools to validate player eligibility and log guardrail interventions to BigQuery audit tables.
 
@@ -223,7 +223,7 @@ Compares three distinct agent architectures (Basic Agent vs. Scaled Agent vs. KC
 
 #### 3. GCP Product Integration Opportunities
 - **Product Reference 6 (ADK Agent Engine & `agent_kc`)**: Deploy the production ADK agent (`src/gamingdatademo/agents/agent_kc/agent.py`) to Vertex AI Agent Engine, enabling live side-by-side comparison of KC-guided vs unguided agents.
-- **Product Reference 5 (Dataplex Context API)**: Leverage Dataplex `lookupContext` API to inject real-time table schemas, business glossary terms (`omniarcade-studios-glossary-us`), and data quality rules into the agent context window.
+- **Product Reference 5 (Dataplex Context API)**: Leverage Dataplex `lookupContext` API to inject real-time table schemas, business glossary terms (`gaming-studios-glossary-us`), and data quality rules into the agent context window.
 
 ---
 
@@ -292,11 +292,11 @@ Real-time GCP Connection & System Health Status diagnostic monitor evaluating Go
 
 #### 2. Implied vs. Actual Backend Functionality
 - **Implied Functionality**: Real-time diagnostic probes testing live GCP resources with quiet fallback to synthetic mock data when GCP is unreachable.
-- **Actual Implementation**: **Actual Backend Integration with Dev Fallback**. Component makes real HTTP `fetch("/api/system/gcp-health")` calls. In `server.ts` (l. 679), the backend executes **13 real parallel async probe checks**: GCP OAuth ADC (`testAuth`), PubSub topic `omniarcade-live-telemetry` (`testPubSub`), Dataplex entry search (`testDataplex`), Vertex AI Reasoning Engine (`testVertexAgent`), and 9 BigQuery SQL probes (`testBQTableProbe` on `gold_player_360`, BQML model `player_churn_model`, etc.). Probes safely timeout (2000ms) and return fallback data if GCP is offline.
+- **Actual Implementation**: **Actual Backend Integration with Dev Fallback**. Component makes real HTTP `fetch("/api/system/gcp-health")` calls. In `server.ts` (l. 679), the backend executes **13 real parallel async probe checks**: GCP OAuth ADC (`testAuth`), PubSub topic `gaming-live-telemetry` (`testPubSub`), Dataplex entry search (`testDataplex`), Vertex AI Reasoning Engine (`testVertexAgent`), and 9 BigQuery SQL probes (`testBQTableProbe` on `gold_player_360`, BQML model `gaming_player_churn_model`, etc.). Probes safely timeout (2000ms) and return fallback data if GCP is offline.
 - **Required GCP Products**: Google Cloud ADC, BigQuery, Cloud Pub/Sub, Dataplex REST API, Vertex AI Agent Engine, IAM Service Accounts.
 
 #### 3. GCP Product Integration Opportunities
-- **Product Reference 4 & 6**: Deploy all target BigQuery datasets (`omniarcade_raw`, `omniarcade_gold`), Pub/Sub topic (`omniarcade-live-telemetry`), BQML model (`player_churn_model`), and Vertex AI Reasoning Engine in GCP project `omniarcade-demo` so all 13 probes return `LIVE` status instead of fallback.
+- **Product Reference 4 & 6**: Deploy all target BigQuery datasets (`gaming_raw`, `gaming_gold`), Pub/Sub topic (`gaming-live-telemetry`), BQML model (`gaming_player_churn_model`), and Vertex AI Reasoning Engine in GCP project `gaming-demo` so all 13 probes return `LIVE` status instead of fallback.
 
 ---
 
@@ -310,10 +310,10 @@ Multi-Service System Diagnostics single-pane-of-glass dashboard for monitoring 1
 #### 2. Implied vs. Actual Backend Functionality
 - **Implied Functionality**: Live single-pane-of-glass probe across all 15 app sections and 13 GCP backend probes, showing live latency, execution logs, and sub-feature connectivity.
 - **Actual Implementation**: **Hybrid Real / Static Diagnostic Aggregator**. Makes real HTTP `fetch("/api/system/diagnostics")` (which redirects to `/api/system/gcp-health` in server.ts). The GCP probes array (`gcpServices`) is updated from backend probe responses. However, the 15-section application matrix (`sections`, l. 349–532) and sub-features are **static client-side metadata definitions** declared in component state.
-- **Required GCP Products**: BigQuery Agent Analytics (`agent_analytics.kc_agent_events`), Dataplex Scan Results (`telemetry_scan_results`), Cloud Logging / Monitoring APIs.
+- **Required GCP Products**: BigQuery Agent Analytics (`gaming_agent_analytics.kc_agent_events`), Dataplex Scan Results (`gaming_telemetry_scan_results`), Cloud Logging / Monitoring APIs.
 
 #### 3. GCP Product Integration Opportunities
-- **Product Reference 5 & 6**: Connect section sub-feature matrix statuses directly to real API health endpoints (AlloyDB connection pool check, Cloud Spanner health check, Dataplex Aspect Tag API probe, and BigQuery `agent_analytics.kc_agent_events` table).
+- **Product Reference 5 & 6**: Connect section sub-feature matrix statuses directly to real API health endpoints (AlloyDB connection pool check, Cloud Spanner health check, Dataplex Aspect Tag API probe, and BigQuery `gaming_agent_analytics.kc_agent_events` table).
 
 ---
 
@@ -339,9 +339,9 @@ Global persistent AI assistant (PineCore AI Chatbot) accessible across all appli
 
 | # | Section Name | Primary File Location | Current Data Mode | Target GCP Products Applied | Architecture & Integration Strategy |
 |---|---|---|---|---|---|
-| 1 | **Overview** | `Overview.tsx` | Hybrid / Synthetic | BQ Omni, Pub/Sub, BQ Active Lakehouse, Gemini | Connect KPI cards to BQ `gold_player_360` and BQML `player_churn_model` summary metrics. |
-| 2 | **Operations** | `Operations.tsx` | Synthetic Stream | Pub/Sub, AlloyDB, Cloud Spanner | Ingest live telemetry via Pub/Sub topic `omniarcade-live-telemetry` into `live_session_events`. |
-| 3 | **Executive Portfolio** | `/executive.html` (Flask) | Mock (Flask :5000) | BQ Omni, Spanner Graph, ADK Swarm | Query `telemetry_gold` datasets; run ADK multi-agent swarm on Vertex AI Agent Engine. |
+| 1 | **Overview** | `Overview.tsx` | Hybrid / Synthetic | BQ Omni, Pub/Sub, BQ Active Lakehouse, Gemini | Connect KPI cards to BQ `gold_player_360` and BQML `gaming_player_churn_model` summary metrics. |
+| 2 | **Operations** | `Operations.tsx` | Synthetic Stream | Pub/Sub, AlloyDB, Cloud Spanner | Ingest live telemetry via Pub/Sub topic `gaming-live-telemetry` into `live_session_events`. |
+| 3 | **Executive Portfolio** | `/executive.html` (Flask) | Mock (Flask :5000) | BQ Omni, Spanner Graph, ADK Swarm | Query `gaming_telemetry_gold` datasets; run ADK multi-agent swarm on Vertex AI Agent Engine. |
 | 4 | **Knowledge Catalog** | `KnowledgeCatalog.tsx` | Synthetic / Local | Dataplex REST API, BQ RLS, Gemini 2.5 Flash | Wire search bar to Dataplex `searchEntries` & `lookupContext` APIs; compile real BQ RLS SQL with Gemini. |
 | 5 | **LiveOps Guardrail** | `LiveOpsGuardrail.tsx` | Hybrid / Mock | Pub/Sub, BQML `ML.PREDICT`, Dataplex Aspect | Trigger BQML `calculate_churn_risk` procedure on boss fail; verify discount caps in Dataplex. |
 | 6 | **AI Campaign Engine** | `CampaignEngine.tsx` | Synthetic | BQ `AI.GENERATE`, Imagen 3, AlloyDB, ADK | Generate localized ad copy using BQ `AI.GENERATE` and ad banners via Vertex AI Imagen 3. |
@@ -350,17 +350,17 @@ Global persistent AI assistant (PineCore AI Chatbot) accessible across all appli
 | 9 | **Agentic Workflows** | `AgenticWorkflows.tsx` | Synthetic | ADK Agent Engine, AlloyDB pgvector, BQ Omni | Connect workflow cards to Vertex AI ReasoningEngine endpoints; log tool calls to BigQuery. |
 | 10 | **Agent Comparison** | `/agent-comparison` (Flask) | Live / WS | ADK Agent (`agent_kc`), Dataplex Context API | Run side-by-side trace of Dataplex KC-Guided Agent (`get_context`) vs Unguided LLM Agent. |
 | 11 | **Data Lineage** | `/graph_visualization.html` | Hybrid / Fallback | Dataplex Lineage API, Spanner Graph, BQ Omni | Fetch live lineage graph from Dataplex Lineage API (`datalineage.googleapis.com`) tracing Pub/Sub -> BQ Gold. |
-| 12 | **IT Observatory** | `ITObservatory.tsx` | Synthetic | BQ Active Lakehouse (Audit Logs), BQ Omni | Execute NL-to-SQL system health queries across conformed telemetry tables (`telemetry_bronze`/`silver`). |
+| 12 | **IT Observatory** | `ITObservatory.tsx` | Synthetic | BQ Active Lakehouse (Audit Logs), BQ Omni | Execute NL-to-SQL system health queries across conformed telemetry tables (`gaming_telemetry_bronze`/`silver`). |
 | 13 | **Trust & Safety** | `/toxicity.html` (Flask) | Hybrid (AlloyDB) | AlloyDB `pgvector`, Cloud Spanner, Dataplex | Perform real-time vector similarity search on chat streams in AlloyDB (`pgvector`) and log bans in Spanner. |
-| 14 | **GCP System Health** | `GCPHealth.tsx` | Live / Fallback | GCP Service Usage API, IAM Service Accounts | Monitor health of `omniarcade-demo-sa` IAM permissions and Pub/Sub backlog. |
-| 15 | **Data Diagnostics** | `Diagnostics.tsx` | Live / Synthetic | Dataplex Scan Results, BQ Agent Analytics | Query `telemetry_scan_results` and `agent_analytics.kc_agent_events` to display data quality and AI latency. |
+| 14 | **GCP System Health** | `GCPHealth.tsx` | Live / Fallback | GCP Service Usage API, IAM Service Accounts | Monitor health of `gaming-demo-sa` IAM permissions and Pub/Sub backlog. |
+| 15 | **Data Diagnostics** | `Diagnostics.tsx` | Live / Synthetic | Dataplex Scan Results, BQ Agent Analytics | Query `gaming_telemetry_scan_results` and `gaming_agent_analytics.kc_agent_events` to display data quality and AI latency. |
 
 ---
 
 ## Recommended Target Architecture Implementation Roadmap
 
 1. **Phase 1: Provision Core Target GCP Infrastructure (Terraform)**
-   - Run `infrastructure/terraform` in `src/retail-data-and-ai-demo` with `-var="industry_target=all"` to provision Medallion BigQuery datasets (`omniarcade_raw`, `omniarcade_synthetic`, `omniarcade_gold`), Pub/Sub topic `omniarcade-live-telemetry` with direct BigQuery subscription, and Artifact Registry.
+   - Run `infrastructure/terraform` in `src/retail-data-and-ai-demo` with `-var="industry_target=all"` to provision Medallion BigQuery datasets (`gaming_raw`, `gaming_synthetic`, `gaming_gold`), Pub/Sub topic `gaming-live-telemetry` with direct BigQuery subscription, and Artifact Registry.
 2. **Phase 2: Populate Datasets & Train BQML Predictive Models**
    - Execute BigQuery SQL routines: `generate_players()`, `populate_player_tables()`, `generate_iap()`, `train_churn_model()`, and `calculate_churn_risk()` to activate live BQML inference.
 3. **Phase 3: Deploy ADK Agents & Dataplex Governance Taxonomies**

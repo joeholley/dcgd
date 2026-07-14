@@ -68,9 +68,9 @@ export function KnowledgeCatalog({ initialSearch = "" }: { initialSearch?: strin
     {
       rule_id: "rule_discovered_default_01",
       input_text: "Whales in Japan get max 80% discount on Frost Giant Shield Pack",
-      dataplex_aspect_type: "liveops-campaign-policy-aspect",
+      dataplex_aspect_type: "gaming-campaign-policy-aspect",
       generated_aspect_schema: {
-        name: "projects/omniarcade-demo/locations/us-central1/aspectTypes/liveops-campaign-policy-aspect",
+        name: "projects/gaming-demo/locations/us-central1/aspectTypes/gaming-campaign-policy-aspect",
         fields: {
           player_tier: "Whale",
           max_discount_pct: 80,
@@ -78,7 +78,7 @@ export function KnowledgeCatalog({ initialSearch = "" }: { initialSearch?: strin
           guardrail_boundary_status: "ACTIVE_VERIFIED",
         },
       },
-      generated_bigquery_policy_sql: `CREATE OR REPLACE ROW ACCESS POLICY liveops_churn_guardrail_policy\nON \`omniarcade-demo.omniarcade_gold.gold_player_360\`\nGRANT TO ("group:liveops-managers@google.com")\nFILTER USING (spend_tier = 'Whale' AND churn_risk_score >= 0.50);`,
+      generated_bigquery_policy_sql: `CREATE OR REPLACE ROW ACCESS POLICY liveops_churn_guardrail_policy\nON \`gaming-demo.gaming_gold.gold_player_360\`\nGRANT TO ("group:liveops-managers@google.com")\nFILTER USING (spend_tier = 'Whale' AND churn_risk_score >= 0.50);`,
       status: "DISCOVERED_AND_COMPILED",
       created_at: new Date().toISOString(),
     }
@@ -181,9 +181,9 @@ export function KnowledgeCatalog({ initialSearch = "" }: { initialSearch?: strin
       const fallbackRule: DiscoveredRule = {
         rule_id: `rule_discovered_${Date.now()}`,
         input_text: plainRuleText,
-        dataplex_aspect_type: "liveops-campaign-policy-aspect",
+        dataplex_aspect_type: "gaming-campaign-policy-aspect",
         generated_aspect_schema: {
-          name: "projects/omniarcade-demo/locations/us-central1/aspectTypes/liveops-campaign-policy-aspect",
+          name: "projects/gaming-demo/locations/us-central1/aspectTypes/gaming-campaign-policy-aspect",
           fields: {
             player_tier: isWhale ? "Whale" : "All",
             max_discount_pct: is80 ? 80 : 50,
@@ -191,7 +191,7 @@ export function KnowledgeCatalog({ initialSearch = "" }: { initialSearch?: strin
             guardrail_boundary_status: "ACTIVE_VERIFIED",
           },
         },
-        generated_bigquery_policy_sql: `CREATE OR REPLACE ROW ACCESS POLICY liveops_churn_guardrail_policy\nON \`omniarcade-demo.omniarcade_gold.gold_player_360\`\nGRANT TO ("group:liveops-managers@google.com")\nFILTER USING (spend_tier = '${isWhale ? "Whale" : "All"}' AND churn_risk_score >= 0.50);`,
+        generated_bigquery_policy_sql: `CREATE OR REPLACE ROW ACCESS POLICY liveops_churn_guardrail_policy\nON \`gaming-demo.gaming_gold.gold_player_360\`\nGRANT TO ("group:liveops-managers@google.com")\nFILTER USING (spend_tier = '${isWhale ? "Whale" : "All"}' AND churn_risk_score >= 0.50);`,
         status: "DISCOVERED_AND_COMPILED",
         created_at: new Date().toISOString(),
       };

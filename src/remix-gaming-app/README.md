@@ -60,7 +60,7 @@ bash ./deploy-demo.sh
 After deployment, access the private Cloud Run service from Cloud Shell:
 
 ```bash
-gcloud run services proxy omniarcade-app --port=8080 --region=us-central1
+gcloud run services proxy gaming-demo-app --port=8080 --region=us-central1
 ```
 Then click **Web Preview** -> **Preview on port 8080** in Google Cloud Shell.
 
@@ -80,8 +80,8 @@ Open **`http://localhost:3000`** in your browser and select **LiveOps Guardrail*
 ## 🛠️ Architecture & Backend Services
 
 - **Express Gateway (`server.ts`)**:
-  - `POST /api/telemetry/stream`: Formats `snake_case` JSON telemetry, publishes to Pub/Sub topic `omniarcade-live-telemetry`, executes BQML `ML.PREDICT`, and streams SSE risk updates.
+  - `POST /api/telemetry/stream`: Formats `snake_case` JSON telemetry, publishes to Pub/Sub topic `gaming-live-telemetry`, executes BQML `ML.PREDICT`, and streams SSE risk updates.
   - `GET /api/guardrail/events`: Real-time SSE event hub for connected client dashboards.
   - `GET /api/catalog/search` & `POST /api/catalog/rules/discover`: Dataplex Knowledge Catalog proxy endpoints.
   - `POST /api/chat`: Vertex AI Agent Engine (`google-adk`) proxy route.
-- **BigQuery Client (`src/services/bigquery.ts`)**: Parameterized query client accessing `omniarcade_gold` Gold feature tables with simulated local fallback support.
+- **BigQuery Client (`src/services/bigquery.ts`)**: Parameterized query client accessing `gaming_gold` Gold feature tables with simulated local fallback support.

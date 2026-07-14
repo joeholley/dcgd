@@ -249,9 +249,9 @@ fi
 log_info "Using active GCP Project ID: '${GCP_PROJECT}'"
 
 GCP_REGION="${GCP_LOCATION:-us-central1}"
-PUBSUB_TOPIC="omniarcade-live-telemetry"
-BQ_DATASET_RAW="omniarcade_raw"
-BQ_DATASET_GOLD="omniarcade_gold"
+PUBSUB_TOPIC="gaming-live-telemetry"
+BQ_DATASET_RAW="gaming_raw"
+BQ_DATASET_GOLD="gaming_gold"
 
 # Fetch project number strictly
 GCP_PROJECT_NUMBER="$(gcloud projects describe "${GCP_PROJECT}" --format="value(projectNumber)")"
@@ -378,10 +378,10 @@ if [ "$RUN_STEP_1" = true ]; then
     for pair in \
       "retail:google_bigquery_dataset.retail-dataset" \
       "retail_synthetic:google_bigquery_dataset.retail-synthetic-dataset" \
-      "omniarcade_raw:module.games[0].google_bigquery_dataset.omniarcade_raw" \
-      "omniarcade_synthetic:module.games[0].google_bigquery_dataset.omniarcade_synthetic" \
-      "omniarcade_silver:module.games[0].google_bigquery_dataset.omniarcade_silver" \
-      "omniarcade_gold:module.games[0].google_bigquery_dataset.omniarcade_gold"; do
+      "gaming_raw:module.games[0].google_bigquery_dataset.gaming_raw" \
+      "gaming_synthetic:module.games[0].google_bigquery_dataset.gaming_synthetic" \
+      "gaming_silver:module.games[0].google_bigquery_dataset.gaming_silver" \
+      "gaming_gold:module.games[0].google_bigquery_dataset.gaming_gold"; do
         ds="${pair%%:*}"
         tf_target="${pair#*:}"
         log_info "  Checking/importing dataset '${ds}' (${tf_target})..."
@@ -451,7 +451,7 @@ if [ "$RUN_STEP_3" = true ]; then
     log_info "Compiling and running Dataform Medallion models in ${DATAFORM_DIR}..."
 
     log_info "Ensuring all required BigQuery datasets exist in ${GCP_PROJECT} before table seeding..."
-    for ds in omniarcade_raw omniarcade_synthetic omniarcade_silver omniarcade_gold central_identity fps_studio mmo_studio mobile_studio sports_studio strategy_studio telemetry_bronze telemetry_silver telemetry_gold telemetry_dashboards telemetry_reference agent_analytics; do
+    for ds in gaming_raw gaming_synthetic gaming_silver gaming_gold central_identity fps_studio mmo_studio mobile_studio sports_studio strategy_studio gaming_telemetry_bronze gaming_telemetry_silver gaming_telemetry_gold gaming_telemetry_dashboards gaming_telemetry_reference gaming_agent_analytics; do
       log_info "  - Checking/creating dataset: ${ds}..."
       bq mk --location="${GCP_REGION}" --dataset "${GCP_PROJECT}:${ds}" &>/dev/null || true
     done
@@ -489,7 +489,7 @@ if [ "$RUN_STEP_3" = true ]; then
         SELECT 1 FROM \`${GCP_PROJECT}.central_identity.players\` LIMIT 1
       );
 
-      CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.omniarcade_raw.gcp_players\` (
+      CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.gaming_raw.gcp_players\` (
         player_id STRING,
         payer_tier STRING,
         total_iap_spend FLOAT64,
@@ -499,7 +499,7 @@ if [ "$RUN_STEP_3" = true ]; then
         region_code STRING
       );
 
-      INSERT INTO \`${GCP_PROJECT}.omniarcade_raw.gcp_players\`
+      INSERT INTO \`${GCP_PROJECT}.gaming_raw.gcp_players\`
       (player_id, payer_tier, total_iap_spend, days_since_last_login, favorite_category, created_at, region_code)
       SELECT
         user_id AS player_id,
@@ -510,9 +510,9 @@ if [ "$RUN_STEP_3" = true ]; then
         created_at,
         region_code
       FROM \`${GCP_PROJECT}.central_identity.players\`
-      WHERE user_id NOT IN (SELECT player_id FROM \`${GCP_PROJECT}.omniarcade_raw.gcp_players\`);
+      WHERE user_id NOT IN (SELECT player_id FROM \`${GCP_PROJECT}.gaming_raw.gcp_players\`);
 
-      CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.omniarcade_raw.live_session_events\` (
+      CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.gaming_raw.live_session_events\` (
         session_id STRING,
         player_id STRING,
         event_type STRING,
@@ -521,7 +521,7 @@ if [ "$RUN_STEP_3" = true ]; then
         consecutive_deaths INT64
       );
 
-      INSERT INTO \`${GCP_PROJECT}.omniarcade_raw.live_session_events\` (session_id, player_id, event_type, timestamp, session_duration_seconds, consecutive_deaths)
+      INSERT INTO \`${GCP_PROJECT}.gaming_raw.live_session_events\` (session_id, player_id, event_type, timestamp, session_duration_seconds, consecutive_deaths)
       SELECT
         CONCAT('EVT-', LPAD(CAST(id AS STRING), 8, '0')) AS session_id,
         CONCAT('PLAY-', LPAD(CAST(MOD(id, 1000) + 1 AS STRING), 8, '0')) AS player_id,
@@ -530,9 +530,9 @@ if [ "$RUN_STEP_3" = true ]; then
         MOD(id, 3600) AS session_duration_seconds,
         MOD(id, 5) AS consecutive_deaths
       FROM UNNEST(GENERATE_ARRAY(1, 2000)) AS id
-      WHERE NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.omniarcade_raw.live_session_events\` LIMIT 1);
+      WHERE NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.gaming_raw.live_session_events\` LIMIT 1);
 
-      CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.omniarcade_raw.iap_transactions\` (
+      CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.gaming_raw.iap_transactions\` (
         transaction_id STRING,
         player_id STRING,
         item_id STRING,
@@ -540,7 +540,7 @@ if [ "$RUN_STEP_3" = true ]; then
         timestamp TIMESTAMP
       );
 
-      INSERT INTO \`${GCP_PROJECT}.omniarcade_raw.iap_transactions\` (transaction_id, player_id, item_id, amount_usd, timestamp)
+      INSERT INTO \`${GCP_PROJECT}.gaming_raw.iap_transactions\` (transaction_id, player_id, item_id, amount_usd, timestamp)
       SELECT
         CONCAT('TXN-', LPAD(CAST(id AS STRING), 8, '0')) AS transaction_id,
         CONCAT('PLAY-', LPAD(CAST(MOD(id, 1000) + 1 AS STRING), 8, '0')) AS player_id,
@@ -548,7 +548,7 @@ if [ "$RUN_STEP_3" = true ]; then
         CAST(ROUND(0.99 + 49.0 * RAND(), 2) AS NUMERIC) AS amount_usd,
         TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL CAST(id AS INT64) HOUR) AS timestamp
       FROM UNNEST(GENERATE_ARRAY(1, 5000)) AS id
-      WHERE NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.omniarcade_raw.iap_transactions\` LIMIT 1);
+      WHERE NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.gaming_raw.iap_transactions\` LIMIT 1);
     "
 
     # Always overwrite .df-credentials.json to enforce project and location (e.g. us-central1 vs US)
@@ -646,8 +646,8 @@ fi
 if [ "$RUN_STEP_5" = true ]; then
   log_step "STEP 5: In-Warehouse BQML Churn Model Training & Validation"
 
-  log_info "Training BQML Logistic Regression model 'omniarcade_raw.player_churn_model'..."
-  bq query --location="${GCP_REGION}" --use_legacy_sql=false "CALL \`${GCP_PROJECT}.omniarcade_raw.train_churn_model\`();"
+  log_info "Training BQML Logistic Regression model 'gaming_raw.gaming_player_churn_model'..."
+  bq query --location="${GCP_REGION}" --use_legacy_sql=false "CALL \`${GCP_PROJECT}.gaming_raw.train_churn_model\`();"
 
   log_success "Step 5 BQML model trained."
 else
@@ -675,7 +675,7 @@ if [ "$RUN_STEP_6" = true ]; then
   if [ "$AGENT_TARGET" = "kc" ] || [ "$AGENT_TARGET" = "all" ]; then
     log_info "Verifying agent_kc container image in Artifact Registry..."
     
-    AGENT_REPO="agent-images"
+    AGENT_REPO="gaming-gaming-agent-images"
     AGENT_IMAGE_NAME="agent-kc"
     AGENT_IMAGE_URI="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/${AGENT_REPO}/${AGENT_IMAGE_NAME}"
     
@@ -742,10 +742,10 @@ fi
 if [ "$RUN_STEP_7" = true ]; then
   log_step "STEP 7: Cloud Build Container Compilation (Artifact Registry)"
 
-  log_info "Verifying Artifact Registry repository 'data-cloud-ai-demos' in ${GCP_REGION}..."
-  if ! gcloud artifacts repositories describe "data-cloud-ai-demos" --location="${GCP_REGION}" --project="${GCP_PROJECT}" &>/dev/null; then
-    log_warn "Artifact Registry repository 'data-cloud-ai-demos' not found. Creating..."
-    gcloud artifacts repositories create "data-cloud-ai-demos" \
+  log_info "Verifying Artifact Registry repository 'gaming-demo-images' in ${GCP_REGION}..."
+  if ! gcloud artifacts repositories describe "gaming-demo-images" --location="${GCP_REGION}" --project="${GCP_PROJECT}" &>/dev/null; then
+    log_warn "Artifact Registry repository 'gaming-demo-images' not found. Creating..."
+    gcloud artifacts repositories create "gaming-demo-images" \
       --repository-format=docker \
       --location="${GCP_REGION}" \
       --description="Docker repository for AI Demos" \
@@ -761,7 +761,7 @@ if [ "$RUN_STEP_7" = true ]; then
   grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/logging.logWriter"
   log_info "Submitting Cloud Build job to compile unified container image..."
   gcloud builds submit --config="${REPO_ROOT}/cloudbuild.yaml" \
-    --substitutions=_LOCATION="${GCP_REGION}",_REPOSITORY="data-cloud-ai-demos",_TAG="latest" \
+    --substitutions=_LOCATION="${GCP_REGION}",_REPOSITORY="gaming-demo-images",_TAG="latest" \
     "${REPO_ROOT}"
 
   log_success "Step 7 Container image built and pushed to Artifact Registry."
@@ -772,9 +772,9 @@ fi
 # ==============================================================================
 # Step 8: Private Cloud Run Deployment (Authenticated & Private)
 # ==============================================================================
-SERVICE_NAME="omniarcade-app"
-IMAGE_URI="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/data-cloud-ai-demos/gaming-app:latest"
-RUNNER_SA="omniarcade-runner-sa@${GCP_PROJECT}.iam.gserviceaccount.com"
+SERVICE_NAME="gaming-demo-app"
+IMAGE_URI="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/gaming-demo-images/gaming-app:latest"
+RUNNER_SA="gaming-runner-sa@${GCP_PROJECT}.iam.gserviceaccount.com"
 
 if [ "$RUN_STEP_8" = true ]; then
   log_step "STEP 8: Private Cloud Run Deployment (Authenticated & Private)"
@@ -782,8 +782,8 @@ if [ "$RUN_STEP_8" = true ]; then
   log_info "Verifying Cloud Run execution service account '${RUNNER_SA}'..."
   if ! gcloud iam service-accounts describe "${RUNNER_SA}" --project="${GCP_PROJECT}" &>/dev/null; then
     log_warn "Service account '${RUNNER_SA}' not found. Creating..."
-    gcloud iam service-accounts create omniarcade-runner-sa \
-      --display-name="OmniArcade Cloud Run Execution SA" \
+    gcloud iam service-accounts create gaming-runner-sa \
+      --display-name="Gaming Cloud Run Execution SA" \
       --project="${GCP_PROJECT}"
   fi
 

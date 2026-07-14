@@ -53,5 +53,5 @@ images:
 
 substitutions:
   _LOCATION: 'us-central1'
-  _REPOSITORY: 'data-cloud-ai-demos'
+  _REPOSITORY: 'gaming-demo-images'
   _TAG: 'latest'

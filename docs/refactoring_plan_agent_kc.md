@@ -51,17 +51,17 @@ Below is a verification of the BigQuery tables, views, and Dataplex elements acc
 
 | Data Asset Name | Medallion Layer / Type | Provisioned by `deploy-demo.sh`? | Seeding / Hydration Query | Dataplex Registry Aspect |
 | :--- | :--- | :--- | :--- | :--- |
-| `omniarcade_gold.gold_player_360` | Gold Feature Table | **Yes** (Steps 1 & 3 via Terraform & Dataform) | Hydrated during Step 5 (Logistic regression merge) | `liveops_campaign_policy_aspect` & `certified_reward_sku_aspect` (Step 4 script) |
-| `omniarcade_gold.gold_campaign_analytics` | Gold Table | **Yes** (Steps 1 & 3 via Terraform & Dataform) | Seeded during Step 5 | `liveops_campaign_policy_aspect` & `certified_reward_sku_aspect` (Step 4 script) |
-| `omniarcade_gold.gold_regional_kpis` | Gold Table | **Yes** (Steps 1 & 3 via Terraform & Dataform) | Seeded during Step 5 | None |
-| `omniarcade_silver.server_latency` | Silver Table | **Yes** (Step 3 via Dataform) | Seeded during Step 5 | None |
-| `omniarcade_gold.gold_level_difficulty_funnel` | Gold Table | **Yes** (Step 3 via Dataform) | Seeded during Step 5 | None |
-| Dataplex Business Glossary | Business Glossary | **Yes** (Step 4 via Python script) | `omniarcade-studios-glossary-us` created and terms seeded by `01_create_glossary.py` | None |
+| `gaming_gold.gold_player_360` | Gold Feature Table | **Yes** (Steps 1 & 3 via Terraform & Dataform) | Hydrated during Step 5 (Logistic regression merge) | `liveops_campaign_policy_aspect` & `gaming-certified-reward-sku-aspect` (Step 4 script) |
+| `gaming_gold.gold_campaign_analytics` | Gold Table | **Yes** (Steps 1 & 3 via Terraform & Dataform) | Seeded during Step 5 | `liveops_campaign_policy_aspect` & `gaming-certified-reward-sku-aspect` (Step 4 script) |
+| `gaming_gold.gold_regional_kpis` | Gold Table | **Yes** (Steps 1 & 3 via Terraform & Dataform) | Seeded during Step 5 | None |
+| `gaming_silver.server_latency` | Silver Table | **Yes** (Step 3 via Dataform) | Seeded during Step 5 | None |
+| `gaming_gold.gold_level_difficulty_funnel` | Gold Table | **Yes** (Step 3 via Dataform) | Seeded during Step 5 | None |
+| Dataplex Business Glossary | Business Glossary | **Yes** (Step 4 via Python script) | `gaming-studios-glossary-us` created and terms seeded by `01_create_glossary.py` | None |
 
 ### Table Name Verification
-All references inside the agent instruction prompts and aspect scripts have been checked against the Dataform compilation targets (`schema: "omniarcade_gold"`, `schema: "omniarcade_silver"`):
-- Verified that tables starting with `gold_` reside in `omniarcade_gold` or `telemetry_gold`. Both namespaces are correctly cataloged and indexable.
-- verified that `08_create_churn_guardrail_aspects.py` correctly maps aspects to `omniarcade_gold.gold_player_360` and `omniarcade_gold.gold_campaign_analytics`.
+All references inside the agent instruction prompts and aspect scripts have been checked against the Dataform compilation targets (`schema: "gaming_gold"`, `schema: "gaming_silver"`):
+- Verified that tables starting with `gold_` reside in `gaming_gold` or `gaming_telemetry_gold`. Both namespaces are correctly cataloged and indexable.
+- verified that `08_create_churn_guardrail_aspects.py` correctly maps aspects to `gaming_gold.gold_player_360` and `gaming_gold.gold_campaign_analytics`.
 
 ---
 
@@ -109,7 +109,7 @@ Modify the agent deployment helper script to call `agents-cli deploy` rather tha
 Add a registration step in the deploy script to publish the deployed agent to Gemini Enterprise.
 - **Change (Lines 229-234)**:
   ```bash
-      if run_adk_deploy "OmniArcade KC Agent" "${SCRIPT_DIR}/agent_kc" "${extra_args[@]}"; then
+      if run_adk_deploy "Gaming Knowledge Catalog Agent" "${SCRIPT_DIR}/agent_kc" "${extra_args[@]}"; then
           KC_AGENT_ID=$(cat "${SCRIPT_DIR}/agent_kc.id" 2>/dev/null || true)
           export KC_AGENT_ID
 +         # Publish to Gemini Enterprise Agent Registry

@@ -72,7 +72,7 @@ The simulator supports on-demand anomaly injection triggered by web UI controls:
 
 | GCP Target Service | Target Table / Topic | Write Rate (Normal / Anomaly) | Daily Volume | Purpose & Consumer |
 | :--- | :--- | :--- | :--- | :--- |
-| **Cloud Pub/Sub** | Topic `omniarcade-live-telemetry` | 10–25 events/sec (Normal)<br>50–100 events/sec (Anomaly Burst) | ~25,000–50,000 events/day | Ingested zero-code via Direct Subscription into BigQuery `omniarcade_raw.live_session_events`; consumed by SSE hub in `server.ts` for LiveOps Guardrail. |
+| **Cloud Pub/Sub** | Topic `gaming-live-telemetry` | 10–25 events/sec (Normal)<br>50–100 events/sec (Anomaly Burst) | ~25,000–50,000 events/day | Ingested zero-code via Direct Subscription into BigQuery `gaming_raw.live_session_events`; consumed by SSE hub in `server.ts` for LiveOps Guardrail. |
 | **AlloyDB for PostgreSQL** | `live_ccu_counter`, `active_match_lobbies`, `gira_incident_tickets` | 1 SQL UPSERT / 5 seconds | ~17,280 rows/day | Real-time operational state queries for `Operations.tsx` (CCU, ping latency) and `toxicity.html` (GIRA incident tickets). |
 
 ---
@@ -84,7 +84,7 @@ The simulator supports on-demand anomaly injection triggered by web UI controls:
 - **Deployment Target**: Google Cloud Run (or Cloud Run Job / background worker thread inside the unified container).
 - **Environment Variables**:
   - `GCP_PROJECT_ID`: Target GCP project.
-  - `PUBSUB_TOPIC_ID`: `omniarcade-live-telemetry`.
+  - `PUBSUB_TOPIC_ID`: `gaming-live-telemetry`.
   - `ALLOYDB_DB_URI`: Connection string for AlloyDB instance (optional, falls back to local SQLite/in-memory if offline).
   - `SIMULATION_RATE_HZ`: Target event frequency (default: 10 Hz).
 
@@ -149,15 +149,15 @@ A thorough line-by-line audit of `src/retail-data-and-ai-demo/infrastructure/ter
 The following core streaming and BQML churn pipeline resources are **already provisioned in Terraform** and will be used directly:
 
 * **Cloud Pub/Sub Streaming Pipeline**:
-  - `google_pubsub_topic.live_telemetry` (`omniarcade-live-telemetry`): Ingests real-time `snake_case` JSON telemetry events.
-  - `google_pubsub_subscription.live_telemetry_bq_sub` (`omniarcade-live-telemetry-bq-sub`): Zero-code BigQuery direct subscription.
+  - `google_pubsub_topic.live_telemetry` (`gaming-live-telemetry`): Ingests real-time `snake_case` JSON telemetry events.
+  - `google_pubsub_subscription.live_telemetry_bq_sub` (`gaming-live-telemetry-bq-sub`): Zero-code BigQuery direct subscription.
 * **BigQuery Datasets & Telemetry Tables**:
-  - `google_bigquery_dataset.omniarcade_raw`, `omniarcade_synthetic`, `omniarcade_gold`.
-  - `google_bigquery_table.live_session_events` (`omniarcade_raw.live_session_events` - partitioned by day, clustered by `player_id`, `event_type`).
+  - `google_bigquery_dataset.gaming_raw`, `gaming_synthetic`, `gaming_gold`.
+  - `google_bigquery_table.live_session_events` (`gaming_raw.live_session_events` - partitioned by day, clustered by `player_id`, `event_type`).
   - `google_bigquery_table.gcp_players` & `iap_transactions`.
-  - `google_bigquery_table.gold_player_360` (`omniarcade_gold.gold_player_360` - feature store for LTV, spend tier, churn risk score).
+  - `google_bigquery_table.gold_player_360` (`gaming_gold.gold_player_360` - feature store for LTV, spend tier, churn risk score).
 * **BigQuery ML (BQML) Churn Prediction**:
-  - Model: `omniarcade_raw.player_churn_model` (Logistic Regression).
+  - Model: `gaming_raw.gaming_player_churn_model` (Logistic Regression).
   - Stored Procedures: `train_churn_model` and `calculate_churn_risk` (executes `ML.PREDICT`).
 * **Synthetic Data Procedures**: `generate_players`, `populate_player_tables`, and `generate_iap`.
 * **Enabled APIs**: `bigquery`, `dataplex`, `pubsub`, `aiplatform`, `datalineage`, `cloudbuild`, `run`.
@@ -167,21 +167,21 @@ The following core streaming and BQML churn pipeline resources are **already pro
 ### 2. 🟡 Net-New Infrastructure Required in GCP / Terraform
 
 #### A. Additional Gold Analytical Tables (BigQuery)
-* `omniarcade_gold.gold_regional_kpis`: Aggregates DAU, MAU, ARPU, total revenue, active sessions, and ping latency by region/country.
-* `omniarcade_gold.gold_campaign_analytics`: Tracks campaign impressions, conversions, churn prevention rate, and incremental revenue.
-* `omniarcade_silver.server_latency` / `gold_server_performance`: Tracks CCU, server region capacity utilization, and frame rate latency.
-* `omniarcade_gold.gold_level_difficulty_funnel`: Tracks level starts, completions, failures, resets, and completion rates for difficulty re-balancing.
+* `gaming_gold.gold_regional_kpis`: Aggregates DAU, MAU, ARPU, total revenue, active sessions, and ping latency by region/country.
+* `gaming_gold.gold_campaign_analytics`: Tracks campaign impressions, conversions, churn prevention rate, and incremental revenue.
+* `gaming_silver.server_latency` / `gold_server_performance`: Tracks CCU, server region capacity utilization, and frame rate latency.
+* `gaming_gold.gold_level_difficulty_funnel`: Tracks level starts, completions, failures, resets, and completion rates for difficulty re-balancing.
 
 #### B. Dataplex Knowledge Catalog Infrastructure
 * `google_dataplex_aspect_type.liveops_campaign_policy_aspect`: Enforces max promotional discount boundaries (`player_tier`, `max_discount_pct`, `target_sku`, `guardrail_boundary_status`).
-* `google_dataplex_aspect_type.certified_reward_sku_aspect`: Validates certified in-game reward SKUs.
-* `google_dataplex_glossary.omniarcade_glossary`: Glossary `omniarcade-studios-glossary-us` with terms like *Whale Spend*, *Idle Churn*, *KYP*, *ARPU*, *CCU*, *Toxicity Exposure*.
+* `google_dataplex_aspect_type.gaming-certified-reward-sku-aspect`: Validates certified in-game reward SKUs.
+* `google_dataplex_glossary.omniarcade_glossary`: Glossary `gaming-studios-glossary-us` with terms like *Whale Spend*, *Idle Churn*, *KYP*, *ARPU*, *CCU*, *Toxicity Exposure*.
 
 #### C. Vertex AI Reasoning Engine Deployment (Agent Engine)
 * Reasoning Engine deployment script/module (`omniarcade-guardrail-agent` / `COUNCIL_AGENT_ID`) packaged with Dataplex MCP Tool & BQ SQL Tool.
 
 #### D. Live Telemetry Simulator Service (Cloud Run)
-* `google_cloud_run_v2_service.telemetry_simulator`: Containerized simulator publishing to `omniarcade-live-telemetry` Pub/Sub topic and AlloyDB instance.
+* `google_cloud_run_v2_service.telemetry_simulator`: Containerized simulator publishing to `gaming-live-telemetry` Pub/Sub topic and AlloyDB instance.
 
 ---
 
@@ -190,8 +190,8 @@ The following core streaming and BQML churn pipeline resources are **already pro
 | Feature / Refactoring Plan Item | Reusable `retail-data-and-ai-demo` Infra | Net-New GCP Infra Required (Terraform) | Net-New Application Code Required |
 | :--- | :--- | :--- | :--- |
 | **`/diagnostics` Page & API** | Reuses ADC Auth, BigQuery, Pub/Sub, BQML, Dataplex, Vertex AI. | None (runs probes against existing APIs). | **Node.js**: Probe handler in `server.ts` & React `<Diagnostics />` UI. |
-| **LiveOps Churn Guardrail** | **Pub/Sub Topic**: `omniarcade-live-telemetry`<br>**BQ Table**: `live_session_events`<br>**BQML**: `player_churn_model` | **Dataplex Aspect**: `liveops_campaign_policy_aspect` | **Node.js**: SSE hub (`/api/guardrail/events`) & in-memory pre-caching. |
-| **Live Game Simulator** | **Pub/Sub Topic**: `omniarcade-live-telemetry` | **Cloud Run Service**: `telemetry_simulator`<br>**AlloyDB**: `live_ccu_counter` | **Python/Go**: Simulator loop & anomaly engine in `src/simulator/`; Express control routes in `server.ts`. |
+| **LiveOps Churn Guardrail** | **Pub/Sub Topic**: `gaming-live-telemetry`<br>**BQ Table**: `live_session_events`<br>**BQML**: `gaming_player_churn_model` | **Dataplex Aspect**: `liveops_campaign_policy_aspect` | **Node.js**: SSE hub (`/api/guardrail/events`) & in-memory pre-caching. |
+| **Live Game Simulator** | **Pub/Sub Topic**: `gaming-live-telemetry` | **Cloud Run Service**: `telemetry_simulator`<br>**AlloyDB**: `live_ccu_counter` | **Python/Go**: Simulator loop & anomaly engine in `src/simulator/`; Express control routes in `server.ts`. |
 | **Executive Overview** | **BQ Table**: `gold_player_360`. | **BQ Tables**: `gold_regional_kpis`. | **React**: `Overview.tsx` UI rendering w/ mock S3/Snowflake indicators. |
 | **Operations & Difficulty** | None. | **BQ Tables**: `server_latency`, `gold_level_difficulty_funnel`. | **Node.js**: Reverse proxy to Flask `/api/difficulty-stats` & `/api/simulate/difficulty-spike`. |
 | **Campaign Engine** | None. | **BQ Table**: `gold_campaign_analytics` | **React**: `CampaignEngine.tsx` w/ Express in-memory campaign CRUD (replacing Firestore). |
@@ -211,9 +211,9 @@ The Express gateway executes a detailed diagnostic probe across all 15 frontend 
   "timestamp": "2026-07-08T10:15:00Z",
   "overall_mode": "HEALTHY_WITH_FALLBACKS",
   "gcp_services": {
-    "auth": { "status": "LIVE", "mode": "ADC", "details": "Authenticated for omniarcade-demo", "latency_ms": 12 },
-    "bigquery": { "status": "LIVE", "mode": "PROVISIONED", "details": "Dataset omniarcade_gold active", "latency_ms": 28 },
-    "pubsub": { "status": "LIVE", "mode": "PROVISIONED", "details": "Topic omniarcade-live-telemetry active", "latency_ms": 14 },
+    "auth": { "status": "LIVE", "mode": "ADC", "details": "Authenticated for gaming-demo", "latency_ms": 12 },
+    "bigquery": { "status": "LIVE", "mode": "PROVISIONED", "details": "Dataset gaming_gold active", "latency_ms": 28 },
+    "pubsub": { "status": "LIVE", "mode": "PROVISIONED", "details": "Topic gaming-live-telemetry active", "latency_ms": 14 },
     "bqml": { "status": "MOCK", "mode": "FALLBACK", "details": "Using dynamic heuristic churn scoring", "latency_ms": 5 },
     "dataplex": { "status": "LIVE", "mode": "PROVISIONED", "details": "Dataplex REST API & Aspect Registry online", "latency_ms": 35 },
     "vertex_agent": { "status": "LIVE", "mode": "PROVISIONED", "details": "Reasoning Engine omniarcade-guardrail-agent online", "latency_ms": 42 }
@@ -271,7 +271,7 @@ Add Flask pages as first-class sections in the sidebar navigation organized acro
 - Add simulator status probe in `/api/system/diagnostics`.
 
 ### Step 2: Implement Live Game Simulator Microservice
-- Create `src/simulator/` (Python/Go) publishing to `omniarcade-live-telemetry` Pub/Sub topic and AlloyDB.
+- Create `src/simulator/` (Python/Go) publishing to `gaming-live-telemetry` Pub/Sub topic and AlloyDB.
 - Add REST control endpoints (`/api/simulator/start`, `/api/simulator/stop`, `/api/simulator/inject-anomaly`) in Express gateway (`server.ts`).
 
 ### Step 3: Add Frontend Simulator Control Switch & Anomaly Controls

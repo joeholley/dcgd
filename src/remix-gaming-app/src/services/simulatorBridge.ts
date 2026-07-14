@@ -67,8 +67,8 @@ export interface SimulatorStatePayload {
 }
 
 export function buildGcpConsolePubSubUrl(
-  topicName: string = "omniarcade-live-telemetry",
-  projectId: string = "omniarcade-demo"
+  topicName: string = "gaming-live-telemetry",
+  projectId: string = "gaming-demo"
 ): string {
   return `https://console.cloud.google.com/cloudpubsub/topic/detail/${topicName}?project=${projectId}`;
 }
@@ -373,7 +373,7 @@ export function onStreamLogUpdate(listener: (logs: StreamLogEntry[]) => void): (
 }
 
 export function broadcastIncomingAgentEvent(event: { eventType: string; payload: Record<string, any> }): void {
-  const topicName = "omniarcade-live-telemetry";
+  const topicName = "gaming-live-telemetry";
   addStreamLogEntry({
     timestamp: Date.now(),
     direction: "INCOMING",
@@ -392,7 +392,7 @@ export function broadcastIncomingAgentEvent(event: { eventType: string; payload:
 export async function sendSimulatorEvent(event: SimulatorTelemetryEvent): Promise<{ success: boolean; mode: RoutingMode; data?: any }> {
   const mode = currentState.routingMode;
   const timestamp = event.timestamp || Date.now();
-  const pubsubTopic = event.pubsubTopic || "omniarcade-live-telemetry";
+  const pubsubTopic = event.pubsubTopic || "gaming-live-telemetry";
   const gcpConsoleUrl = buildGcpConsolePubSubUrl(pubsubTopic);
 
   const payload = {

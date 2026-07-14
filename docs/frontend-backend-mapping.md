@@ -55,13 +55,13 @@ graph LR
     end
 
     subgraph gcp_infra["GCP Backend Infrastructure (retail-data-and-ai-demo / gamingdatademo)"]
-        PUBSUB["Cloud Pub/Sub Topic: omniarcade-live-telemetry"]
-        BQML["BigQuery ML: ML.PREDICT player_churn_model"]
+        PUBSUB["Cloud Pub/Sub Topic: gaming-live-telemetry"]
+        BQML["BigQuery ML: ML.PREDICT gaming_player_churn_model"]
         ADK["Vertex AI Agent Engine: reasoningEngines"]
         DATAPLEX["Dataplex Knowledge Catalog APIs"]
-        RAW["BigQuery Raw: omniarcade_raw"]
-        GOLD["BigQuery Gold: omniarcade_gold"]
-        SILVER["BigQuery Silver: omniarcade_silver"]
+        RAW["BigQuery Raw: gaming_raw"]
+        GOLD["BigQuery Gold: gaming_gold"]
+        SILVER["BigQuery Silver: gaming_silver"]
         FIREBASE["Firebase / Firestore / Spanner"]
     end
 
@@ -110,11 +110,11 @@ graph LR
 ### 1. 🎮 LiveOps Churn Guardrail Split-Screen View ([LiveOpsGuardrail.tsx](../src/remix-gaming-app/src/components/sections/LiveOpsGuardrail.tsx))
 * **Frontend Component**: Interactive game client simulator (Left Panel) & LiveOps Telemetry / Guardrail Observatory (Right Panel).
 * **Express Routes**: `/api/telemetry/stream` (Telemetry ingestion) & `/api/guardrail/events` (Server-Sent Events / SSE Hub).
-* **Target GCP Service**: **Cloud Pub/Sub (`omniarcade-live-telemetry`)** $\rightarrow$ **BigQuery Direct Subscription (`omniarcade_raw.live_session_events`)** $\rightarrow$ **BQML (`ML.PREDICT omniarcade_raw.player_churn_model`)** $\rightarrow$ **Dataplex Aspect Policy Verification (`liveops_campaign_policy_aspect`)**.
+* **Target GCP Service**: **Cloud Pub/Sub (`gaming-live-telemetry`)** $\rightarrow$ **BigQuery Direct Subscription (`gaming_raw.live_session_events`)** $\rightarrow$ **BQML (`ML.PREDICT gaming_raw.gaming_player_churn_model`)** $\rightarrow$ **Dataplex Aspect Policy Verification (`liveops_campaign_policy_aspect`)**.
 * **Data & Action Exchanged**:
   - Emits strict `snake_case` JSON session events (`boss_fail`, `consecutive_deaths`, `session_duration_seconds`) to `/api/telemetry/stream`.
-  - Express server publishes messages to Pub/Sub topic `omniarcade-live-telemetry`, streaming into BigQuery `live_session_events` table in ~100ms.
-  - Express executes immediate targeted BigQuery ML query: `ML.PREDICT(MODEL omniarcade_raw.player_churn_model, ...)`.
+  - Express server publishes messages to Pub/Sub topic `gaming-live-telemetry`, streaming into BigQuery `live_session_events` table in ~100ms.
+  - Express executes immediate targeted BigQuery ML query: `ML.PREDICT(MODEL gaming_raw.gaming_player_churn_model, ...)`.
   - If predicted churn risk score $\ge 0.50$, Express triggers asynchronous Dataplex policy verification against aspect tag `liveops_campaign_policy_aspect`.
   - At churn risk score $\ge 0.85$, Express pushes pre-cached certified offer (`$0.99 Frost Giant Shield Pack`) via SSE payload to render in <300ms in the in-game UI pop-up:
     > *"That Frost Giant is tough! Grab a temporary 50% Shield Boost and 100 Health Elixirs for just $0.99 (normally $4.99) to defeat him now."*
@@ -127,7 +127,7 @@ graph LR
 * **Target GCP Service**: **Vertex AI Agent Engine (`google-adk` / `reasoningEngines`)** authenticated via Application Default Credentials (ADC) with Model Context Protocol (MCP) tools.
 * **Data & Action Exchanged**:
   - Accepts natural language queries from executives (e.g. *"Show total spend for Whale players in Japan"*).
-  - Agent queries **Dataplex Knowledge Catalog** for schema aspect definitions and executes SQL against **BigQuery Gold tables** (`omniarcade_gold.gold_player_360`).
+  - Agent queries **Dataplex Knowledge Catalog** for schema aspect definitions and executes SQL against **BigQuery Gold tables** (`gaming_gold.gold_player_360`).
   - Returns structured AI answers, SQL query previews, table confidence scores, and dataset lineage links, with offline dev fallback.
 
 ---
@@ -144,7 +144,7 @@ graph LR
 
 ### 4. 📊 Executive Overview Dashboard ([Overview.tsx](../src/remix-gaming-app/src/components/sections/Overview.tsx))
 * **Frontend Component**: Top-level executive KPI dashboard.
-* **Target GCP Service**: **BigQuery Gold Analytical Tables** (`omniarcade_gold.gold_player_360`, `omniarcade_gold.gold_regional_kpis`) via BigQuery Client Adapter (`src/services/bigquery.ts`).
+* **Target GCP Service**: **BigQuery Gold Analytical Tables** (`gaming_gold.gold_player_360`, `gaming_gold.gold_regional_kpis`) via BigQuery Client Adapter (`src/services/bigquery.ts`).
 * **Data & Action Exchanged**:
   - Renders top-level executive metrics: Total Regional Revenue, Monthly Active Users (MAU), and Player Payer Tiers (*Whale, Dolphin, Minnow, F2P*).
   - Displays cross-cloud data lineage cards (AWS S3 cold logs, Snowflake monetization, AlloyDB live session concurrency) populated directly or via BigQuery Gold feature tables.
@@ -153,7 +153,7 @@ graph LR
 
 ### 5. ⚡ Game Operations & Telemetry ([Operations.tsx](../src/remix-gaming-app/src/components/sections/Operations.tsx))
 * **Frontend Component**: Operations telemetry & server capacity dashboard.
-* **Target GCP Service**: **BigQuery Silver/Gold Telemetry Tables** (`omniarcade_silver.server_latency`, `omniarcade_gold.gold_regional_kpis`) + `gamingdatademo` `/api/difficulty-stats`.
+* **Target GCP Service**: **BigQuery Silver/Gold Telemetry Tables** (`gaming_silver.server_latency`, `gaming_gold.gold_regional_kpis`) + `gamingdatademo` `/api/difficulty-stats`.
 * **Data & Action Exchanged**:
   - Renders interactive Recharts time-series performance graphs.
   - Monitors Concurrent Active Users (CCU), server region capacity utilization, frame rate latency, and unit economics.
@@ -163,7 +163,7 @@ graph LR
 
 ### 6. 🎯 Player Marketing Campaign Engine ([CampaignEngine.tsx](../src/remix-gaming-app/src/components/sections/CampaignEngine.tsx))
 * **Frontend Component**: Targeted marketing campaign builder & budget allocator.
-* **Target GCP Service**: **Firebase / Firestore** (`src/services/firebase.ts`) + **BigQuery Gold Tables** (`omniarcade_gold.gold_campaign_analytics`) + `gamingdatademo` `/api/marketing/*`.
+* **Target GCP Service**: **Firebase / Firestore** (`src/services/firebase.ts`) + **BigQuery Gold Tables** (`gaming_gold.gold_campaign_analytics`) + `gamingdatademo` `/api/marketing/*`.
 * **Data & Action Exchanged**:
   - Queries BigQuery `gold_player_360` & `gold_campaign_analytics` to calculate target player cohort sizes (e.g. inactive Whales in Japan).
   - Stores campaign state in Firestore with offline mock fallback, syncing to BigQuery for campaign performance and ROI tracking.
@@ -209,7 +209,7 @@ graph LR
 ## 🛠️ Current Implementation & Verification Status
 
 1. **Express Server Gateway (`server.ts`)**:
-   - **Pub/Sub Integration**: Uses `@google-cloud/pubsub` SDK to publish live telemetry events to topic `omniarcade-live-telemetry` with strict `snake_case` keys and ISO-8601 timestamps.
+   - **Pub/Sub Integration**: Uses `@google-cloud/pubsub` SDK to publish live telemetry events to topic `gaming-live-telemetry` with strict `snake_case` keys and ISO-8601 timestamps.
    - **BQML Inference**: Executes targeted `ML.PREDICT` query on incoming telemetry events, evaluating churn risk probability and pushing live ML scores via Server-Sent Events (SSE).
    - **Dataplex Policy Pre-Caching**: Pre-caches certified promotional offers (`$0.99 Frost Giant Shield Pack`) in-memory when BQML churn score crosses 50%, enabling <300ms execution on critical trigger ($\ge 85\%$).
    - **Dataplex Catalog & Rule Discovery**: Implements `/api/catalog/search` and `/api/catalog/rules/discover` for plain-text rule compilation to BigQuery row access policies and aspect schemas.
@@ -217,7 +217,7 @@ graph LR
    - **Vertex AI Agent Engine**: Connects `/api/chat` via Application Default Credentials (ADC) to Vertex AI Reasoning Engines.
 
 2. **BigQuery & Database Provisioning**:
-   - **Terraform-Provisioned BQ Tables**: `omniarcade_raw.gcp_players`, `omniarcade_raw.live_session_events`, `omniarcade_raw.iap_transactions`, `omniarcade_gold.gold_player_360` (`retail-data-and-ai-demo`), and medallion datasets `telemetry_bronze`, `telemetry_silver`, `telemetry_gold`, `telemetry_reference`, `telemetry_dashboards` (`gamingdatademo`).
+   - **Terraform-Provisioned BQ Tables**: `gaming_raw.gcp_players`, `gaming_raw.live_session_events`, `gaming_raw.iap_transactions`, `gaming_gold.gold_player_360` (`retail-data-and-ai-demo`), and medallion datasets `gaming_telemetry_bronze`, `gaming_telemetry_silver`, `gaming_telemetry_gold`, `gaming_telemetry_reference`, `gaming_telemetry_dashboards` (`gamingdatademo`).
    - **Client Adapter (`src/services/bigquery.ts`)**: Provides parameterized query execution against BQ Gold tables with automatic dev fallback data for unprovisioned tables (`gold_regional_kpis`, `gold_campaign_analytics`, `server_latency`).
    - **Operational Storage**: Spanner / AlloyDB represent target architecture patterns (unprovisioned in Terraform); active state management uses Firebase / Firestore (`src/services/firebase.ts`) with offline mock fallback.
 

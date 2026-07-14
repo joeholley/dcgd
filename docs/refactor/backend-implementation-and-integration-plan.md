@@ -8,12 +8,12 @@ The backend architecture is strictly modeled on the infrastructure patterns esta
 
 ### Primary Objectives:
 1. **Terraform Infrastructure Provisioning**:
-   - Extend existing Terraform modules in `src/retail-data-and-ai-demo/infrastructure/terraform/games/` to provision all Medallion datasets (`omniarcade_raw`, `omniarcade_silver`, `omniarcade_gold`, `omniarcade_synthetic`), streaming Pub/Sub topics, BigQuery tables, BQML models, and Dataplex catalog resources.
+   - Extend existing Terraform modules in `src/retail-data-and-ai-demo/infrastructure/terraform/games/` to provision all Medallion datasets (`gaming_raw`, `gaming_silver`, `gaming_gold`, `gaming_synthetic`), streaming Pub/Sub topics, BigQuery tables, BQML models, and Dataplex catalog resources.
 2. **Data Hydration & BQML Model Training**:
    - Execute synthetic data stored procedures (`generate_players`, `generate_iap`, `populate_player_tables`, `train_churn_model`) to hydrate BigQuery tables and train the BQML logistic regression churn model.
 3. **Vertex AI Agent Engine & Dataplex Deployment**:
    - Deploy ADK multi-agent swarms (`agent_kc`, `marketing_agent_swarm`) to Vertex AI Reasoning Engine.
-   - Register Dataplex aspect types (`liveops_campaign_policy_aspect`) and business glossaries (`omniarcade-studios-glossary-us`).
+   - Register Dataplex aspect types (`liveops_campaign_policy_aspect`) and business glossaries (`gaming-studios-glossary-us`).
 4. **Express & Flask API Gateway Wiring**:
    - Wire live GCP SDK clients in Express (`server.ts`) and Flask (`app.py`) to replace dev mock fallbacks with real GCP API calls (BigQuery, Pub/Sub, Dataplex, Vertex AI).
 5. **Diagnostics & Data Mode Verification**:
@@ -33,7 +33,7 @@ The backend architecture is strictly modeled on the infrastructure patterns esta
                                    ▼                                  ▼
 +--------------------------------------------------+ +----------------------------------------------+
 | EXPRESS GATEWAY (server.ts / :3000)             | | CLOUD PUB/SUB TOPIC                        |
-| & FLASK REVERSE PROXY (app.py / :5000)          | | `omniarcade-live-telemetry`                 |
+| & FLASK REVERSE PROXY (app.py / :5000)          | | `gaming-live-telemetry`                 |
 +--------------------------------------------------+ +----------------------------------------------+
   │            │                    │                                │
   │ BigQuery   │ Dataplex REST      │ Vertex AI                      │ Zero-Code Direct
@@ -43,20 +43,20 @@ The backend architecture is strictly modeled on the infrastructure patterns esta
 | GOOGLE CLOUD PLATFORM (GCP BACKEND INFRASTRUCTURE)                                                |
 |                                                                                                   |
 | -- BIGQUERY LAKEHOUSE (US Multi-Region) --                                                       |
-| * omniarcade_raw.live_session_events  (Partitioned by Day, Clustered by player_id, event_type)     |
-| * omniarcade_raw.gcp_players & iap_transactions                                                   |
-| * omniarcade_gold.gold_player_360 (Feature Store: LTV, spend tier, churn risk)                   |
-| * omniarcade_gold.gold_regional_kpis, gold_campaign_analytics, gold_level_difficulty_funnel       |
-| * omniarcade_silver.server_latency                                                                |
+| * gaming_raw.live_session_events  (Partitioned by Day, Clustered by player_id, event_type)     |
+| * gaming_raw.gcp_players & iap_transactions                                                   |
+| * gaming_gold.gold_player_360 (Feature Store: LTV, spend tier, churn risk)                   |
+| * gaming_gold.gold_regional_kpis, gold_campaign_analytics, gold_level_difficulty_funnel       |
+| * gaming_silver.server_latency                                                                |
 |                                                                                                   |
 | -- BIGQUERY ML & REMOTE MODELS --                                                                 |
-| * omniarcade_raw.player_churn_model (Logistic Regression) + calculate_churn_risk procedure        |
+| * gaming_raw.gaming_player_churn_model (Logistic Regression) + calculate_churn_risk procedure        |
 | * gemini_flash_remote_model (Vertex AI AI.GENERATE connection)                                    |
 |                                                                                                   |
 | -- DATAPLEX KNOWLEDGE CATALOG --                                                                  |
-| * Glossary: omniarcade-studios-glossary-us (Whale Spend, ARPU, CCU, Toxicity Exposure)            |
-| * Aspect Types: liveops_campaign_policy_aspect, certified_reward_sku_aspect                        |
-| * Policy Tags: fsi_classification (PII, Financial) & Row Access Policies                         |
+| * Glossary: gaming-studios-glossary-us (Whale Spend, ARPU, CCU, Toxicity Exposure)            |
+| * Aspect Types: liveops_campaign_policy_aspect, gaming-certified-reward-sku-aspect                        |
+| * Policy Tags: gaming_data_classification (PII, Financial) & Row Access Policies                         |
 |                                                                                                   |
 | -- VERTEX AI AGENT ENGINE (ADK) --                                                                |
 | * ReasoningEngine: omniarcade-guardrail-agent & marketing-recovery-swarm                          |
@@ -91,7 +91,7 @@ resource "google_project_service" "games_apis" {
 
 #### 2. BigQuery Datasets & Analytical Tables (`infrastructure/terraform/games/games-bigquery.tf`)
 Provision Medallion datasets and tables:
-- **Datasets**: `omniarcade_raw`, `omniarcade_silver`, `omniarcade_gold`, `omniarcade_synthetic`.
+- **Datasets**: `gaming_raw`, `gaming_silver`, `gaming_gold`, `gaming_synthetic`.
 - **Raw Tables**:
   - `gcp_players`: Player profiles, registration dates, spend tier (`Whale`, `Dolphin`, `Minnow`).
   - `live_session_events`: Partitioned by `DATE(timestamp)`, clustered by `player_id, event_type`.
@@ -104,14 +104,14 @@ Provision Medallion datasets and tables:
   - `gold_level_difficulty_funnel`: Level starts, completions, failures, resets, move limit adjustments.
 
 #### 3. Cloud Pub/Sub Topic & Direct BigQuery Subscription (`infrastructure/terraform/games/games-pubsub.tf`)
-- Topic: `omniarcade-live-telemetry`.
-- Subscription: `omniarcade-live-telemetry-bq-sub` with `bigquery_config` writing directly into `omniarcade_raw.live_session_events` without Dataflow or custom code.
+- Topic: `gaming-live-telemetry`.
+- Subscription: `gaming-live-telemetry-bq-sub` with `bigquery_config` writing directly into `gaming_raw.live_session_events` without Dataflow or custom code.
 
 #### 4. Dataplex Knowledge Catalog Infrastructure (`infrastructure/terraform/games/games-dataplex.tf`)
 - **Aspect Types**:
   - `google_dataplex_aspect_type.liveops_campaign_policy_aspect`: Discount caps, target SKUs, guardrail status.
 - **Business Glossary**:
-  - `google_dataplex_glossary.omniarcade_glossary`: `omniarcade-studios-glossary-us` with terms *Whale Spend*, *Idle Churn*, *ARPU*, *CCU*, *Toxicity Exposure*.
+  - `google_dataplex_glossary.omniarcade_glossary`: `gaming-studios-glossary-us` with terms *Whale Spend*, *Idle Churn*, *ARPU*, *CCU*, *Toxicity Exposure*.
 
 ---
 
@@ -119,14 +119,14 @@ Provision Medallion datasets and tables:
 
 #### 1. Execute Data Generation Stored Procedures (`games-bigquery-procedure.tf`)
 Run the following SQL stored procedures to populate BigQuery with baseline data:
-1. `CALL omniarcade_synthetic.generate_players(5000)`: Generates 5,000 player profiles across global regions (AMER, APAC, EMEA).
-2. `CALL omniarcade_synthetic.generate_iap()`: Generates historic in-app purchase transactions.
-3. `CALL omniarcade_synthetic.populate_player_tables()`: Aggregates raw logs into `gold_player_360` and `gold_regional_kpis`.
+1. `CALL gaming_synthetic.generate_players(5000)`: Generates 5,000 player profiles across global regions (AMER, APAC, EMEA).
+2. `CALL gaming_synthetic.generate_iap()`: Generates historic in-app purchase transactions.
+3. `CALL gaming_synthetic.populate_player_tables()`: Aggregates raw logs into `gold_player_360` and `gold_regional_kpis`.
 
 #### 2. Train BQML Churn Prediction Model
-Execute `CALL omniarcade_raw.train_churn_model()` to train a BQML logistic regression model:
+Execute `CALL gaming_raw.train_churn_model()` to train a BQML logistic regression model:
 ```sql
-CREATE OR REPLACE MODEL `omniarcade_raw.player_churn_model`
+CREATE OR REPLACE MODEL `gaming_raw.gaming_player_churn_model`
 OPTIONS(
   MODEL_TYPE='LOGISTIC_REG',
   INPUT_LABEL_COLS=['is_churned']
@@ -136,11 +136,11 @@ SELECT
   session_duration_seconds,
   event_type,
   is_churned
-FROM `omniarcade_raw.live_session_events`;
+FROM `gaming_raw.live_session_events`;
 ```
 
 #### 3. Verify `calculate_churn_risk` Stored Procedure
-Verify that calling `CALL omniarcade_raw.calculate_churn_risk(player_id, score, risk_level)` executes `ML.PREDICT` on `omniarcade_raw.player_churn_model` and returns predicted churn probability within <100ms.
+Verify that calling `CALL gaming_raw.calculate_churn_risk(player_id, score, risk_level)` executes `ML.PREDICT` on `gaming_raw.gaming_player_churn_model` and returns predicted churn probability within <100ms.
 
 ---
 
@@ -169,14 +169,14 @@ Store the resulting Reasoning Engine resource ID (`AGENT_ENGINE_ID`) in environm
 
 #### 1. Express Gateway GCP SDK Wiring (`server.ts`)
 - **BigQuery Client**: Wire `@google-cloud/bigquery` in `/api/system/gcp-health` to execute parallel `SELECT 1` health checks against all 8 BigQuery tables.
-- **Pub/Sub Client**: Wire `@google-cloud/pubsub` in `/api/telemetry/stream` to publish telemetry payloads directly to `omniarcade-live-telemetry`.
+- **Pub/Sub Client**: Wire `@google-cloud/pubsub` in `/api/telemetry/stream` to publish telemetry payloads directly to `gaming-live-telemetry`.
 - **BQML Integration**: Wire `ML.PREDICT` execution in `/api/telemetry/stream` so boss death events immediately trigger real BQML churn scoring.
 - **Dataplex Pre-Caching**: Wire Dataplex REST API token check in `verifyDataplexPolicyAndPrecache()` to validate max discount caps before pushing SSE offer events (`/api/guardrail/events`).
 
 #### 2. Flask API Wiring (`app.py`)
-- **Executive Portfolio (`/api/executive/*`)**: Query `omniarcade_gold.gold_player_360` and `gold_regional_kpis` for portfolio metrics.
-- **Difficulty Balancer (`/api/difficulty-stats`)**: Query `omniarcade_gold.gold_level_difficulty_funnel` for Level 2 failure drop-off stats.
-- **Marketing Swarm (`/api/marketing/cohort-telemetry`)**: Query `omniarcade_gold.gold_campaign_analytics`.
+- **Executive Portfolio (`/api/executive/*`)**: Query `gaming_gold.gold_player_360` and `gold_regional_kpis` for portfolio metrics.
+- **Difficulty Balancer (`/api/difficulty-stats`)**: Query `gaming_gold.gold_level_difficulty_funnel` for Level 2 failure drop-off stats.
+- **Marketing Swarm (`/api/marketing/cohort-telemetry`)**: Query `gaming_gold.gold_campaign_analytics`.
 - **WebSocket Agent Trace (`/api/ws`)**: Connect to live Vertex AI Reasoning Engine (`AGENT_ENGINE_ID`).
 
 ---

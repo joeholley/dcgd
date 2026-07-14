@@ -47,7 +47,7 @@ All creation and lifecycle updates of the Agent Platform instances will be handl
 ### Task 2: Configure Cloud Build Pipeline for Image Generation & Caching
 * **Goal**: Set up a Google Cloud Build pipeline job responsible only for compiling, caching, and storing the container image.
 * **Requirements**:
-  - Provision/assert an Artifact Registry Docker repository (e.g. `agent-images` in region `us-central1`).
+  - Provision/assert an Artifact Registry Docker repository (e.g. `gaming-agent-images` in region `us-central1`).
   - Retrieve the previously built `latest` image from Artifact Registry to act as a cache source during the Docker build stage (`--cache-from`).
   - Build the Docker image with two tags: the unique commit/build SHA and the `latest` tag.
   - Push the generated container images to Artifact Registry.

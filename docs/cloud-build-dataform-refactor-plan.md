@@ -119,4 +119,4 @@ steps:
 
 1. **Cloud Build Execution Test**: Execute `./deploy-demo.sh --steps 3` on a environment without local Node installed.
 2. **Log Verification**: Confirm build logs stream to terminal from Cloud Build and indicate `execute-dataform` step success.
-3. **BigQuery Table Verification**: Verify dataset tables (`omniarcade_gold.gold_player_360`, `gold_regional_kpis`, `gold_campaign_analytics`) are updated and populated correctly by the containerized build job.
+3. **BigQuery Table Verification**: Verify dataset tables (`gaming_gold.gold_player_360`, `gold_regional_kpis`, `gold_campaign_analytics`) are updated and populated correctly by the containerized build job.

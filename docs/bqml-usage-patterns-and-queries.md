@@ -4,7 +4,7 @@
 
 BigQuery ML (`ML.PREDICT`) supports flexible inference patterns across both single-player point evaluation and full-universe cohort analytics. 
 
-This guide details the standard usage patterns for **`omniarcade_raw.player_churn_model`** (Logistic Regression) and **`omniarcade_gold.predictive_ltv_model`** (Boosted Tree Regressor), including SQL examples for cohort filtering, multi-model join analytics, and real-time inference.
+This guide details the standard usage patterns for **`gaming_raw.gaming_player_churn_model`** (Logistic Regression) and **`gaming_gold.gaming_predictive_ltv_model`** (Boosted Tree Regressor), including SQL examples for cohort filtering, multi-model join analytics, and real-time inference.
 
 ---
 
@@ -12,7 +12,7 @@ This guide details the standard usage patterns for **`omniarcade_raw.player_chur
 
 ### Pattern 1: Batch Cohort Filtering (e.g., "Find All Players About to Churn")
 
-To evaluate an entire dataset and extract all players exceeding a churn probability threshold (e.g., $\ge 70\%$), pass the full gold feature table (`TABLE omniarcade_gold.gold_player_360`) to `ML.PREDICT`:
+To evaluate an entire dataset and extract all players exceeding a churn probability threshold (e.g., $\ge 70\%$), pass the full gold feature table (`TABLE gaming_gold.gold_player_360`) to `ML.PREDICT`:
 
 ```sql
 SELECT
@@ -23,8 +23,8 @@ SELECT
   days_since_last_login,
   ROUND(p.prob, 2) AS churn_probability
 FROM ML.PREDICT(
-  MODEL `omniarcade_raw.player_churn_model`,
-  TABLE `omniarcade_gold.gold_player_360`
+  MODEL `gaming_raw.gaming_player_churn_model`,
+  TABLE `gaming_gold.gold_player_360`
 ), UNNEST(predicted_is_churned_probs) p
 WHERE p.label = 1 AND p.prob >= 0.70
 ORDER BY churn_probability DESC;
@@ -34,7 +34,7 @@ ORDER BY churn_probability DESC;
 
 ### Pattern 2: Multi-Model Join Analytics (High LTV Spenders At Risk)
 
-By combining inferences from both `player_churn_model` and `predictive_ltv_model` in a single query, LiveOps and Marketing teams can isolate high-value players (predicted high future LTV) who are showing critical churn probability:
+By combining inferences from both `gaming_player_churn_model` and `gaming_predictive_ltv_model` in a single query, LiveOps and Marketing teams can isolate high-value players (predicted high future LTV) who are showing critical churn probability:
 
 ```sql
 WITH churn_scores AS (
@@ -42,8 +42,8 @@ WITH churn_scores AS (
     player_id, 
     p.prob AS churn_risk
   FROM ML.PREDICT(
-    MODEL `omniarcade_raw.player_churn_model`,
-    TABLE `omniarcade_gold.gold_player_360`
+    MODEL `gaming_raw.gaming_player_churn_model`,
+    TABLE `gaming_gold.gold_player_360`
   ), UNNEST(predicted_is_churned_probs) p
   WHERE p.label = 1
 ),
@@ -52,8 +52,8 @@ ltv_predictions AS (
     player_id, 
     predicted_total_iap_spend AS predicted_future_ltv
   FROM ML.PREDICT(
-    MODEL `omniarcade_gold.predictive_ltv_model`,
-    TABLE `omniarcade_gold.gold_player_360`
+    MODEL `gaming_gold.gaming_predictive_ltv_model`,
+    TABLE `gaming_gold.gold_player_360`
   )
 )
 SELECT
@@ -63,7 +63,7 @@ SELECT
   ROUND(l.predicted_future_ltv, 2) AS predicted_future_ltv
 FROM churn_scores c
 JOIN ltv_predictions l ON c.player_id = l.player_id
-JOIN `omniarcade_gold.gold_player_360` g ON c.player_id = g.player_id
+JOIN `gaming_gold.gold_player_360` g ON c.player_id = g.player_id
 WHERE c.churn_risk >= 0.70
   AND l.predicted_future_ltv >= 100.00
 ORDER BY predicted_future_ltv DESC;
@@ -77,7 +77,7 @@ Used by backend API gateways ([`src/remix-gaming-app/server.ts`](file:///usr/loc
 
 ```sql
 SELECT * FROM ML.PREDICT(
-  MODEL `omniarcade_raw.player_churn_model`,
+  MODEL `gaming_raw.gaming_player_churn_model`,
   (
     SELECT
       'PLAY-00000042' AS player_id,
@@ -95,27 +95,27 @@ SELECT * FROM ML.PREDICT(
 
 ### Pattern 4: Scheduled In-Warehouse Materialization & Analytical Views
 
-Rather than re-executing `ML.PREDICT` on every dashboard query, Dataform or scheduled BQ jobs can periodically execute batch predictions and hydrate columns (`churn_risk_score`, `predicted_ltv_dollars`) directly on `omniarcade_gold.gold_player_360` or materialize dedicated views:
+Rather than re-executing `ML.PREDICT` on every dashboard query, Dataform or scheduled BQ jobs can periodically execute batch predictions and hydrate columns (`churn_risk_score`, `predicted_ltv_dollars`) directly on `gaming_gold.gold_player_360` or materialize dedicated views:
 
 ```sql
-CREATE OR REPLACE VIEW `omniarcade_gold.vw_at_risk_whales` AS
+CREATE OR REPLACE VIEW `gaming_gold.vw_at_risk_whales` AS
 SELECT
   g.player_id,
   g.payer_tier,
   g.total_iap_spend AS historical_ltv,
   ROUND(p.prob, 2) AS churn_risk_score,
   ROUND(l.predicted_total_iap_spend, 2) AS predicted_ltv
-FROM `omniarcade_gold.gold_player_360` g
+FROM `gaming_gold.gold_player_360` g
 CROSS JOIN UNNEST(
   ML.PREDICT(
-    MODEL `omniarcade_raw.player_churn_model`,
-    (SELECT * FROM `omniarcade_gold.gold_player_360` WHERE player_id = g.player_id)
+    MODEL `gaming_raw.gaming_player_churn_model`,
+    (SELECT * FROM `gaming_gold.gold_player_360` WHERE player_id = g.player_id)
   )
 ), UNNEST(predicted_is_churned_probs) p
 CROSS JOIN UNNEST(
   ML.PREDICT(
-    MODEL `omniarcade_gold.predictive_ltv_model`,
-    (SELECT * FROM `omniarcade_gold.gold_player_360` WHERE player_id = g.player_id)
+    MODEL `gaming_gold.gaming_predictive_ltv_model`,
+    (SELECT * FROM `gaming_gold.gold_player_360` WHERE player_id = g.player_id)
   )
 ) l
 WHERE p.label = 1 AND p.prob >= 0.70 AND g.payer_tier = 'Whale';

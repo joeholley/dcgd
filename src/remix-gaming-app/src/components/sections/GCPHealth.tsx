@@ -83,13 +83,13 @@ export function GCPHealth() {
     {
       key: "bigquery" as const,
       name: "BigQuery Gold Tables",
-      description: "Analytical lakehouse feature tables (omniarcade_gold)",
+      description: "Analytical lakehouse feature tables (gaming_gold)",
       icon: Database,
     },
     {
       key: "pubsub" as const,
       name: "Cloud Pub/Sub Telemetry",
-      description: "Real-time session event stream (omniarcade-live-telemetry)",
+      description: "Real-time session event stream (gaming-live-telemetry)",
       icon: Radio,
     },
     {

@@ -88,8 +88,8 @@ The legacy script `src/gamingdatademo/website-live/deploy.sh` directly deployed 
 - [`src/gamingdatademo/website-live/deploy.sh`](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/src/gamingdatademo/website-live/deploy.sh)
 
 1. **Master Runbook Verification (`deploy-demo.sh`)**:
-   - Verify Step 7 (Cloud Build) compiles container from root `Dockerfile` and pushes to `data-cloud-ai-demos/gaming-app:latest`.
-   - Verify Step 8 (Cloud Run) deploys service `omniarcade-app` in private mode.
+   - Verify Step 7 (Cloud Build) compiles container from root `Dockerfile` and pushes to `gaming-demo-images/gaming-app:latest`.
+   - Verify Step 8 (Cloud Run) deploys service `gaming-demo-app` in private mode.
 
 2. **Legacy Script Deprecation / Alignment**:
    - Add a warning header to `src/gamingdatademo/website-live/deploy.sh` pointing users to `./deploy-demo.sh` to prevent accidental single-component deployments.

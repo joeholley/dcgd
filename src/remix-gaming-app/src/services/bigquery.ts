@@ -1,6 +1,6 @@
 import { BigQuery } from "@google-cloud/bigquery";
 
-// Types for omniarcade_gold Gold Medallion Feature Tables
+// Types for gaming_gold Gold Medallion Feature Tables
 
 export interface Player360Record {
   player_id: string;
@@ -43,8 +43,8 @@ export interface CampaignAnalyticsRecord {
 }
 
 // Global BigQuery client initialized with Application Default Credentials (ADC)
-const projectId = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT || 'omniarcade-demo';
-const datasetId = process.env.BIGQUERY_GOLD_DATASET || 'omniarcade_gold';
+const projectId = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT || 'gaming-demo';
+const datasetId = process.env.BIGQUERY_GOLD_DATASET || 'gaming_gold';
 
 const bqClient = new BigQuery({
   projectId,

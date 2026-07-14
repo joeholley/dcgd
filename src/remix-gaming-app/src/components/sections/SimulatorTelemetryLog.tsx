@@ -173,7 +173,7 @@ export function SimulatorTelemetryLog({ routingMode = "LIVE" }: SimulatorTelemet
           filteredLogs.map((log) => {
             const isOutgoing = log.direction === "OUTGOING";
             const isExpanded = !!expandedLogIds[log.id];
-            const consoleUrl = log.gcpConsoleUrl || buildGcpConsolePubSubUrl(log.pubsubTopic || "omniarcade-live-telemetry");
+            const consoleUrl = log.gcpConsoleUrl || buildGcpConsolePubSubUrl(log.pubsubTopic || "gaming-live-telemetry");
             const entryMode = log.backend_mode || routingMode;
             const isInMemory = entryMode === "MOCKED" || log.transport.includes("In-Memory");
 

@@ -103,7 +103,7 @@ For each paying player with $\text{Realized Spend}_p > 0$:
 1. **[games-bigquery-procedure.tf](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/src/retail-data-and-ai-demo/infrastructure/terraform/games/games-bigquery-procedure.tf#L41-L77)**: Add `weeks_history` parameter to routine signature.
 2. **[populate-player-tables.sql.tftpl](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/src/retail-data-and-ai-demo/infrastructure/terraform/games/games-bigquery-routines/populate-player-tables.sql.tftpl)**: Refactor SQL procedure to compute weekly adoption weights, age-based join dates, and log-normal cohort spend targets.
 3. **[generate-iap.sql.tftpl](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/src/retail-data-and-ai-demo/infrastructure/terraform/games/games-bigquery-routines/generate-iap.sql.tftpl)**: Refactor SQL procedure to schedule spaced transactions across player tenure.
-4. **[gold_player_360.sqlx](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/src/gamingdatademo/dataform/definitions/telemetry_gold/gold_player_360.sqlx)**: Verify SQL aggregations and metric consistency across Gold feature tables.
+4. **[gold_player_360.sqlx](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/src/gamingdatademo/dataform/definitions/gaming_telemetry_gold/gold_player_360.sqlx)**: Verify SQL aggregations and metric consistency across Gold feature tables.
 
 ---
 

@@ -48,7 +48,7 @@ To view the application from Google Cloud Shell:
 
 ```bash
 # 1. Start the gcloud run proxy on port 8080
-gcloud run services proxy omniarcade-app --port=8080 --region=us-central1
+gcloud run services proxy gaming-demo-app --port=8080 --region=us-central1
 
 # 2. In Google Cloud Shell, click 'Web Preview' -> 'Preview on port 8080'
 ```
@@ -60,7 +60,7 @@ gcloud run services proxy omniarcade-app --port=8080 --region=us-central1
 If you prefer to run or test individual components manually:
 
 ### Step 1: Provision Core Infrastructure (Terraform)
-> **Note**: Required GCP APIs (`pubsub`, `bigquery`, `dataplex`, `datalineage`, `dataform`, `run`, `cloudbuild`, `aiplatform`) and the Cloud Run runner service account (`omniarcade-runner-sa`) are automatically enabled and created when `industry_target=games` is set.
+> **Note**: Required GCP APIs (`pubsub`, `bigquery`, `dataplex`, `datalineage`, `dataform`, `run`, `cloudbuild`, `aiplatform`) and the Cloud Run runner service account (`gaming-runner-sa`) are automatically enabled and created when `industry_target=games` is set.
 
 ```bash
 cd src/retail-data-and-ai-demo/infrastructure/terraform
@@ -99,18 +99,18 @@ python3 07_create_lineage.py
 ```bash
 # Build unified container image via Cloud Build
 gcloud builds submit --config=cloudbuild.yaml \
-  --substitutions=_LOCATION=us-central1,_REPOSITORY=data-cloud-ai-demos .
+  --substitutions=_LOCATION=us-central1,_REPOSITORY=gaming-demo-images .
 
 # Deploy to Cloud Run (Private/Authenticated mode)
-gcloud run deploy omniarcade-app \
-  --image="us-central1-docker.pkg.dev/YOUR_PROJECT_ID/data-cloud-ai-demos/gaming-app:latest" \
+gcloud run deploy gaming-demo-app \
+  --image="us-central1-docker.pkg.dev/YOUR_PROJECT_ID/gaming-demo-images/gaming-app:latest" \
   --region=us-central1 \
-  --service-account="omniarcade-runner-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --service-account="gaming-runner-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
   --no-allow-unauthenticated \
   --port=8080
 
 # Proxy & Access via Cloud Shell Web Preview
-gcloud run services proxy omniarcade-app --port=8080 --region=us-central1
+gcloud run services proxy gaming-demo-app --port=8080 --region=us-central1
 ```
 
 ---

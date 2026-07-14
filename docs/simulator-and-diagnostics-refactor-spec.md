@@ -51,7 +51,7 @@ sequenceDiagram
 #### Scope & Requirements:
 1. **Diagnostic View Restriction**:
    - The Cloud Resources Diagnostics panel in [`SimulatorDiagnostics.tsx`](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/src/remix-gaming-app/src/components/sections/SimulatorDiagnostics.tsx) must display **only two products**:
-     1. **Cloud Pub/Sub Telemetry Topic** (`omniarcade-live-telemetry`).
+     1. **Cloud Pub/Sub Telemetry Topic** (`gaming-live-telemetry`).
      2. **Player Profiles in Firebase Realtime Database**.
 2. **Firebase Status Badge**:
    - The status badge for **Firebase Realtime Database** must be explicitly marked as `"NOT YET IMPLEMENTED"` with an amber info indicator.
@@ -84,7 +84,7 @@ sequenceDiagram
 
 #### Scope & Requirements:
 1. **Payer Tier Definitions**:
-   In `omniarcade_gold.gold_player_360`, four primary `payer_tier` cohorts exist based on cumulative lifetime spend (`total_iap_spend`):
+   In `gaming_gold.gold_player_360`, four primary `payer_tier` cohorts exist based on cumulative lifetime spend (`total_iap_spend`):
 
    | Payer Tier | Total Spend Criteria | Description |
    | :--- | :--- | :--- |
@@ -110,7 +110,7 @@ SELECT
   consecutive_deaths,
   session_duration_seconds,
   is_churned
-FROM `${PROJECT_ID}.omniarcade_gold.gold_player_360`
+FROM `${PROJECT_ID}.gaming_gold.gold_player_360`
 WHERE payer_tier = @target_tier
    OR ( @target_tier = 'Whale' AND total_iap_spend > 500.0 )
 ORDER BY RAND()
@@ -119,7 +119,7 @@ LIMIT 1;
 *(Note: Code must perform runtime `PROJECT_ID` substitution.)*
 
 4. **Predictive LTV Model Integration & Fallback**:
-   - For live exemplars, execute a prediction query using `omniarcade_gold.predictive_ltv_model`.
+   - For live exemplars, execute a prediction query using `gaming_gold.gaming_predictive_ltv_model`.
    - **Fallback Rule**: If the model is inaccessible or returns an invalid/null response, display the top boundary of the tier range ($500 for Dolphin, $50 for Minnow, $0 for F2P, $1,500 cap for Whale).
    - Exemplars are fetched **once** upon backend connection and cached in memory until app restart.
 

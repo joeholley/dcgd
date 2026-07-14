@@ -4,7 +4,7 @@
 
 Currently, the Express web gateway ([`src/remix-gaming-app/server.ts`](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/src/remix-gaming-app/server.ts)) requires explicit numeric Reasoning Engine IDs (e.g., `process.env.VERTEX_AGENT_ENGINE_ID="84930219482910"`). If the environment variable is unconfigured or stale, health probes and API endpoints fail over to local mock responses.
 
-This plan details a **dynamic agent discovery mechanism** that queries the Vertex AI Reasoning Engine REST API (`/v1/projects/.../locations/.../reasoningEngines`) at runtime. The application will automatically discover, cache, and route requests to deployed agents based on their `displayName` (e.g., `"OmniArcade KC Agent"`, `"OmniArcade Basic Agent"`) without requiring hardcoded IDs or manual configuration.
+This plan details a **dynamic agent discovery mechanism** that queries the Vertex AI Reasoning Engine REST API (`/v1/projects/.../locations/.../reasoningEngines`) at runtime. The application will automatically discover, cache, and route requests to deployed agents based on their `displayName` (e.g., `"Gaming Knowledge Catalog Agent"`, `"Gaming Basic Agent"`) without requiring hardcoded IDs or manual configuration.
 
 ---
 
@@ -95,7 +95,7 @@ sequenceDiagram
 
 | Test Case | Scenario | Expected Result |
 |-----------|----------|-----------------|
-| **1. No Environment Variable Set** | Run server without `VERTEX_AGENT_ENGINE_ID` | Server queries Vertex AI API, discovers `"OmniArcade KC Agent"`, and uses its numeric ID automatically. |
+| **1. No Environment Variable Set** | Run server without `VERTEX_AGENT_ENGINE_ID` | Server queries Vertex AI API, discovers `"Gaming Knowledge Catalog Agent"`, and uses its numeric ID automatically. |
 | **2. Explicit Env Var Override** | Set `VERTEX_AGENT_ENGINE_ID=12345` | Server respects explicit override over dynamic discovery. |
 | **3. Fresh Agent Deployment** | Deploy new agent via `deploy_agents.sh` | Within 30s (cache TTL), server automatically switches to the newly deployed agent. |
 | **4. Zero Deployed Agents** | Query project with 0 agents | Server gracefully falls back to local assistant with clear diagnostic detail. |
