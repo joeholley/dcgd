@@ -343,12 +343,33 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
     setShowQuitModal(false);
 
     const nextQuits = activeExemplar.churnEvents + 1;
+    const offerSku = COHORT_DEFAULTS[selectedTier].defaultSku;
+    const isOfferAlreadyAccepted = !!activeExemplar.offersAccepted[offerSku];
+
+    // Evaluate retention offer popup on exit intent (mission quit)
+    let nextActiveOffer = activeExemplar.activeOffer;
+    if (!isOfferAlreadyAccepted && !activeExemplar.activeOffer) {
+      nextActiveOffer = {
+        id: offerSku,
+        title:
+          selectedTier === "Whale"
+            ? "Frost Giant Shield & Resurrect Crate"
+            : selectedTier === "Dolphin"
+            ? "Starter Battlepass Catch-Up Crate"
+            : selectedTier === "Minnow"
+            ? "Impulse Gem Starter Bundle"
+            : "Welcome Gems Starter Bundle",
+        price: selectedTier === "Whale" ? "$0.99" : "$1.99",
+        discount: "80% OFF",
+      };
+    }
 
     setExemplars((prev) => ({
       ...prev,
       [selectedTier]: {
         ...prev[selectedTier],
         churnEvents: nextQuits,
+        activeOffer: nextActiveOffer,
       },
     }));
 

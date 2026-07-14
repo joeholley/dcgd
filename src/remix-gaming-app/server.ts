@@ -610,13 +610,13 @@ async function startServer() {
         } else {
           // Dynamic calculation logic for BQML inference fallback
           const deathWeight = Math.min(0.65, consecutive_deaths * 0.22);
-          const eventWeight = event_type === "boss_fail" ? 0.20 : event_type === "mission_quit" ? 0.25 : 0.05;
+          const eventWeight = event_type === "mission_quit" ? 0.88 : event_type === "boss_fail" ? 0.20 : 0.05;
           const durationWeight = Math.min(0.10, session_duration_seconds / 3600);
           predictedChurnScore = Math.min(0.99, Math.max(0.05, deathWeight + eventWeight + durationWeight));
         }
       } catch (bqErr: any) {
         const deathWeight = Math.min(0.65, consecutive_deaths * 0.22);
-        const eventWeight = event_type === "boss_fail" ? 0.20 : event_type === "mission_quit" ? 0.25 : 0.05;
+        const eventWeight = event_type === "mission_quit" ? 0.88 : event_type === "boss_fail" ? 0.20 : 0.05;
         const durationWeight = Math.min(0.10, session_duration_seconds / 3600);
         predictedChurnScore = Math.min(0.99, Math.max(0.05, deathWeight + eventWeight + durationWeight));
       }
