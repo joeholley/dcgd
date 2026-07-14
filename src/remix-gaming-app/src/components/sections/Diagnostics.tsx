@@ -177,7 +177,7 @@ export function Diagnostics() {
       route: '/workflows',
       overallMode: 'hybrid',
       subFeatures: [
-        { name: 'Retention & Gift Card Promo Pipeline', connected: true, source: 'Gemini Enterprise Agent Runtime', mode: 'live', latencyMs: 48 },
+        { name: 'Retention & Gift Card Promo Pipeline', connected: true, source: 'LiveOps Guardrail Engine', mode: 'live', latencyMs: 48 },
         { name: 'Anti-Cheat Memory Tampering Detector', connected: false, source: 'Synthetic Trace Generator', mode: 'mock', latencyMs: 8 }
       ]
     },
@@ -190,7 +190,7 @@ export function Diagnostics() {
       overallMode: 'live',
       subFeatures: [
         { name: 'WebSocket Query Step Streaming (/api/ws)', connected: true, source: 'Flask-Sock Proxy', mode: 'live', latencyMs: 12 },
-        { name: 'KC-Guided Agent Dataplex Tools', connected: true, source: 'Gemini Enterprise Agent Runtime + Dataplex', mode: 'live', latencyMs: 44 }
+        { name: 'Dataplex Knowledge Catalog Search Tools', connected: true, source: 'Dataplex Knowledge Catalog API', mode: 'live', latencyMs: 44 }
       ]
     },
     {

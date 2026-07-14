@@ -1478,11 +1478,14 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       pubsub: pubsubRes,
       bqml: bqmlRes,
       dataplex: dataplexRes,
+      /*
+      // Temporarily disabled agent GCP status checks (will be re-enabled later)
       vertex_agent: vertexKcRes,
       vertex_agent_kc: vertexKcRes,
       vertex_agent_basic: vertexBasicRes,
       vertex_agent_scaled: vertexScaledRes,
       vertex_agent_council: vertexCouncilRes,
+      */
       simulator: simulatorRes,
       bq_gcp_players: bqPlayers,
       bq_live_sessions: bqSessions,
