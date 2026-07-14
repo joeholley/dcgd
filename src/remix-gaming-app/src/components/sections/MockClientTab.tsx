@@ -11,8 +11,10 @@ import {
   RotateCcw,
   CheckCircle2,
   Fish,
-  Coins
+  Coins,
+  Swords
 } from "lucide-react";
+import gameBgImage from "../../assets/image_1783953739614717.png";
 import { cn } from "../../lib/utils";
 import { 
   getSimulatorState, 
@@ -81,7 +83,6 @@ interface ExemplarState {
   tier: PlayerCohortId;
   totalSpend: number;
   estimatedLtv: number;
-  bossHp: number;
   consecutiveDeaths: number;
   churnEvents: number;
   offersAccepted: Record<string, boolean>; // key: offer_name -> true/false
@@ -94,7 +95,6 @@ const initialExemplarStates = (): Record<PlayerCohortId, ExemplarState> => ({
     tier: "Whale",
     totalSpend: COHORT_DEFAULTS.Whale.defaultSpend,
     estimatedLtv: COHORT_DEFAULTS.Whale.defaultLtv,
-    bossHp: 100,
     consecutiveDeaths: 0,
     churnEvents: 0,
     offersAccepted: {},
@@ -105,7 +105,6 @@ const initialExemplarStates = (): Record<PlayerCohortId, ExemplarState> => ({
     tier: "Dolphin",
     totalSpend: COHORT_DEFAULTS.Dolphin.defaultSpend,
     estimatedLtv: COHORT_DEFAULTS.Dolphin.defaultLtv,
-    bossHp: 100,
     consecutiveDeaths: 0,
     churnEvents: 0,
     offersAccepted: {},
@@ -116,7 +115,6 @@ const initialExemplarStates = (): Record<PlayerCohortId, ExemplarState> => ({
     tier: "Minnow",
     totalSpend: COHORT_DEFAULTS.Minnow.defaultSpend,
     estimatedLtv: COHORT_DEFAULTS.Minnow.defaultLtv,
-    bossHp: 100,
     consecutiveDeaths: 0,
     churnEvents: 0,
     offersAccepted: {},
@@ -127,7 +125,6 @@ const initialExemplarStates = (): Record<PlayerCohortId, ExemplarState> => ({
     tier: "F2P",
     totalSpend: COHORT_DEFAULTS.F2P.defaultSpend,
     estimatedLtv: COHORT_DEFAULTS.F2P.defaultLtv,
-    bossHp: 100,
     consecutiveDeaths: 0,
     churnEvents: 0,
     offersAccepted: {},
@@ -139,6 +136,8 @@ interface MockClientTabProps {
   routingMode: RoutingMode;
 }
 
+type EncounterState = "idle" | "boss_encountered" | "defeat";
+
 export function MockClientTab({ routingMode }: MockClientTabProps) {
   const [simState, setSimState] = useState(() => getSimulatorState());
   const selectedTier = (["Whale", "Dolphin", "Minnow", "F2P"].includes(simState.selectedCohort) 
@@ -148,9 +147,11 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
   // Isolated per-exemplar client state
   const [exemplars, setExemplars] = useState<Record<PlayerCohortId, ExemplarState>>(() => initialExemplarStates());
 
-  // UI animation state
+  // UI animation & interactive flow states
   const [isHitAnimating, setIsHitAnimating] = useState<boolean>(false);
   const [isProcessingAction, setIsProcessingAction] = useState<boolean>(false);
+  const [encounterState, setEncounterState] = useState<EncounterState>("idle");
+  const [showQuitModal, setShowQuitModal] = useState<boolean>(false);
 
   // Sync global simulator state changes
   useEffect(() => {
@@ -249,6 +250,8 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
 
   const handleCohortSelect = (tier: PlayerCohortId) => {
     updateSimulatorState({ selectedCohort: tier });
+    setEncounterState("idle");
+    setShowQuitModal(false);
   };
 
   const handleResetExemplar = (tier: PlayerCohortId, e: React.MouseEvent) => {
@@ -257,26 +260,27 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
       ...prev,
       [tier]: {
         ...prev[tier],
-        bossHp: 100,
         consecutiveDeaths: 0,
         churnEvents: 0,
         offersAccepted: {},
         activeOffer: null,
       },
     }));
+    setEncounterState("idle");
+    setShowQuitModal(false);
   };
 
-  const handleTryAgain = async () => {
+  // Step 1: Click "Try Again" -> Displays "Boss Encountered!" & Fight Button, greys out Try Again button
+  const handleTryAgain = () => {
+    setEncounterState("boss_encountered");
+  };
+
+  // Step 2: Click "Fight" -> Displays "Defeat", increments consecutive fails counter, emits telemetry, re-enables Try Again button
+  const handleFightBoss = async () => {
     setIsProcessingAction(true);
     setIsHitAnimating(true);
 
-    // 1. Instantly refill boss HP to 100%
-    // 2. Run hit animation
-    // 3. Deduct non-lethal hit (30% - 60%), resulting in 40% - 70% remaining HP
-    const damagePct = Math.floor(Math.random() * 31) + 30; // 30 to 60
-    const nextBossHp = 100 - damagePct;
     const nextDeaths = activeExemplar.consecutiveDeaths + 1;
-
     const offerSku = COHORT_DEFAULTS[selectedTier].defaultSku;
     const isOfferAlreadyAccepted = !!activeExemplar.offersAccepted[offerSku];
 
@@ -302,11 +306,12 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
       ...prev,
       [selectedTier]: {
         ...prev[selectedTier],
-        bossHp: nextBossHp,
         consecutiveDeaths: nextDeaths,
         activeOffer: nextActiveOffer,
       },
     }));
+
+    setEncounterState("defeat");
 
     setTimeout(() => setIsHitAnimating(false), 500);
 
@@ -317,7 +322,6 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
       payload: {
         cohortId: selectedTier,
         userId: activeExemplar.playerId,
-        bossHealth: nextBossHp,
         consecutiveDeaths: nextDeaths,
         churnEvents: activeExemplar.churnEvents,
         offersAccepted: activeExemplar.offersAccepted,
@@ -327,8 +331,17 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
     setIsProcessingAction(false);
   };
 
-  const handleQuitMission = async () => {
+  // Quit Mission flow handlers:
+  // Step 1: Click "Quit Mission" -> Greys out button and shows pop-up in center of game client
+  const handleQuitMission = () => {
+    setShowQuitModal(true);
+  };
+
+  // Step 2a: Click "Yes" in Pop-up -> Increment mission quits, enable quit mission button, dismiss pop-up
+  const handleConfirmQuit = async () => {
     setIsProcessingAction(true);
+    setShowQuitModal(false);
+
     const nextQuits = activeExemplar.churnEvents + 1;
 
     setExemplars((prev) => ({
@@ -346,7 +359,6 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
       payload: {
         cohortId: selectedTier,
         userId: activeExemplar.playerId,
-        bossHealth: activeExemplar.bossHp,
         consecutiveDeaths: activeExemplar.consecutiveDeaths,
         churnEvents: nextQuits,
         offersAccepted: activeExemplar.offersAccepted,
@@ -354,6 +366,11 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
     });
 
     setIsProcessingAction(false);
+  };
+
+  // Step 2b: Click "No" in Pop-up -> Dismiss pop-up and re-enable quit mission button
+  const handleCancelQuit = () => {
+    setShowQuitModal(false);
   };
 
   const handleAcceptOffer = async () => {
@@ -366,8 +383,6 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
       [acceptedOfferId]: true,
     };
 
-    // Firebase RTDB JSON Schema format key representation:
-    // "player_profile".${player_id}."offers_accepted".${offer_name} = true
     const firebaseSchemaPayload = {
       player_profile: {
         [activeExemplar.playerId]: {
@@ -434,7 +449,7 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
                     : "bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200"
                 )}
               >
-                {/* Chip Header format: [ Whale: Player_0042 | Spend: $750 | LTV: $1,250 ] */}
+                {/* Chip Header format */}
                 <div className="flex justify-between items-center text-xs">
                   <span className="font-bold flex items-center gap-1.5 text-white">
                     {tier === "Whale" && <Crown className="w-3.5 h-3.5 text-amber-400" />}
@@ -478,80 +493,102 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
 
       {/* Grid: Game Client Viewport (Left) & Telemetry Log (Right) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Mock Game Client Viewport (Smartphone Frame Aesthetic) */}
-        <div className="lg:col-span-5 bg-slate-950 border-4 border-slate-800 rounded-[2.5rem] p-6 shadow-2xl flex flex-col justify-between space-y-5 relative">
-          {/* Smartphone Top Notch & Label */}
-          <div className="flex flex-col items-center border-b border-slate-800/80 pb-3">
-            <div className="w-24 h-3 bg-slate-900 rounded-b-xl border-x border-b border-slate-700/50 flex items-center justify-center mb-2">
-              <div className="w-2.5 h-2.5 rounded-full bg-slate-800 mr-2 border border-slate-700" />
-              <div className="w-8 h-1 rounded-full bg-slate-800" />
-            </div>
-            <div className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-widest bg-slate-900 px-3 py-0.5 rounded-full border border-slate-800">
-              Mock Game Client
+        {/* Left Column: Mock Game Client Viewport Card */}
+        <div className="lg:col-span-5 bg-slate-950 border-4 border-slate-800 rounded-[2.5rem] p-5 shadow-2xl flex flex-col justify-between space-y-4 relative">
+          
+          {/* Card Header Label */}
+          <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+            <div className="flex items-center gap-2 font-mono">
+              <Gamepad2 className="w-4 h-4 text-amber-400" />
+              <h3 className="font-bold text-white uppercase tracking-wider text-xs">Mock Game Client</h3>
             </div>
           </div>
 
-          {/* Game Title & Header */}
-          <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-orange-600/20 border border-orange-500/40 flex items-center justify-center text-orange-400">
-                <Gamepad2 className="w-5 h-5" />
-              </div>
-              <div>
-                <h2 className="font-bold text-white text-base tracking-wide font-sans">Realm of Eldoria RPG</h2>
-                <p className="text-[11px] font-mono text-slate-400">Tutorial Level 8 of 10</p>
-              </div>
-            </div>
-
-            <span className="px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 text-[10px] font-mono font-bold text-slate-300">
-              Exemplar: <span className="text-amber-400">{activeExemplar.playerId}</span> ({activeExemplar.tier})
-            </span>
-          </div>
-
-          {/* Boss Encounter Viewport */}
+          {/* 9x16 Aspect Ratio Game Client Window */}
           <div
             className={cn(
-              "bg-slate-950 rounded-2xl border border-slate-800/80 p-5 space-y-5 relative overflow-hidden font-mono shadow-inner transition-all duration-300",
+              "relative w-full aspect-[9/16] rounded-2xl overflow-hidden border border-slate-800/80 shadow-2xl bg-cover bg-center bg-no-repeat flex flex-col justify-between p-4 font-mono select-none transition-all duration-300",
               isHitAnimating && "border-red-500/80 ring-2 ring-red-500/30 scale-[0.99]"
             )}
+            style={{ backgroundImage: `url(${gameBgImage})` }}
           >
+            {/* Background darkening overlay for high contrast */}
+            <div className="absolute inset-0 bg-slate-950/20 pointer-events-none" />
+
             {/* Hit Animation Flash Overlay */}
             {isHitAnimating && (
-              <div className="absolute inset-0 bg-red-600/15 animate-ping pointer-events-none z-10" />
+              <div className="absolute inset-0 bg-red-600/20 animate-pulse pointer-events-none z-10" />
             )}
 
-            {/* Boss Header */}
-            <div className="flex justify-between items-center">
-              <div className="flex items-center gap-2">
-                <Skull className={cn("w-5 h-5 text-red-500", isHitAnimating ? "animate-bounce" : "animate-pulse")} />
-                <span className="font-bold text-red-400 text-sm tracking-wide">Frost Giant Overlord (Lvl 85)</span>
-              </div>
-              <span className="text-xs text-slate-400 font-bold">HP: {activeExemplar.bossHp}%</span>
+            {/* CENTER OVERLAY AREA: Boss Encountered, Fight Button, Defeat Message, and Quit Modal */}
+            <div className="relative z-20 flex-1 flex flex-col items-center justify-center space-y-4 px-3 text-center">
+              {/* 1. "Boss Encountered!" text & "Fight" button */}
+              {encounterState === "boss_encountered" && (
+                <div className="bg-slate-950/90 backdrop-blur-md border-2 border-red-500/80 p-5 rounded-2xl shadow-2xl space-y-4 animate-fade-in max-w-[85%] w-full">
+                  <div className="flex items-center justify-center gap-2 text-red-400">
+                    <Swords className="w-6 h-6 text-red-500 animate-bounce" />
+                    <h3 className="text-base font-black tracking-wider uppercase text-white drop-shadow-md">
+                      Boss Encountered!
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleFightBoss}
+                    className="w-full py-3 px-6 bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-black text-sm uppercase tracking-wider rounded-xl shadow-lg shadow-red-600/40 hover:shadow-red-500/60 transition-all transform active:scale-95 cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <Flame className="w-5 h-5 text-amber-300 animate-pulse" />
+                    <span>Fight</span>
+                  </button>
+                </div>
+              )}
+
+              {/* 2. "Defeat" Message */}
+              {encounterState === "defeat" && (
+                <div className="bg-slate-950/90 backdrop-blur-md border-2 border-red-600/80 p-5 rounded-2xl shadow-2xl space-y-2 animate-fade-in max-w-[85%] w-full">
+                  <div className="flex items-center justify-center gap-2 text-red-500">
+                    <Skull className="w-7 h-7 text-red-500 animate-pulse" />
+                    <h3 className="text-xl font-black tracking-widest uppercase text-red-400 drop-shadow-lg">
+                      Defeat
+                    </h3>
+                  </div>
+                  <p className="text-[11px] text-slate-300 font-medium">
+                    Player defeated in encounter!
+                  </p>
+                </div>
+              )}
+
+              {/* 3. Quit Mission Pop-up Dialog */}
+              {showQuitModal && (
+                <div className="bg-slate-950/95 backdrop-blur-md border-2 border-amber-500/80 p-5 rounded-2xl shadow-2xl space-y-4 animate-fade-in max-w-[90%] w-full">
+                  <div className="flex items-center justify-center gap-2 text-amber-400">
+                    <LogOut className="w-5 h-5" />
+                    <h4 className="font-bold text-white text-xs uppercase tracking-wide">
+                      Are you sure you want to quit?
+                    </h4>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={handleConfirmQuit}
+                      className="py-2.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer active:scale-95"
+                    >
+                      Yes
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCancelQuit}
+                      className="py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl border border-slate-700 transition-all cursor-pointer active:scale-95"
+                    >
+                      No
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* Boss Health Bar */}
-            <div className="w-full bg-slate-900 rounded-full h-3.5 border border-slate-800 overflow-hidden p-0.5">
-              <div
-                className="bg-gradient-to-r from-red-600 via-orange-500 to-amber-400 h-full rounded-full transition-all duration-500"
-                style={{ width: `${activeExemplar.bossHp}%` }}
-              />
-            </div>
-
-            {/* Gameplay Stats Panel */}
-            <div className="grid grid-cols-2 gap-3 pt-1">
-              <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800">
-                <span className="text-[10px] text-slate-500 uppercase block font-bold">Wipeouts / Deaths:</span>
-                <span className="text-base font-bold text-amber-400">{activeExemplar.consecutiveDeaths} Consecutive Fails</span>
-              </div>
-              <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800">
-                <span className="text-[10px] text-slate-500 uppercase block font-bold">Exit Intent Count:</span>
-                <span className="text-base font-bold text-orange-400">{activeExemplar.churnEvents} Mission Quits</span>
-              </div>
-            </div>
-
-            {/* In-Game Retention Offer Pop-up Overlay (Suppressed if offersAccepted[offer_name] == true) */}
+            {/* In-Game Retention Offer Pop-up Overlay (Suppressed if offer is accepted) */}
             {activeExemplar.activeOffer && !activeExemplar.offersAccepted[activeExemplar.activeOffer.id] && (
-              <div className="mt-4 p-4 rounded-xl bg-gradient-to-r from-amber-950/80 via-slate-900 to-orange-950/80 border border-amber-500/50 shadow-2xl space-y-3 animate-fade-in relative z-20">
+              <div className="relative z-30 mt-auto p-4 rounded-xl bg-gradient-to-r from-amber-950/95 via-slate-900/95 to-orange-950/95 border border-amber-500/60 shadow-2xl space-y-3 animate-fade-in backdrop-blur-md">
                 <div className="flex items-center justify-between">
                   <span className="px-2.5 py-0.5 rounded bg-amber-500 text-slate-950 text-[10px] font-extrabold uppercase">
                     SPECIAL RETENTION PROMO
@@ -577,27 +614,41 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
             )}
           </div>
 
+          {/* Gameplay Stats Panel */}
+          <div className="grid grid-cols-2 gap-3 font-mono">
+            <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800">
+              <span className="text-[10px] text-slate-500 uppercase block font-bold">Wipeouts / Deaths:</span>
+              <span className="text-base font-bold text-amber-400">{activeExemplar.consecutiveDeaths} Consecutive Fails</span>
+            </div>
+            <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800">
+              <span className="text-[10px] text-slate-500 uppercase block font-bold">Exit Intent Count:</span>
+              <span className="text-base font-bold text-orange-400">{activeExemplar.churnEvents} Mission Quits</span>
+            </div>
+          </div>
+
           {/* Interactive Player Action Triggers */}
           <div className="space-y-3 font-mono">
-            <span className="text-xs font-bold text-slate-300 uppercase block tracking-wider">Trigger Interactive Player Actions:</span>
+            <span className="text-xs font-bold text-slate-300 uppercase block tracking-wider">
+              Simulate Player Action Actions:
+            </span>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* "Try Again" Button */}
               <button
                 type="button"
-                disabled={isProcessingAction}
+                disabled={isProcessingAction || encounterState === "boss_encountered"}
                 onClick={handleTryAgain}
-                className="p-3.5 bg-red-950/40 hover:bg-red-900/60 border border-red-800/60 text-red-200 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md disabled:opacity-50 active:scale-95"
+                className="p-3.5 bg-red-950/40 hover:bg-red-900/60 border border-red-800/60 text-red-200 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
               >
                 <Flame className="w-4 h-4 text-red-400" />
                 <span>Try Again</span>
               </button>
 
-              {/* Quit Mission Button */}
+              {/* "Quit Mission" Button */}
               <button
                 type="button"
-                disabled={isProcessingAction}
+                disabled={isProcessingAction || showQuitModal}
                 onClick={handleQuitMission}
-                className="p-3.5 bg-amber-950/40 hover:bg-amber-900/60 border border-amber-800/60 text-amber-200 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md disabled:opacity-50 active:scale-95"
+                className="p-3.5 bg-amber-950/40 hover:bg-amber-900/60 border border-amber-800/60 text-amber-200 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
               >
                 <LogOut className="w-4 h-4 text-amber-400" />
                 <span>Quit Mission</span>
