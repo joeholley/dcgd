@@ -1522,10 +1522,13 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
         { id: 'pubsub', name: 'Cloud Pub/Sub Streaming Ingest', category: 'Event Streaming', status: pubsubRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: pubsubRes.status.toLowerCase() as 'live' | 'mock', details: pubsubRes.details, latency_ms: pubsubRes.latency_ms },
         { id: 'bqml', name: 'BigQuery ML (ML.PREDICT)', category: 'Predictive ML', status: bqmlRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: bqmlRes.status.toLowerCase() as 'live' | 'mock', details: bqmlRes.details, latency_ms: bqmlRes.latency_ms },
         { id: 'dataplex', name: 'Dataplex Knowledge Catalog API', category: 'Governance & Catalog', status: dataplexRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: dataplexRes.status.toLowerCase() as 'live' | 'mock', details: dataplexRes.details, latency_ms: dataplexRes.latency_ms },
+        /*
+        // Temporarily disabled agent GCP status checks (will be re-enabled later)
         { id: 'vertex_agent_kc', name: 'Gemini Enterprise Agent (KC-Guided)', category: 'Agent Infrastructure', status: vertexKcRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: vertexKcRes.status.toLowerCase() as 'live' | 'mock', details: vertexKcRes.details, agent_id: vertexKcRes.agent_id, latency_ms: vertexKcRes.latency_ms },
         { id: 'vertex_agent_basic', name: 'Gemini Enterprise Agent (Basic LLM)', category: 'Agent Infrastructure', status: vertexBasicRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: vertexBasicRes.status.toLowerCase() as 'live' | 'mock', details: vertexBasicRes.details, agent_id: vertexBasicRes.agent_id, latency_ms: vertexBasicRes.latency_ms },
         { id: 'vertex_agent_scaled', name: 'Gemini Enterprise Agent (Scaled Runtime)', category: 'Agent Infrastructure', status: vertexScaledRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: vertexScaledRes.status.toLowerCase() as 'live' | 'mock', details: vertexScaledRes.details, agent_id: vertexScaledRes.agent_id, latency_ms: vertexScaledRes.latency_ms },
         { id: 'vertex_agent_council', name: 'Gemini Enterprise Agent (Marketing Council)', category: 'Agent Infrastructure', status: vertexCouncilRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: vertexCouncilRes.status.toLowerCase() as 'live' | 'mock', details: vertexCouncilRes.details, agent_id: vertexCouncilRes.agent_id, latency_ms: vertexCouncilRes.latency_ms },
+        */
         { id: 'simulator', name: 'Live Game Telemetry Simulator Engine', category: 'Event Streaming & Simulation', status: simulatorState.isRunning ? 'LIVE' : 'FALLBACK', mode: simulatorState.isRunning ? 'live' : 'mock', details: simulatorRes.details, latency_ms: 0 }
       ]
     });

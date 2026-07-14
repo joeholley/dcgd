@@ -69,10 +69,13 @@ export function Diagnostics() {
     { id: 'pubsub', name: 'Cloud Pub/Sub Streaming Ingest', description: 'gaming-live-telemetry & BQ Direct Sub', status: 'FALLBACK', mode: 'mock', latencyMs: 16, details: 'Pub/Sub topic gaming-live-telemetry active (Dev Mock)' },
     { id: 'bqml', name: 'BigQuery ML (ML.PREDICT)', description: 'ML.PREDICT gaming_raw.gaming_player_churn_model', status: 'FALLBACK', mode: 'mock', latencyMs: 5, details: 'Dynamic heuristic churn scoring active in dev fallback' },
     { id: 'dataplex', name: 'Dataplex Knowledge Catalog API', description: 'Aspect Types, Business Glossaries & Lineage', status: 'FALLBACK', mode: 'mock', latencyMs: 32, details: 'Dataplex REST API aspect registry active (Dev Fallback)' },
+    /*
+    // Temporarily disabled agent GCP status probes (will be re-enabled later)
     { id: 'vertex_agent_kc', name: 'Gemini Enterprise Agent (KC-Guided)', description: 'Dataplex Knowledge Catalog Guided Reasoning Engine (agent_kc)', status: 'FALLBACK', mode: 'mock', latencyMs: 44, details: 'Discovered Agent ID: Unconfigured (Dev Fallback)' },
     { id: 'vertex_agent_basic', name: 'Gemini Enterprise Agent (Basic LLM)', description: 'Raw Gemini Reasoning Engine without KC Tools (agent_basic)', status: 'FALLBACK', mode: 'mock', latencyMs: 40, details: 'Discovered Agent ID: Unconfigured (Dev Fallback)' },
     { id: 'vertex_agent_scaled', name: 'Gemini Enterprise Agent (Scaled Runtime)', description: 'Multi-Shard LiveOps High-Throughput Reasoning Engine (agent_scaled)', status: 'FALLBACK', mode: 'mock', latencyMs: 42, details: 'Discovered Agent ID: Unconfigured (Dev Fallback)' },
     { id: 'vertex_agent_council', name: 'Gemini Enterprise Agent (Marketing Council)', description: 'Multi-Agent Swarm / Council Reasoning Engine (agent_council)', status: 'FALLBACK', mode: 'mock', latencyMs: 48, details: 'Discovered Agent ID: Unconfigured (Dev Fallback)' }
+    */
   ]);
 
   const [sections, setSections] = useState<SectionDiagnostic[]>([

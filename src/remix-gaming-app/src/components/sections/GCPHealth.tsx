@@ -104,6 +104,8 @@ export function GCPHealth() {
       description: "Cross-cloud data governance, aspect tags, & glossary",
       icon: Compass,
     },
+    /*
+    // Temporarily disabled agent GCP status checks (will be re-enabled later)
     {
       key: "vertex_agent_kc" as const,
       name: "Gemini Enterprise Agent (KC-Guided)",
@@ -128,6 +130,7 @@ export function GCPHealth() {
       description: "Swarm/Council multi-agent reasoning engine for campaign optimization",
       icon: Server,
     },
+    */
   ];
 
   return (
