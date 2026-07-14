@@ -78,13 +78,13 @@ Audit and rename analytical datasets, ML models, external connections, and logge
 
 - [ ] **Rename Medallion Datasets & Tables**:
   - Rename medallion layer datasets to start with `gaming_`:
-    - `gaming_telemetry_bronze` -> `gaming_gaming_telemetry_bronze`
-    - `gaming_telemetry_silver` -> `gaming_gaming_telemetry_silver`
-    - `gaming_telemetry_gold` -> `gaming_gaming_telemetry_gold`
-    - `gaming_telemetry_reference` -> `gaming_gaming_telemetry_reference`
-    - `gaming_telemetry_dashboards` -> `gaming_gaming_telemetry_dashboards`
-    - `gaming_telemetry_scan_results` -> `gaming_gaming_telemetry_scan_results`
-    - `gaming_agent_analytics` -> `gaming_gaming_agent_analytics`
+    - `gaming_telemetry_bronze` -> `gaming_telemetry_bronze`
+    - `gaming_telemetry_silver` -> `gaming_telemetry_silver`
+    - `gaming_telemetry_gold` -> `gaming_telemetry_gold`
+    - `gaming_telemetry_reference` -> `gaming_telemetry_reference`
+    - `gaming_telemetry_dashboards` -> `gaming_telemetry_dashboards`
+    - `gaming_telemetry_scan_results` -> `gaming_telemetry_scan_results`
+    - `gaming_agent_analytics` -> `gaming_agent_analytics`
   - Update dataset declarations and SQL creations in:
     - [bigquery-medallion/main.tf](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/src/gamingdatademo/modules/bigquery-medallion/main.tf#L64-L90)
     - [bigquery-reference/main.tf](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/src/gamingdatademo/modules/bigquery-reference/main.tf#L30-L35)
@@ -106,8 +106,8 @@ Audit and rename analytical datasets, ML models, external connections, and logge
 
 - [ ] **Rename BigQuery ML Models**:
   - Rename models to start with `gaming_`:
-    - `gaming_raw.gaming_player_churn_model` -> `gaming_gaming_player_churn_model` (under dataset `gaming_silver`)
-    - `gaming_gold.gaming_predictive_ltv_model` -> `gaming_gaming_predictive_ltv_model` (under dataset `gaming_gold`)
+    - `gaming_raw.gaming_player_churn_model` -> `gaming_player_churn_model` (under dataset `gaming_silver`)
+    - `gaming_gold.gaming_predictive_ltv_model` -> `gaming_predictive_ltv_model` (under dataset `gaming_gold`)
   - Update SQL references in:
     - [server.ts](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/src/remix-gaming-app/server.ts#L70) (update default `BQML_MODEL_NAME`)
     - [server.ts](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/src/remix-gaming-app/server.ts#L975) (LTV model lookup SQL query)

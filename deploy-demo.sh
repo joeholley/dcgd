@@ -376,8 +376,8 @@ if [ "$RUN_STEP_1" = true ]; then
     # Pre-import existing BigQuery datasets into Terraform state if they already exist in GCP
     log_info "Pre-importing existing BigQuery datasets into Terraform state to prevent 409 duplicate creation errors..."
     for pair in \
-      "retail:google_bigquery_dataset.retail-dataset" \
-      "retail_synthetic:google_bigquery_dataset.retail-synthetic-dataset" \
+      "gaming_retail:google_bigquery_dataset.retail-dataset" \
+      "gaming_retail_synthetic:google_bigquery_dataset.retail-synthetic-dataset" \
       "gaming_raw:module.games[0].google_bigquery_dataset.gaming_raw" \
       "gaming_synthetic:module.games[0].google_bigquery_dataset.gaming_synthetic" \
       "gaming_silver:module.games[0].google_bigquery_dataset.gaming_silver" \
@@ -451,14 +451,14 @@ if [ "$RUN_STEP_3" = true ]; then
     log_info "Compiling and running Dataform Medallion models in ${DATAFORM_DIR}..."
 
     log_info "Ensuring all required BigQuery datasets exist in ${GCP_PROJECT} before table seeding..."
-    for ds in gaming_raw gaming_synthetic gaming_silver gaming_gold central_identity fps_studio mmo_studio mobile_studio sports_studio strategy_studio gaming_telemetry_bronze gaming_telemetry_silver gaming_telemetry_gold gaming_telemetry_dashboards gaming_telemetry_reference gaming_agent_analytics; do
+    for ds in gaming_raw gaming_synthetic gaming_silver gaming_gold gaming_central_identity gaming_fps_studio gaming_mmo_studio gaming_mobile_studio gaming_sports_studio gaming_strategy_studio gaming_telemetry_bronze gaming_telemetry_silver gaming_telemetry_gold gaming_telemetry_dashboards gaming_telemetry_reference gaming_agent_analytics; do
       log_info "  - Checking/creating dataset: ${ds}..."
       bq mk --location="${GCP_REGION}" --dataset "${GCP_PROJECT}:${ds}" &>/dev/null || true
     done
 
     log_info "Ensuring source tables exist and are seeded before Dataform execution..."
     bq query --location="${GCP_REGION}" --use_legacy_sql=false "
-      CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.central_identity.players\` (
+      CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.gaming_central_identity.players\` (
         user_id STRING,
         username STRING,
         email STRING,
@@ -471,7 +471,7 @@ if [ "$RUN_STEP_3" = true ]; then
         install_source STRING
       );
 
-      INSERT INTO \`${GCP_PROJECT}.central_identity.players\`
+      INSERT INTO \`${GCP_PROJECT}.gaming_central_identity.players\`
       (user_id, username, email, locale, region_code, age_bracket, created_at, signup_platform, last_login_ip, install_source)
       SELECT
         CONCAT('PLAY-', LPAD(CAST(id AS STRING), 8, '0')) AS user_id,
@@ -486,7 +486,7 @@ if [ "$RUN_STEP_3" = true ]; then
         'Organic' AS install_source
       FROM UNNEST(GENERATE_ARRAY(1, 1000)) AS id
       WHERE NOT EXISTS (
-        SELECT 1 FROM \`${GCP_PROJECT}.central_identity.players\` LIMIT 1
+        SELECT 1 FROM \`${GCP_PROJECT}.gaming_central_identity.players\` LIMIT 1
       );
 
       CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.gaming_raw.gcp_players\` (
@@ -509,7 +509,7 @@ if [ "$RUN_STEP_3" = true ]; then
         CASE MOD(CAST(SUBSTR(user_id, 6) AS INT64), 4) WHEN 0 THEN 'RPG' WHEN 1 THEN 'FPS' WHEN 2 THEN 'MOBA' ELSE 'Strategy' END AS favorite_category,
         created_at,
         region_code
-      FROM \`${GCP_PROJECT}.central_identity.players\`
+      FROM \`${GCP_PROJECT}.gaming_central_identity.players\`
       WHERE user_id NOT IN (SELECT player_id FROM \`${GCP_PROJECT}.gaming_raw.gcp_players\`);
 
       CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.gaming_raw.live_session_events\` (
@@ -577,6 +577,7 @@ EOF
 
     log_info "Submitting Cloud Build job to execute Dataform Medallion pipeline..."
     gcloud builds submit \
+      --verbosity=info \
       --config="${GAMING_DIR}/cloudbuild-dataform.yaml" \
       --substitutions=_PROJECT_ID="${GCP_PROJECT}",_LOCATION="${GCP_REGION}" \
       --project="${GCP_PROJECT}" \
@@ -660,14 +661,26 @@ fi
 if [ "$RUN_STEP_6" = true ]; then
   log_step "STEP 6: Vertex AI Agent Engine / ADK Agent Deployment"
 
-  log_info "Ensuring Reasoning Engine Service Agent IAM permissions..."
-  gcloud services identity create --service=reasoningengine.googleapis.com --project="${GCP_PROJECT}" &>/dev/null || true
-  grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" "roles/artifactregistry.reader" || true
-  grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" "roles/bigquery.dataEditor" || true
-  grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" "roles/bigquery.jobUser" || true
-  grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" "roles/bigquery.dataViewer" || true
-  grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" "roles/dataplex.viewer" || true
-  grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" "roles/aiplatform.user" || true
+  if [ ! -f "/tmp/.iam_roles_granted_${GCP_PROJECT}" ]; then
+    log_info "Ensuring Reasoning Engine Service Agent IAM permissions..."
+    gcloud services identity create --service=reasoningengine.googleapis.com --project="${GCP_PROJECT}" &>/dev/null || true
+    grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" "roles/artifactregistry.reader" || true
+    grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" "roles/bigquery.dataEditor" || true
+    grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" "roles/bigquery.jobUser" || true
+    grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" "roles/bigquery.dataViewer" || true
+    grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" "roles/dataplex.viewer" || true
+    grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" "roles/aiplatform.user" || true
+    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/aiplatform.admin" || true
+    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/aiplatform.admin" || true
+    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/bigquery.dataEditor" || true
+    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/bigquery.jobUser" || true
+    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/bigquery.dataViewer" || true
+    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/dataplex.viewer" || true
+    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/secretmanager.secretAccessor" || true
+    touch "/tmp/.iam_roles_granted_${GCP_PROJECT}"
+  else
+    log_info "Reasoning Engine IAM permissions already verified (cached)."
+  fi
 
   AGENT_TARGET="${AGENT_TARGET:-kc}"
   AGENT_DEPLOY_SCRIPT="${GAMING_DIR}/agents/deploy_agents.sh"
@@ -675,7 +688,7 @@ if [ "$RUN_STEP_6" = true ]; then
   if [ "$AGENT_TARGET" = "kc" ] || [ "$AGENT_TARGET" = "all" ]; then
     log_info "Verifying agent_kc container image in Artifact Registry..."
     
-    AGENT_REPO="gaming-gaming-agent-images"
+    AGENT_REPO="gaming-agent-images"
     AGENT_IMAGE_NAME="agent-kc"
     AGENT_IMAGE_URI="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/${AGENT_REPO}/${AGENT_IMAGE_NAME}"
     
@@ -713,6 +726,7 @@ if [ "$RUN_STEP_6" = true ]; then
       
       # Build and push container image using Cloud Build
       gcloud builds submit \
+        --verbosity=info \
         --tag="${AGENT_IMAGE_URI}:${GIT_COMMIT_HASH}" \
         --tag="${AGENT_IMAGE_URI}:latest" \
         --project="${GCP_PROJECT}" \
@@ -726,7 +740,7 @@ if [ "$RUN_STEP_6" = true ]; then
 
   if [ -f "$AGENT_DEPLOY_SCRIPT" ]; then
     log_info "Executing ADK agent deployment script: ${AGENT_DEPLOY_SCRIPT} (target: ${AGENT_TARGET})..."
-    PYTHONPATH="/usr/lib/google-cloud-sdk/lib/third_party:/usr/lib/google-cloud-sdk/lib:${PYTHONPATH:-}" GOOGLE_CLOUD_PROJECT="${GCP_PROJECT}" GOOGLE_CLOUD_LOCATION="${GCP_REGION}" bash "$AGENT_DEPLOY_SCRIPT" "${AGENT_TARGET}"
+    GOOGLE_CLOUD_PROJECT="${GCP_PROJECT}" GOOGLE_CLOUD_LOCATION="${GCP_REGION}" bash "$AGENT_DEPLOY_SCRIPT" "${AGENT_TARGET}"
     log_success "Step 6 Vertex AI Agent Engine / ADK Agent(s) (${AGENT_TARGET}) deployed successfully."
   else
     log_error "Agent deployment script ${AGENT_DEPLOY_SCRIPT} not found."
@@ -760,7 +774,7 @@ if [ "$RUN_STEP_7" = true ]; then
   grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/artifactregistry.writer"
   grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/logging.logWriter"
   log_info "Submitting Cloud Build job to compile unified container image..."
-  gcloud builds submit --config="${REPO_ROOT}/cloudbuild.yaml" \
+  gcloud builds submit --verbosity=info --config="${REPO_ROOT}/cloudbuild.yaml" \
     --substitutions=_LOCATION="${GCP_REGION}",_REPOSITORY="gaming-demo-images",_TAG="latest" \
     "${REPO_ROOT}"
 
