@@ -451,7 +451,7 @@ if [ "$RUN_STEP_3" = true ]; then
     log_info "Compiling and running Dataform Medallion models in ${DATAFORM_DIR}..."
 
     log_info "Ensuring all required BigQuery datasets exist in ${GCP_PROJECT} before table seeding..."
-    for ds in gaming_raw gaming_synthetic gaming_silver gaming_gold gaming_central_identity gaming_fps_studio gaming_mmo_studio gaming_mobile_studio gaming_sports_studio gaming_strategy_studio gaming_telemetry_bronze gaming_telemetry_silver gaming_telemetry_gold gaming_telemetry_dashboards gaming_telemetry_reference gaming_agent_analytics; do
+    for ds in gaming_raw gaming_synthetic gaming_silver gaming_gold gaming_central_identity gaming_fps_studio gaming_mmo_studio gaming_mobile_studio gaming_sports_studio gaming_strategy_studio gaming_telemetry_bronze gaming_telemetry_silver gaming_telemetry_gold gaming_telemetry_dashboards gaming_telemetry_reference gaming_agent_analytics gaming_dataform_assertions gaming_telemetry_graph; do
       log_info "  - Checking/creating dataset: ${ds}..."
       bq mk --location="${GCP_REGION}" --dataset "${GCP_PROJECT}:${ds}" &>/dev/null || true
     done
@@ -563,7 +563,7 @@ EOF
 dataformCoreVersion: 3.0.56
 defaultLocation: ${GCP_REGION}
 datasetSuffix: ""
-defaultAssertionDataset: dataform_assertions
+defaultAssertionDataset: gaming_dataform_assertions
 EOF
 
     log_info "Ensuring Cloud Build service account IAM permissions for BigQuery Dataform execution..."
@@ -656,99 +656,28 @@ else
 fi
 
 # ==============================================================================
-# Step 6: Vertex AI Agent Engine / ADK Agent Deployment
+# Step 6: Vertex AI Agent Engine / ADK Agent Deployment (src/agents/kc)
 # ==============================================================================
 if [ "$RUN_STEP_6" = true ]; then
-  log_step "STEP 6: Vertex AI Agent Engine / ADK Agent Deployment"
+  log_step "STEP 6: Vertex AI Agent Engine / ADK Agent Deployment (src/agents/kc)"
 
-  if [ ! -f "/tmp/.iam_roles_granted_${GCP_PROJECT}" ]; then
-    log_info "Ensuring Reasoning Engine Service Agent IAM permissions..."
-    gcloud services identity create --service=reasoningengine.googleapis.com --project="${GCP_PROJECT}" &>/dev/null || true
-    grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" "roles/artifactregistry.reader" || true
-    grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" "roles/bigquery.dataEditor" || true
-    grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" "roles/bigquery.jobUser" || true
-    grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" "roles/bigquery.dataViewer" || true
-    grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" "roles/dataplex.viewer" || true
-    grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" "roles/aiplatform.user" || true
-    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/aiplatform.admin" || true
-    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/aiplatform.admin" || true
-    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/bigquery.dataEditor" || true
-    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/bigquery.jobUser" || true
-    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/bigquery.dataViewer" || true
-    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/dataplex.viewer" || true
-    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/secretmanager.secretAccessor" || true
-    touch "/tmp/.iam_roles_granted_${GCP_PROJECT}"
+  KC_AGENT_DIR="${REPO_ROOT}/src/agents/kc"
+  if [ -f "${KC_AGENT_DIR}/deploy.sh" ]; then
+    log_info "Executing new agent deployment script: ${KC_AGENT_DIR}/deploy.sh..."
+    (
+      cd "${KC_AGENT_DIR}"
+      GCP_PROJECT_ID="${GCP_PROJECT}" GCP_REGION="${GCP_REGION}" bash "./deploy.sh"
+    )
+    log_success "Step 6 Vertex AI Agent Engine / ADK Agent (agent_kc) deployed successfully."
   else
-    log_info "Reasoning Engine IAM permissions already verified (cached)."
-  fi
-
-  AGENT_TARGET="${AGENT_TARGET:-kc}"
-  AGENT_DEPLOY_SCRIPT="${GAMING_DIR}/agents/deploy_agents.sh"
-
-  if [ "$AGENT_TARGET" = "kc" ] || [ "$AGENT_TARGET" = "all" ]; then
-    log_info "Verifying agent_kc container image in Artifact Registry..."
-    
-    AGENT_REPO="gaming-agent-images"
-    AGENT_IMAGE_NAME="agent-kc"
-    AGENT_IMAGE_URI="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/${AGENT_REPO}/${AGENT_IMAGE_NAME}"
-    
-    # Get git commit hash for src/gamingdatademo
-    GIT_COMMIT_HASH=$(git log -n 1 --pretty=format:%H -- "${GAMING_DIR}" 2>/dev/null || echo "latest")
-    log_info "Active code commit hash for ${GAMING_DIR}: ${GIT_COMMIT_HASH}"
-    
-    # Ensure Artifact Registry repository exists
-    if ! gcloud artifacts repositories describe "${AGENT_REPO}" --location="${GCP_REGION}" --project="${GCP_PROJECT}" &>/dev/null; then
-      log_info "Creating Artifact Registry repository '${AGENT_REPO}'..."
-      gcloud artifacts repositories create "${AGENT_REPO}" \
-        --repository-format=docker \
-        --location="${GCP_REGION}" \
-        --description="Docker repository for AI agents" \
-        --project="${GCP_PROJECT}" --quiet
-    fi
-    
-    # Configure docker authentication
-    gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
-    
-    # Check if tag already exists in Artifact Registry
-    IMAGE_EXISTS=false
-    if gcloud artifacts docker images describe "${AGENT_IMAGE_URI}:${GIT_COMMIT_HASH}" --project="${GCP_PROJECT}" &>/dev/null; then
-      IMAGE_EXISTS=true
-    fi
-    
-    if [ "$IMAGE_EXISTS" = true ] && [ "${FORCE_AGENT_BUILD:-false}" = "false" ]; then
-      log_info "Container image for commit ${GIT_COMMIT_HASH} already exists in registry. Skipping build."
-    else
-      if [ "$IMAGE_EXISTS" = "false" ]; then
-        log_info "No container image found for commit ${GIT_COMMIT_HASH}. Building container..."
-      else
-        log_info "Forcing rebuild of agent_kc container..."
-      fi
-      
-      # Build and push container image using Cloud Build
-      gcloud builds submit \
-        --verbosity=info \
-        --tag="${AGENT_IMAGE_URI}:${GIT_COMMIT_HASH}" \
-        --tag="${AGENT_IMAGE_URI}:latest" \
-        --project="${GCP_PROJECT}" \
-        "${GAMING_DIR}/agents/agent_kc"
-      log_success "Successfully compiled and pushed agent_kc container image."
-    fi
-    
-    # Export the image URI for deploy_agents.sh to pick up
-    export CONTAINER_IMAGE_URI="${AGENT_IMAGE_URI}:${GIT_COMMIT_HASH}"
-  fi
-
-  if [ -f "$AGENT_DEPLOY_SCRIPT" ]; then
-    log_info "Executing ADK agent deployment script: ${AGENT_DEPLOY_SCRIPT} (target: ${AGENT_TARGET})..."
-    GOOGLE_CLOUD_PROJECT="${GCP_PROJECT}" GOOGLE_CLOUD_LOCATION="${GCP_REGION}" bash "$AGENT_DEPLOY_SCRIPT" "${AGENT_TARGET}"
-    log_success "Step 6 Vertex AI Agent Engine / ADK Agent(s) (${AGENT_TARGET}) deployed successfully."
-  else
-    log_error "Agent deployment script ${AGENT_DEPLOY_SCRIPT} not found."
+    log_error "Agent deployment script ${KC_AGENT_DIR}/deploy.sh not found."
     exit 1
   fi
 else
   log_info "[SKIPPED] Step 6: Vertex AI Agent Engine / ADK Agent Deployment"
 fi
+
+
 
 # ==============================================================================
 # Step 7: Cloud Build Container Compilation

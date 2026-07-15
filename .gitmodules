@@ -6,3 +6,6 @@
 	path = src/retail-data-and-ai-demo
 	url = git@github.com:joeholley/retail-data-and-ai-demo.git
 	branch = games
+[submodule "src/agents"]
+	path = src/agents
+	url = git@github.com:joeholley/agents.git
