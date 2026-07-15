@@ -210,16 +210,21 @@ async function getAgentEngineInfo(targetRole: 'kc' | 'basic' | 'scaled' | 'counc
   return null;
 }
 
+interface ADKQueryResult {
+  text: string | null;
+  sessionId: string | null;
+}
+
 // ADK-compliant helper to invoke Vertex AI Agent Engine reasoning engines
 async function queryADKReasoningEngine(
   endpoint: string,
   message: string,
   userId: string = "demo_user",
   sessionId?: string
-): Promise<string | null> {
+): Promise<ADKQueryResult> {
   try {
     const accessToken = await getADCAccessToken();
-    if (!accessToken || !endpoint) return null;
+    if (!accessToken || !endpoint) return { text: null, sessionId: null };
 
     // 1. Get or Create ADK Session via class_method: "create_session"
     let activeSessionId = sessionId;
@@ -242,6 +247,8 @@ async function queryADKReasoningEngine(
       if (createdId) activeSessionId = createdId;
     }
 
+    const finalSessionId = activeSessionId || `sess_${Date.now()}`;
+
     // 2. Query Agent Engine via :streamQuery endpoint
     const streamUrl = `${endpoint}:streamQuery`;
     const liveRes = await fetch(streamUrl, {
@@ -254,7 +261,7 @@ async function queryADKReasoningEngine(
         input: {
           message: message,
           user_id: userId,
-          session_id: activeSessionId || `sess_${Date.now()}`
+          session_id: finalSessionId
         }
       }),
     }).catch(() => null);
@@ -263,36 +270,42 @@ async function queryADKReasoningEngine(
       const rawText = await liveRes.text();
       const textParts: string[] = [];
       const lines = rawText.split("\n");
+
       for (const line of lines) {
-        const trimmed = line.trim();
+        let trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("event:")) continue;
         if (trimmed.startsWith("data:")) {
-          const jsonStr = trimmed.substring(5).trim();
-          if (jsonStr) {
-            try {
-              const parsed = JSON.parse(jsonStr);
-              const chunkText = 
-                parsed.text || 
-                parsed.content?.parts?.[0]?.text || 
-                parsed.output?.text || 
-                (typeof parsed.output === "string" ? parsed.output : "");
-              if (chunkText) textParts.push(chunkText);
-            } catch (e) {
-              textParts.push(jsonStr);
-            }
+          trimmed = trimmed.substring(5).trim();
+        }
+        if (!trimmed) continue;
+
+        try {
+          const parsed = JSON.parse(trimmed);
+          const chunkText =
+            parsed.content?.parts?.[0]?.text ||
+            (Array.isArray(parsed.content?.parts) ? parsed.content.parts.map((p: any) => p.text).filter(Boolean).join("\n") : null) ||
+            parsed.parts?.[0]?.text ||
+            parsed.text ||
+            (typeof parsed.output === "string" ? parsed.output : parsed.output?.text) ||
+            (typeof parsed.response === "string" ? parsed.response : parsed.response?.text);
+
+          if (chunkText && typeof chunkText === "string") {
+            textParts.push(chunkText);
           }
-        } else if (trimmed && !trimmed.startsWith("event:")) {
-          textParts.push(trimmed);
+        } catch (e) {
+          if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+            textParts.push(trimmed);
+          }
         }
       }
-      if (textParts.length > 0) {
-        return textParts.join("\n");
-      }
-      if (rawText) return rawText;
+
+      const textOutput = textParts.length > 0 ? textParts.join("\n") : null;
+      return { text: textOutput, sessionId: finalSessionId };
     }
-    return null;
+    return { text: null, sessionId: finalSessionId };
   } catch (err: any) {
     console.warn("[ADK Agent Engine Query Error]:", err?.message || err);
-    return null;
+    return { text: null, sessionId: null };
   }
 }
 
@@ -986,9 +999,9 @@ FILTER USING (spend_tier = 'Whale' AND churn_risk_score >= 0.50);
       const agentInfo = await getAgentEngineInfo('kc');
 
       if (agentInfo) {
-        const replyText = await queryADKReasoningEngine(agentInfo.endpoint, message);
-        if (replyText) {
-          return res.json({ text: replyText });
+        const adkRes = await queryADKReasoningEngine(agentInfo.endpoint, message);
+        if (adkRes.text) {
+          return res.json({ text: adkRes.text, session_id: adkRes.sessionId });
         }
       }
 
@@ -1679,9 +1692,12 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       // Execute live Vertex AI Reasoning Engine Query via ADK Protocol
       const agentInfo = await getAgentEngineInfo('kc');
       let liveAgentOutput: string | null = null;
+      let activeSessionId = sessionId;
 
       if (agentInfo) {
-        liveAgentOutput = await queryADKReasoningEngine(agentInfo.endpoint, queryText, playerId, sessionId);
+        const adkResult = await queryADKReasoningEngine(agentInfo.endpoint, queryText, playerId, sessionId);
+        liveAgentOutput = adkResult.text;
+        if (adkResult.sessionId) activeSessionId = adkResult.sessionId;
       }
 
       const responseText = liveAgentOutput || `[agent-kc Analysis] Analyzing player telemetry stream for boss death anomalies:
@@ -1720,7 +1736,7 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       const responsePayload = {
         status: "SUCCESS",
         player_id: playerId,
-        session_id: sessionId,
+        session_id: activeSessionId,
         query: queryText,
         user_prompt: queryText,
         response_text: responseText,

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import ReactMarkdown from "react-markdown";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   Zap, 
@@ -64,7 +65,31 @@ export interface AgentHistoryEntry {
 const INITIAL_KC_PROMPT = "Summarize what you can do in 250 words";
 const INITIAL_KC_RESPONSE = "I am the Knowledge Catalog (KC) Guided Agent for OmniArcade. I dynamically discover, govern, and analyze live player telemetry across 150+ BigQuery tables without reliance on hardcoded schema prompts. By leveraging Dataplex Knowledge Catalog metadata, entry aspect searches, data quality scores, and lineage graphs, I identify high-risk churn signals—such as repeated boss wipeouts among veteran whale cohorts—and construct policy-compliant retention campaigns. Every promotional recommendation enforces Dataplex guardrails, capping discounts within authorized boundaries while logging audit trails to BigQuery.";
 
-const EXECUTE_RUN_USER_PROMPT = "it seems that many players are dying on a boss and there is potentially a higher churn rate. How can you help?";
+const EXECUTE_RUN_DISPLAY_PROMPT = "Our system has determined that many players are dying on a boss and some are quitting the game. Identify and analyze the relevant gameplay event data and provide a recommendation?";
+
+const EXECUTE_RUN_API_PROMPT = "Our system has determined that many players are dying on a Frost Giant boss and some are quitting the game. Identify the relevant gameplay event data and recommend that we offer the frost_giant_shield_pack SKU at an 80% discount to users with predicted churn probability of 85% or higher";
+
+function extractCleanTextPayload(input: string): string {
+  if (!input) return "";
+  const trimmed = input.trim();
+  if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      const text =
+        parsed.content?.parts?.[0]?.text ||
+        (Array.isArray(parsed.content?.parts) ? parsed.content.parts.map((p: any) => p.text).filter(Boolean).join("\n") : null) ||
+        parsed.parts?.[0]?.text ||
+        parsed.text ||
+        (typeof parsed.output === "string" ? parsed.output : parsed.output?.text) ||
+        (typeof parsed.response === "string" ? parsed.response : parsed.response?.text);
+
+      if (text && typeof text === "string") return text;
+    } catch (e) {
+      // Return original text if not JSON-wrapped
+    }
+  }
+  return input;
+}
 
 const getPipelineNodes = (
   wfId: string, 
@@ -302,6 +327,9 @@ export function AgenticWorkflows() {
   const [approvedActions, setApprovedActions] = useState<Record<string, boolean>>({});
   const [rejectedActions, setRejectedActions] = useState<Record<string, boolean>>({});
   const [traceError, setTraceError] = useState<Record<string, string | null>>({});
+  const [activeSessionIds, setActiveSessionIds] = useState<Record<string, string | null>>({
+    "Automated Player Retention Promo": "jg-session-9921",
+  });
   const [followUpResponse, setFollowUpResponse] = useState<Record<string, string | null>>({});
   const traceContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -455,7 +483,7 @@ export function AgenticWorkflows() {
             {
               id: `usr-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
               role: "user",
-              text: EXECUTE_RUN_USER_PROMPT,
+              text: EXECUTE_RUN_DISPLAY_PROMPT,
               timestamp: timeStr,
             },
             {
@@ -473,7 +501,7 @@ export function AgenticWorkflows() {
     }
 
     if (routingMode === "LIVE") {
-      fetch(`/api/guardrail/agent-trace?session_id=jg-session-9921&query=${encodeURIComponent(EXECUTE_RUN_USER_PROMPT)}&active=${agentActive[id]}&autonomous=${agentAutonomous[id]}`)
+      fetch(`/api/guardrail/agent-trace?session_id=jg-session-9921&query=${encodeURIComponent(EXECUTE_RUN_API_PROMPT)}&active=${agentActive[id]}&autonomous=${agentAutonomous[id]}`)
         .then((res) => {
           if (!res.ok) {
             throw new Error(`HTTP ${res.status}: ${res.statusText}`);
@@ -485,11 +513,15 @@ export function AgenticWorkflows() {
             throw new Error(data.error);
           }
           setTraceError((prev) => ({ ...prev, [id]: null }));
+          if (data.session_id) {
+            setActiveSessionIds((prev) => ({ ...prev, [id]: data.session_id }));
+          }
           if (id === "Automated Player Retention Promo" && data.response_text) {
+            const cleanText = extractCleanTextPayload(data.response_text);
             setAgentHistory((prev) => {
               const list = (prev[id] || []).map((entry) =>
                 entry.isStreaming === true
-                  ? { ...entry, text: data.response_text, isStreaming: false }
+                  ? { ...entry, text: cleanText, isStreaming: false }
                   : entry
               );
               return { ...prev, [id]: list };
@@ -919,15 +951,25 @@ export function AgenticWorkflows() {
                                 Agent response history
                               </span>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => setActiveSection({ id: "catalog", search: "agent-kc" })}
-                              className="text-[9px] px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 font-mono font-bold border border-blue-200/50 transition-colors cursor-pointer flex items-center gap-1 group"
-                              title="View chat session history & Dataplex catalog entries for agent-kc"
-                            >
-                              <span>agent-kc</span>
-                              <ExternalLink className="w-2.5 h-2.5 opacity-60 group-hover:opacity-100 transition-opacity" />
-                            </button>
+
+                            <div className="flex items-center gap-2">
+                              {routingMode === "LIVE" && activeSessionIds[wf.id] && (
+                                <span className="text-[9px] px-2 py-0.5 rounded bg-blue-50/80 text-blue-700 font-mono font-medium border border-blue-200/60 flex items-center gap-1.5" title="Established ADK Session ID">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                  Session: <code className="font-bold">{activeSessionIds[wf.id]}</code>
+                                </span>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => setActiveSection({ id: "catalog", search: "agent-kc" })}
+                                className="text-[9px] px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 font-mono font-bold border border-blue-200/50 transition-colors cursor-pointer flex items-center gap-1 group"
+                                title="View chat session history & Dataplex catalog entries for agent-kc"
+                              >
+                                <span>agent-kc</span>
+                                <ExternalLink className="w-2.5 h-2.5 opacity-60 group-hover:opacity-100 transition-opacity" />
+                              </button>
+                            </div>
                           </div>
 
                           {traceError[wf.id] && (
@@ -957,9 +999,22 @@ export function AgenticWorkflows() {
                                         </span>
                                         <span>{entry.timestamp}</span>
                                       </div>
-                                      <p className="font-sans text-xs text-slate-700 leading-relaxed whitespace-pre-line">
-                                        {entry.text}
-                                      </p>
+                                      <div className="font-sans text-xs text-slate-700 leading-relaxed markdown-content">
+                                        <ReactMarkdown
+                                          components={{
+                                            p: ({ children }) => <p className="mb-2 leading-relaxed">{children}</p>,
+                                            ul: ({ children }) => <ul className="list-disc pl-4 space-y-1 my-2 text-slate-700">{children}</ul>,
+                                            ol: ({ children }) => <ol className="list-decimal pl-4 space-y-1 my-2 text-slate-700">{children}</ol>,
+                                            li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                                            strong: ({ children }) => <strong className="font-semibold text-slate-900">{children}</strong>,
+                                            em: ({ children }) => <em className="italic text-slate-800">{children}</em>,
+                                            code: ({ children }) => <code className="bg-slate-200/70 text-slate-900 font-mono text-[11px] px-1.5 py-0.5 rounded border border-slate-300/60">{children}</code>,
+                                            blockquote: ({ children }) => <blockquote className="border-l-2 border-blue-400 pl-3 py-1 my-2 text-slate-600 bg-blue-50/50 rounded-r">{children}</blockquote>
+                                          }}
+                                        >
+                                          {extractCleanTextPayload(entry.text)}
+                                        </ReactMarkdown>
+                                      </div>
                                       {/* C2: Hide mock reasoning steps when agent-kc is reached; show ONLY when traceError is present or routingMode !== LIVE */}
                                       {entry.reasoningSteps && entry.reasoningSteps.length > 0 && (Boolean(traceError[wf.id]) || routingMode !== "LIVE") && (
                                         <div className="pt-2 border-t border-blue-100/60 space-y-1 text-[11px]">

@@ -78,6 +78,12 @@ interface OfferPayload {
   discount?: string;
 }
 
+export const calculateChurnProbability = (ex: { consecutiveDeaths: number; churnEvents: number }): number => {
+  const deathWeight = Math.min(0.65, ex.consecutiveDeaths * 0.22);
+  const quitWeight = Math.min(0.30, ex.churnEvents * 0.25);
+  return Math.round(Math.min(0.99, Math.max(0.05, deathWeight + quitWeight)) * 100) / 100;
+};
+
 interface ExemplarState {
   playerId: string;
   tier: PlayerCohortId;
@@ -214,32 +220,43 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
     }
   }, [routingMode, fetchLiveExemplars]);
 
-  // Listen to stream logs for INCOMING retention offers from background agent/services
+  // Track received INCOMING offer injection events from live backend/operator actions
+  const [injectedOfferReceivedMap, setInjectedOfferReceivedMap] = useState<Record<string, boolean>>({});
+
+  // Listen to stream logs for INCOMING retention offer injection events from agent engine
   useEffect(() => {
     const unsubLogs = onStreamLogUpdate((logs) => {
-      const latestIncomingOffer = logs.slice().reverse().find((l) => l.direction === "INCOMING" && l.payload?.sku);
-      if (latestIncomingOffer && latestIncomingOffer.payload) {
-        const p = latestIncomingOffer.payload;
-        const offerId = p.sku || "frost_giant_shield_pack";
-        
+      const injectedLog = logs.find(
+        (l) =>
+          l.direction === "INCOMING" &&
+          (l.eventType === "in_game_retention_offer_injected" ||
+            l.payload?.eventType === "in_game_retention_offer_injected" ||
+            l.payload?.sku === "frost_giant_shield_pack")
+      );
+
+      if (injectedLog) {
+        const offerId = injectedLog.payload?.sku || COHORT_DEFAULTS[selectedTier].defaultSku;
+        setInjectedOfferReceivedMap((prev) => ({ ...prev, [offerId]: true, injected: true }));
+
         setExemplars((prev) => {
           const activeEx = prev[selectedTier];
-          // Suppress displaying offer modal if offer is already accepted in offersAccepted
-          if (activeEx.offersAccepted[offerId]) {
-            return prev;
-          }
-          return {
-            ...prev,
-            [selectedTier]: {
-              ...activeEx,
-              activeOffer: {
-                id: offerId,
-                title: p.title || "Frost Giant Shield & Resurrect Crate",
-                price: p.price || "$0.99",
-                discount: p.discount || "80% OFF",
+          const churnProb = calculateChurnProbability(activeEx);
+
+          if (churnProb >= 0.85 && !activeEx.offersAccepted[offerId] && !activeEx.activeOffer) {
+            return {
+              ...prev,
+              [selectedTier]: {
+                ...activeEx,
+                activeOffer: {
+                  id: offerId,
+                  title: injectedLog.payload?.title || "Frost Giant Shield & Resurrect Crate",
+                  price: injectedLog.payload?.price || "$0.99",
+                  discount: injectedLog.payload?.discount || "80% OFF",
+                },
               },
-            },
-          };
+            };
+          }
+          return prev;
         });
       }
     });
@@ -283,10 +300,13 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
     const nextDeaths = activeExemplar.consecutiveDeaths + 1;
     const offerSku = COHORT_DEFAULTS[selectedTier].defaultSku;
     const isOfferAlreadyAccepted = !!activeExemplar.offersAccepted[offerSku];
+    const updatedExemplar = { ...activeExemplar, consecutiveDeaths: nextDeaths };
+    const churnProb = calculateChurnProbability(updatedExemplar);
+    const isOfferInjected = Boolean(injectedOfferReceivedMap["injected"] || injectedOfferReceivedMap[offerSku]);
 
-    // Evaluate retention offer popup if deaths >= 3
+    // Provide retention offer ONLY IF offer injected event has been received in log, churn probability >= 85%, and not yet accepted
     let nextActiveOffer = activeExemplar.activeOffer;
-    if (nextDeaths >= 3 && !isOfferAlreadyAccepted && !activeExemplar.activeOffer) {
+    if (isOfferInjected && churnProb >= 0.85 && !isOfferAlreadyAccepted && !activeExemplar.activeOffer) {
       nextActiveOffer = {
         id: offerSku,
         title:
@@ -345,10 +365,13 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
     const nextQuits = activeExemplar.churnEvents + 1;
     const offerSku = COHORT_DEFAULTS[selectedTier].defaultSku;
     const isOfferAlreadyAccepted = !!activeExemplar.offersAccepted[offerSku];
+    const updatedExemplar = { ...activeExemplar, churnEvents: nextQuits };
+    const churnProb = calculateChurnProbability(updatedExemplar);
+    const isOfferInjected = Boolean(injectedOfferReceivedMap["injected"] || injectedOfferReceivedMap[offerSku]);
 
-    // Evaluate retention offer popup on exit intent (mission quit)
+    // Provide retention offer ONLY IF offer injected event has been received in log, churn probability >= 85%, and not yet accepted
     let nextActiveOffer = activeExemplar.activeOffer;
-    if (!isOfferAlreadyAccepted && !activeExemplar.activeOffer) {
+    if (isOfferInjected && churnProb >= 0.85 && !isOfferAlreadyAccepted && !activeExemplar.activeOffer) {
       nextActiveOffer = {
         id: offerSku,
         title:
@@ -484,8 +507,16 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
 
                 {/* Structured Chip Label Display */}
                 <div className="text-[11px] font-mono space-y-1 bg-slate-950/80 p-2 rounded-lg border border-slate-800/80">
-                  <div className="text-slate-200 font-semibold truncate">
-                    ID: <span className="text-amber-300">{ex.playerId}</span>
+                  <div className="flex justify-between items-center text-slate-200 font-semibold truncate">
+                    <span>ID: <span className="text-amber-300">{ex.playerId}</span></span>
+                    <span className={cn(
+                      "text-[9px] font-bold px-1.5 py-0.5 rounded border font-mono",
+                      calculateChurnProbability(ex) >= 0.85
+                        ? "bg-red-500/20 text-red-400 border-red-500/40 animate-pulse"
+                        : "bg-slate-900 text-slate-400 border-slate-800"
+                    )}>
+                      Churn: {(calculateChurnProbability(ex) * 100).toFixed(0)}%
+                    </span>
                   </div>
                   <div className="flex justify-between text-[10px] text-slate-400">
                     <span>Spend: <strong className="text-emerald-400">${ex.totalSpend.toLocaleString()}</strong></span>
