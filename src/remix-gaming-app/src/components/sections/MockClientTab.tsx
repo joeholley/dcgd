@@ -79,8 +79,8 @@ interface OfferPayload {
 }
 
 export const calculateChurnProbability = (ex: { consecutiveDeaths: number; churnEvents: number }): number => {
-  const deathWeight = Math.min(0.65, ex.consecutiveDeaths * 0.22);
-  const quitWeight = Math.min(0.30, ex.churnEvents * 0.25);
+  const deathWeight = ex.consecutiveDeaths * 0.30;
+  const quitWeight = ex.churnEvents * 0.85;
   return Math.round(Math.min(0.99, Math.max(0.05, deathWeight + quitWeight)) * 100) / 100;
 };
 
@@ -556,6 +556,36 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
             </div>
           </div>
 
+          {/* Interactive Player Action Triggers */}
+          <div className="space-y-3 font-mono">
+            <span className="text-xs font-bold text-slate-300 uppercase block tracking-wider">
+              Simulate Player Action Actions:
+            </span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* "Try Again" Button */}
+              <button
+                type="button"
+                disabled={isProcessingAction || encounterState === "boss_encountered"}
+                onClick={handleTryAgain}
+                className="p-3.5 bg-red-950/40 hover:bg-red-900/60 border border-red-800/60 text-red-200 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
+              >
+                <Flame className="w-4 h-4 text-red-400" />
+                <span>Try Again</span>
+              </button>
+
+              {/* "Quit Mission" Button */}
+              <button
+                type="button"
+                disabled={isProcessingAction || showQuitModal}
+                onClick={handleQuitMission}
+                className="p-3.5 bg-amber-950/40 hover:bg-amber-900/60 border border-amber-800/60 text-amber-200 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
+              >
+                <LogOut className="w-4 h-4 text-amber-400" />
+                <span>Quit Mission</span>
+              </button>
+            </div>
+          </div>
+
           {/* 9x16 Aspect Ratio Game Client Window */}
           <div
             className={cn(
@@ -675,36 +705,6 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
             <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800">
               <span className="text-[10px] text-slate-500 uppercase block font-bold">Exit Intent Count:</span>
               <span className="text-base font-bold text-orange-400">{activeExemplar.churnEvents} Mission Quits</span>
-            </div>
-          </div>
-
-          {/* Interactive Player Action Triggers */}
-          <div className="space-y-3 font-mono">
-            <span className="text-xs font-bold text-slate-300 uppercase block tracking-wider">
-              Simulate Player Action Actions:
-            </span>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {/* "Try Again" Button */}
-              <button
-                type="button"
-                disabled={isProcessingAction || encounterState === "boss_encountered"}
-                onClick={handleTryAgain}
-                className="p-3.5 bg-red-950/40 hover:bg-red-900/60 border border-red-800/60 text-red-200 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
-              >
-                <Flame className="w-4 h-4 text-red-400" />
-                <span>Try Again</span>
-              </button>
-
-              {/* "Quit Mission" Button */}
-              <button
-                type="button"
-                disabled={isProcessingAction || showQuitModal}
-                onClick={handleQuitMission}
-                className="p-3.5 bg-amber-950/40 hover:bg-amber-900/60 border border-amber-800/60 text-amber-200 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
-              >
-                <LogOut className="w-4 h-4 text-amber-400" />
-                <span>Quit Mission</span>
-              </button>
             </div>
           </div>
         </div>

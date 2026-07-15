@@ -517,8 +517,8 @@ function runSimulationTick() {
       timestamp,
     };
 
-    const deathWeight = Math.min(0.65, consecutiveDeaths * 0.22);
-    const eventWeight = eventType === "boss_fail" || eventType === "boss_death" ? 0.20 : 0.05;
+    const deathWeight = consecutiveDeaths * 0.30;
+    const eventWeight = eventType === "mission_quit" || eventType === "churn_event" ? 0.85 : 0.05;
     const predictedChurnScore = Math.round(Math.min(0.99, Math.max(0.05, deathWeight + eventWeight)) * 100) / 100;
     const churnRiskLevel = predictedChurnScore >= 0.80 ? "CRITICAL" : predictedChurnScore >= 0.50 ? "HIGH" : "LOW";
 
