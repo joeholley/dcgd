@@ -445,7 +445,7 @@ function calculateCurrentCCU(): number {
 
 const simulatorState: SimulatorState = {
   isRunning: true,
-  activeAnomaly: null,
+  activeAnomaly: "high_churn_boss_deaths",
   eventRateHz: 1,
   totalEventsPublished: 0,
   currentCCU: calculateCurrentCCU(),

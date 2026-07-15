@@ -43,7 +43,7 @@ class TelemetrySimulator:
         "toxic_chat"
     ]
 
-    def __init__(self, project_id=None, topic_name=None, rate_hz=10, active_anomaly=None):
+    def __init__(self, project_id=None, topic_name=None, rate_hz=10, active_anomaly="high_churn_boss_deaths"):
         self.project_id = project_id or os.environ.get("GOOGLE_CLOUD_PROJECT", "gaming-demo")
         self.topic_name = topic_name or os.environ.get("PUBSUB_TOPIC", "gaming-live-telemetry")
         self.rate_hz = rate_hz
@@ -200,7 +200,7 @@ def main():
     parser.add_argument("--rate", type=float, default=10.0, help="Event generation rate in Hz (events/sec)")
     parser.add_argument("--project", type=str, default=None, help="GCP Project ID")
     parser.add_argument("--topic", type=str, default="gaming-live-telemetry", help="GCP Pub/Sub topic name")
-    parser.add_argument("--anomaly", type=str, choices=TelemetrySimulator.ANOMALIES, default=None, help="Inject LiveOps anomaly")
+    parser.add_argument("--anomaly", type=str, choices=TelemetrySimulator.ANOMALIES, default="high_churn_boss_deaths", help="Inject LiveOps anomaly")
     parser.add_argument("--duration", type=float, default=None, help="Run duration in seconds (default: infinite)")
 
     args = parser.parse_args()

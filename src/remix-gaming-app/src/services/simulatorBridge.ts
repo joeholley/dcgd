@@ -84,7 +84,7 @@ const DEFAULT_STATE: SimulatorPersistentState = {
   routingMode: "LIVE",
   selectedCohort: "Whale",
   peakCCU: 250000,
-  activeAnomaly: "none",
+  activeAnomaly: "high_churn_boss_deaths",
   activeTimezones: {
     apac: true,
     emea: true,
@@ -121,7 +121,7 @@ function loadInitialState(): SimulatorPersistentState {
         peakCCU: typeof parsed.peakCCU === "number" ? parsed.peakCCU : 250000,
         activeAnomaly: ["none", "high_churn_boss_deaths", "level_2_bottleneck", "toxic_chat"].includes(parsed.activeAnomaly)
           ? parsed.activeAnomaly
-          : "none",
+          : "high_churn_boss_deaths",
         activeTimezones: {
           apac: parsed.activeTimezones?.apac ?? true,
           emea: parsed.activeTimezones?.emea ?? true,
@@ -183,7 +183,7 @@ let lastSimStatePayload: SimulatorStatePayload = {
   isRunning: true,
   frequencyHz: 1,
   targetCCU: 250000,
-  activeAnomaly: null,
+  activeAnomaly: "high_churn_boss_deaths",
 };
 
 export function getSimulatorStatePayload(): SimulatorStatePayload {

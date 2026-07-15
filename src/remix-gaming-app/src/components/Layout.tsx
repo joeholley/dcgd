@@ -131,7 +131,7 @@ export function Layout({
   }>({
     isRunning: false,
     currentCCU: 14280,
-    activeAnomaly: null,
+    activeAnomaly: "high_churn_boss_deaths",
     totalEventsPublished: 0,
   });
 
