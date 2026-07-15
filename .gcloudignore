@@ -1,12 +1,51 @@
-.gcloudignore
+# VCS & System
 .git
 .gitignore
+.gcloudignore
+.DS_Store
+**/.DS_Store
+
+# Documentation & Notebooks
+*.md
+**/*.md
+docs/
+*.ipynb
+
+# Local Virtual Environments & Build Caches
+.venv/
+**/.venv*/
+**/env/
+deploy_venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+**/.pytest_cache/
+.uv/
+**/.uv/
+.cache/
+**/.cache/
+
+# Node Build Artifacts
 node_modules/
 **/node_modules/
 dist/
 **/dist/
-.venv/
-**/__pycache__/
-*.pyc
+build/
+**/build/
+
+# Infrastructure & Standalone Repositories
 src/retail-data-and-ai-demo/
-.agents
+src/agents/
+.agents/
+
+# Unused Subdirectories in gamingdatademo
+src/gamingdatademo/dataform/
+src/gamingdatademo/snowflake/
+src/gamingdatademo/eval/
+src/gamingdatademo/stacks/
+src/gamingdatademo/env/
+src/gamingdatademo/modules/
+src/gamingdatademo/docs/
+src/gamingdatademo/adapting-agent/

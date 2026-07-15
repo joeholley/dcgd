@@ -1,17 +1,53 @@
-node_modules
-**/node_modules
-dist
-**/dist
+# VCS & System
 .git
-.github
-.venv
-venv
-__pycache__
+.gitignore
+.gcloudignore
+.DS_Store
+**/.DS_Store
+
+# Documentation & Notebooks
+*.md
+**/*.md
+docs/
+*.ipynb
+
+# Local Virtual Environments & Build Caches
+.venv/
+**/.venv*/
+**/env/
+deploy_venv/
+__pycache__/
+**/__pycache__/
 *.pyc
 *.pyo
-*.pyd
-.DS_Store
-.df-credentials.json
-**/config.json
+.pytest_cache/
+**/.pytest_cache/
+.uv/
+**/.uv/
+.cache/
+**/.cache/
+
+# Node Build Artifacts (npm ci runs inside Docker stage 1)
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+build/
+**/build/
+npm-debug.log*
+yarn-debug.log*
+
+# Infrastructure & Standalone Repositories (Not packaged in app image)
 src/retail-data-and-ai-demo/
-.agents
+src/agents/
+.agents/
+
+# Unused Subdirectories in gamingdatademo
+src/gamingdatademo/dataform/
+src/gamingdatademo/snowflake/
+src/gamingdatademo/eval/
+src/gamingdatademo/stacks/
+src/gamingdatademo/env/
+src/gamingdatademo/modules/
+src/gamingdatademo/docs/
+src/gamingdatademo/adapting-agent/

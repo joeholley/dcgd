@@ -51,6 +51,16 @@ log_step() {
 grant_role_silently() {
   local member="$1"
   local role="$2"
+  local existing_roles
+  existing_roles=$(gcloud projects get-iam-policy "${GCP_PROJECT}" \
+    --filter="bindings.members:${member}" \
+    --format="value(bindings.role)" 2>/dev/null || true)
+
+  if echo "${existing_roles}" | grep -q -w "${role}"; then
+    log_info "  - ${member} already has ${role} (skipped)"
+    return 0
+  fi
+
   log_info "  - Granting ${role} to ${member}..."
   local err_log
   err_log=$(mktemp)
