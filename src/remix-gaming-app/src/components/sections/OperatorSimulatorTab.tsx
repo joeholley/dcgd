@@ -203,11 +203,6 @@ export function OperatorSimulatorTab({ routingMode }: OperatorSimulatorTabProps)
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-xs flex items-center gap-1.5">
                         {anomaly.label}
-                        {isDisabled && (
-                          <span className="text-[9px] bg-slate-800 text-slate-400 font-normal px-1.5 py-0.5 rounded border border-slate-700">
-                            Not Yet Implemented
-                          </span>
-                        )}
                       </span>
                       {isSelected && <CheckCircle2 className="w-4 h-4 text-indigo-400 shrink-0" />}
                     </div>

@@ -48,10 +48,10 @@ const LAYOUT_TRANSLATIONS: Record<string, Record<Country, string>> = {
     Korea: "게임 성과 분석",
     China: "游戏运行表现"
   },
-  "Gameplay Agents": {
-    Japan: "自動ゲームエージェント",
-    Korea: "게임 플레이 에이전트",
-    China: "自动化游戏代理"
+  "Operations Agents": {
+    Japan: "運用エージェント",
+    Korea: "운영 에이전트",
+    China: "运营代理"
   },
   "Campaign Engine": {
     Japan: "キャンペーン・エンジン",
@@ -322,7 +322,7 @@ export function Layout({
       items: [
         { id: "overview" as Section, label: "Gaming Overview", icon: Network },
         { id: "operations" as Section, label: "Game Performance", icon: LayoutDashboard },
-        { id: "executive-portfolio" as Section, label: "Executive Portfolio (Flask)", icon: Layers },
+        { id: "executive-portfolio" as Section, label: "Executive Portfolio", icon: Layers },
         { id: "catalog" as Section, label: "Telemetry Catalog", icon: Search },
       ],
     },
@@ -330,24 +330,24 @@ export function Layout({
       title: "LiveOps & Automation",
       items: [
         { id: "campaigns" as Section, label: "Campaign Engine", icon: Megaphone },
-        { id: "difficulty-balancer" as Section, label: "Difficulty Balancer (Flask)", icon: Zap },
-        { id: "marketing-swarm" as Section, label: "Marketing Swarm (Flask)", icon: Bot },
+        { id: "difficulty-balancer" as Section, label: "Difficulty Balancer", icon: Zap },
+        { id: "marketing-swarm" as Section, label: "Marketing Swarm", icon: Bot },
       ],
     },
     {
       title: "Agent & AI Workspace",
       items: [
-        { id: "workflows" as Section, label: "Gameplay Agents", icon: Zap },
-        { id: "agent-comparison" as Section, label: "Agent Comparison (Flask)", icon: Bot },
-        { id: "lineage-graph" as Section, label: "Data Lineage Graph (Flask)", icon: Network },
+        { id: "workflows" as Section, label: "Operations Agents", icon: Zap },
+        { id: "agent-comparison" as Section, label: "Agent Comparison", icon: Bot },
+        { id: "lineage-graph" as Section, label: "Data Lineage Graph", icon: Network },
       ],
     },
     {
       title: "Observability & Diagnostics",
       items: [
         { id: "observatory" as Section, label: "API Observatory", icon: Activity },
-        { id: "toxicity" as Section, label: "Trust & Safety (Flask)", icon: ShieldCheck },
-        { id: "gcp-health" as Section, label: "GCP System Health", icon: CloudCheck },
+        { id: "toxicity" as Section, label: "Trust & Safety", icon: ShieldCheck },
+        { id: "gcp-health" as Section, label: "Google Cloud Health", icon: CloudCheck },
         { id: "diagnostics" as Section, label: "System Diagnostics", icon: Activity },
       ],
     },
@@ -369,6 +369,10 @@ export function Layout({
           "flex items-center gap-3 px-3.5 py-1.5 bg-slate-800/80 rounded-full border shadow-inner font-mono text-xs shrink-0",
           routingMode === "MOCKED" ? "border-orange-500/40" : "border-slate-700/60"
         )}>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 pr-1 border-r border-slate-700/80">
+            Simulator
+          </span>
+
           {/* User-Controlled LIVE vs MOCKED Routing Mode Toggle */}
           <div className="flex items-center bg-slate-950 p-0.5 rounded-full border border-slate-700">
             <button
@@ -381,7 +385,7 @@ export function Layout({
                   : "text-slate-400 hover:text-slate-200"
               )}
             >
-              LIVE (GCP)
+              LIVE
             </button>
             <button
               type="button"
@@ -408,12 +412,12 @@ export function Layout({
             )}
           >
             <span className={cn("w-2 h-2 rounded-full", simulator.isRunning ? "bg-emerald-400 animate-pulse" : "bg-slate-500")} />
-            <span>Simulator: {simulator.isRunning ? "ON" : "OFF"}</span>
+            <span>{simulator.isRunning ? "ON" : "OFF"}</span>
           </button>
 
           <div className="flex items-center gap-1.5 text-slate-200 font-semibold text-[11px]">
             <Activity className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-            <span>{simulator.currentCCU.toLocaleString()} Simulated Global PCCU</span>
+            <span>{simulator.currentCCU.toLocaleString()} CCU</span>
           </div>
 
           {/* Cohort Badge */}
@@ -437,10 +441,10 @@ export function Layout({
               onChange={(e) => handleInjectAnomaly(e.target.value)}
               className="bg-slate-950 border border-slate-700/60 text-[10px] font-semibold text-amber-300 px-2 py-0.5 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
             >
-              <option value="none">Normal (No Anomaly)</option>
-              <option value="level_2_bottleneck" disabled>⚡ Level 2 Bottleneck (Not Yet Implemented)</option>
-              <option value="high_churn_boss_deaths">💀 High-Churn Boss Death</option>
-              <option value="toxic_chat" disabled>☣️ Toxic Chat Outbreak (Not Yet Implemented)</option>
+              <option value="none" className="bg-slate-950 text-slate-100">Normal (No Anomaly)</option>
+              <option value="level_2_bottleneck" disabled className="bg-slate-900 text-slate-500">⚡ Level 2 Bottleneck</option>
+              <option value="high_churn_boss_deaths" className="bg-slate-950 text-slate-100">💀 High-Churn Boss Death</option>
+              <option value="toxic_chat" disabled className="bg-slate-900 text-slate-500">☣️ Toxic Chat Outbreak</option>
             </select>
           </div>
 
@@ -448,11 +452,10 @@ export function Layout({
           <button
             type="button"
             onClick={() => window.open("/simulator", "_blank")}
-            className="flex items-center gap-1 px-2.5 py-1 bg-slate-900 hover:bg-slate-950 border border-slate-700 hover:border-slate-500 text-blue-400 hover:text-blue-300 text-[10px] font-bold rounded-lg transition-all cursor-pointer shadow-sm ml-1"
+            className="flex items-center justify-center p-1.5 bg-slate-900 hover:bg-slate-950 border border-slate-700 hover:border-slate-500 text-blue-400 hover:text-blue-300 rounded-lg transition-all cursor-pointer shadow-sm ml-1"
             title="Open Standalone Game Simulator Interface in new window"
           >
-            <span>Simulator UI</span>
-            <ExternalLink className="w-3 h-3" />
+            <ExternalLink className="w-3.5 h-3.5" />
           </button>
         </div>
 

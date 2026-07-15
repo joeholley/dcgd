@@ -83,7 +83,7 @@ export function SimulatorInterface() {
                   : "bg-transparent border-transparent text-slate-400 hover:text-slate-200"
               )}
             >
-              LIVE (GCP Backend)
+              LIVE
             </button>
             <button
               type="button"
@@ -95,7 +95,7 @@ export function SimulatorInterface() {
                   : "bg-transparent border-transparent text-slate-400 hover:text-slate-200"
               )}
             >
-              MOCKED (In-Memory)
+              MOCKED
             </button>
           </div>
         </div>

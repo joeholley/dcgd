@@ -17,7 +17,7 @@ export function DataModeBadge({ mode, source, details, className = '' }: DataMod
 
   const configMap = {
     live: {
-      label: 'LIVE (GCP)',
+      label: 'LIVE',
       bg: 'bg-emerald-500/10 hover:bg-emerald-500/20',
       border: 'border-emerald-500/30',
       text: 'text-emerald-400',

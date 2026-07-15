@@ -127,7 +127,7 @@ export default function App() {
           {activeSection === "agent-comparison" && (
             <FlaskSection 
               title="Agent Comparison Workspace"
-              subtitle="KC-Guided vs Non-KC AI Gameplay Agent Trajectory Comparison"
+              subtitle="KC-Guided vs Non-KC AI Operations Agent Trajectory Comparison"
               path="/agent-comparison"
               dataMode="live"
               dataBank="Gemini Enterprise Agent Runtime + Flask-Sock WS"

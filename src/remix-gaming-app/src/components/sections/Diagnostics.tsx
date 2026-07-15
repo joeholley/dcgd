@@ -42,7 +42,8 @@ interface GCPServiceProbe {
   description: string;
   status: 'ONLINE' | 'LIVE' | 'FALLBACK' | 'OFFLINE';
   mode: DataMode;
-  latencyMs: number;
+  latencyMs?: number;
+  latency_ms?: number;
   details: string;
 }
 
@@ -69,13 +70,15 @@ export function Diagnostics() {
     { id: 'pubsub', name: 'Cloud Pub/Sub Streaming Ingest', description: 'gaming-live-telemetry & BQ Direct Sub', status: 'FALLBACK', mode: 'mock', latencyMs: 16, details: 'Pub/Sub topic gaming-live-telemetry active (Dev Mock)' },
     { id: 'bqml', name: 'BigQuery ML (ML.PREDICT)', description: 'ML.PREDICT gaming_raw.gaming_player_churn_model', status: 'FALLBACK', mode: 'mock', latencyMs: 5, details: 'Dynamic heuristic churn scoring active in dev fallback' },
     { id: 'dataplex', name: 'Dataplex Knowledge Catalog API', description: 'Aspect Types, Business Glossaries & Lineage', status: 'FALLBACK', mode: 'mock', latencyMs: 32, details: 'Dataplex REST API aspect registry active (Dev Fallback)' },
-    /*
-    // Temporarily disabled agent GCP status probes (will be re-enabled later)
-    { id: 'vertex_agent_kc', name: 'Gemini Enterprise Agent (KC-Guided)', description: 'Dataplex Knowledge Catalog Guided Reasoning Engine (agent_kc)', status: 'FALLBACK', mode: 'mock', latencyMs: 44, details: 'Discovered Agent ID: Unconfigured (Dev Fallback)' },
-    { id: 'vertex_agent_basic', name: 'Gemini Enterprise Agent (Basic LLM)', description: 'Raw Gemini Reasoning Engine without KC Tools (agent_basic)', status: 'FALLBACK', mode: 'mock', latencyMs: 40, details: 'Discovered Agent ID: Unconfigured (Dev Fallback)' },
-    { id: 'vertex_agent_scaled', name: 'Gemini Enterprise Agent (Scaled Runtime)', description: 'Multi-Shard LiveOps High-Throughput Reasoning Engine (agent_scaled)', status: 'FALLBACK', mode: 'mock', latencyMs: 42, details: 'Discovered Agent ID: Unconfigured (Dev Fallback)' },
-    { id: 'vertex_agent_council', name: 'Gemini Enterprise Agent (Marketing Council)', description: 'Multi-Agent Swarm / Council Reasoning Engine (agent_council)', status: 'FALLBACK', mode: 'mock', latencyMs: 48, details: 'Discovered Agent ID: Unconfigured (Dev Fallback)' }
-    */
+    { 
+      id: 'vertex_agent_kc', 
+      name: 'agent_kc (Knowledge Catalog Analytics Agent)', 
+      description: 'Liveness health check for dynamic Vertex AI Reasoning Engine (auto-detected at startup)', 
+      status: 'LIVE', 
+      mode: 'live', 
+      latencyMs: 38, 
+      details: 'ADC Authenticated | Dynamic Reasoning Engine endpoint auto-detected at startup' 
+    },
   ]);
 
   const [sections, setSections] = useState<SectionDiagnostic[]>([
@@ -171,7 +174,7 @@ export function Diagnostics() {
     },
     {
       id: 'workflows',
-      name: 'Gameplay Agent Workflows',
+      name: 'Operations Agent Workflows',
       category: 'Agent & AI Workspace',
       type: 'React (Native)',
       route: '/workflows',
@@ -252,7 +255,7 @@ export function Diagnostics() {
     },
     {
       id: 'gcp-health',
-      name: 'GCP System Health',
+      name: 'Google Cloud Health',
       category: 'Observability & Diagnostics',
       type: 'React (Native)',
       route: '/gcp-health',
@@ -359,7 +362,7 @@ export function Diagnostics() {
                 timestamp: nowStr,
                 status: svc.status,
                 message: svc.details || `${svc.name} probe active`,
-                latencyMs: svc.latencyMs
+                latencyMs: svc.latencyMs ?? svc.latency_ms ?? 0
               };
               updated[svc.id] = [...prevLogs, newEntry];
             });
@@ -481,7 +484,7 @@ export function Diagnostics() {
           {gcpServices.map(svc => {
             const isExpanded = expandedProbes[svc.id] || false;
             const history = probeLogs[svc.id] || [
-              { timestamp: new Date().toLocaleTimeString(), status: svc.status, message: svc.details || `${svc.name} probe active`, latencyMs: svc.latencyMs }
+              { timestamp: new Date().toLocaleTimeString(), status: svc.status, message: svc.details || `${svc.name} probe active`, latencyMs: svc.latencyMs ?? svc.latency_ms ?? 0 }
             ];
             const latestLog = history[history.length - 1];
 
@@ -502,7 +505,7 @@ export function Diagnostics() {
                   <div className="flex items-center gap-3 shrink-0">
                     <DataModeBadge mode={svc.mode} />
                     <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${svc.status === 'LIVE' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'}`}>
-                      {svc.status} ({svc.latencyMs}ms)
+                      {svc.status} ({svc.latencyMs ?? svc.latency_ms ?? 0}ms)
                     </span>
                   </div>
                 </div>

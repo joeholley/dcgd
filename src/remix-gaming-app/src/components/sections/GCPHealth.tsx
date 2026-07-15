@@ -104,33 +104,12 @@ export function GCPHealth() {
       description: "Cross-cloud data governance, aspect tags, & glossary",
       icon: Compass,
     },
-    /*
-    // Temporarily disabled agent GCP status checks (will be re-enabled later)
     {
       key: "vertex_agent_kc" as const,
-      name: "Gemini Enterprise Agent (KC-Guided)",
-      description: "ADK Reasoning Engine with Dataplex Knowledge Catalog Tools",
+      name: "Knowledge Catalog Agent (agent_kc)",
+      description: "Vertex AI Reasoning Engine health check & live endpoint",
       icon: Server,
     },
-    {
-      key: "vertex_agent_basic" as const,
-      name: "Gemini Enterprise Agent (Basic LLM)",
-      description: "ADK Reasoning Engine without Knowledge Catalog Tools",
-      icon: Server,
-    },
-    {
-      key: "vertex_agent_scaled" as const,
-      name: "Gemini Enterprise Agent (Scaled Runtime)",
-      description: "Multi-shard ADK Reasoning Engine for high-throughput LiveOps",
-      icon: Server,
-    },
-    {
-      key: "vertex_agent_council" as const,
-      name: "Gemini Enterprise Agent (Marketing Council)",
-      description: "Swarm/Council multi-agent reasoning engine for campaign optimization",
-      icon: Server,
-    },
-    */
   ];
 
   return (
@@ -142,7 +121,7 @@ export function GCPHealth() {
             <div className="w-10 h-10 rounded-xl bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400">
               <Activity className="w-5 h-5" />
             </div>
-            <div className="flex items-center gap-3"><h1 className="text-2xl font-bold tracking-tight">GCP Connection & Health Status</h1><DataModeBadge 
+            <div className="flex items-center gap-3"><h1 className="text-2xl font-bold tracking-tight">Google Cloud Connection & Health Status</h1><DataModeBadge 
               mode={
                 healthData?.overall_status === 'ALL_LIVE' ? 'live' : 
                 healthData?.overall_status === 'HEALTHY_WITH_FALLBACKS' ? 'hybrid' : 'mock'

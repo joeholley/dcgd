@@ -64,7 +64,7 @@ function proxyToFlask(req: Request, res: Response, targetPath?: string) {
 
 
 // GCP Configuration using Application Default Credentials (ADC)
-const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT || "gaming-demo";
+const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT || "datacloudgamesdemo004";
 const LOCATION = process.env.GCP_LOCATION || process.env.BIGQUERY_LOCATION || "us-central1";
 const PUBSUB_TOPIC_NAME = process.env.PUBSUB_TOPIC || "gaming-live-telemetry";
 const BQML_MODEL_NAME = process.env.BQML_MODEL || "gaming_raw.gaming_player_churn_model";
@@ -76,6 +76,21 @@ const auth = new GoogleAuth({
 
 const pubsubClient = new PubSub({ projectId: PROJECT_ID });
 const bigqueryClient = new BigQuery({ projectId: PROJECT_ID });
+
+/**
+ * Safely resolves a Google ADC Access Token (string or object.token)
+ */
+async function getADCAccessToken(): Promise<string | null> {
+  try {
+    const client = await auth.getClient().catch(() => null);
+    if (!client) return null;
+    const tokenRes = await client.getAccessToken().catch(() => null);
+    if (!tokenRes) return null;
+    return typeof tokenRes === 'string' ? tokenRes : tokenRes.token || null;
+  } catch {
+    return null;
+  }
+}
 
 // --------------------------------------------------------------------------
 // Gemini Enterprise Agent Runtime (Vertex AI Reasoning Engine) Discovery
@@ -100,9 +115,7 @@ async function discoverReasoningEngines(): Promise<DiscoveredAgent[]> {
 
   discoveryPromise = (async () => {
     try {
-      const client = await auth.getClient().catch(() => null);
-      const tokenRes = client ? await client.getAccessToken().catch(() => null) : null;
-      const accessToken = typeof tokenRes === 'string' ? tokenRes : tokenRes?.token;
+      const accessToken = await getADCAccessToken();
 
       if (!accessToken) {
         console.warn("[Agent Runtime Discovery] Access token unavailable; skipping dynamic agent discovery.");
@@ -148,33 +161,139 @@ async function discoverReasoningEngines(): Promise<DiscoveredAgent[]> {
   return discoveryPromise;
 }
 
-async function getAgentEngineInfo(targetRole: 'kc' | 'basic' | 'scaled' | 'council' = 'kc'): Promise<{ id: string; displayName: string } | null> {
+async function getAgentEngineInfo(targetRole: 'kc' | 'basic' | 'scaled' | 'council' = 'kc'): Promise<{ id: string; displayName: string; endpoint: string; name: string } | null> {
   const envOverride = process.env.VERTEX_AGENT_ENGINE_ID || (targetRole === 'kc' ? process.env.KC_AGENT_ID : targetRole === 'basic' ? process.env.BASIC_AGENT_ID : "");
-  if (envOverride) {
-    return { id: envOverride, displayName: `Env Override (${envOverride})` };
-  }
 
   const agents = await discoverReasoningEngines();
-  if (!agents || agents.length === 0) {
-    return null;
-  }
 
   let match: DiscoveredAgent | undefined;
-  if (targetRole === 'kc') {
-    match = agents.find((a) => a.displayName.includes("KC") || a.displayName.includes("Knowledge Catalog") || a.displayName.includes("OmniArcade"));
-  } else if (targetRole === 'basic') {
-    match = agents.find((a) => a.displayName.includes("Basic"));
-  } else if (targetRole === 'scaled') {
-    match = agents.find((a) => a.displayName.includes("Scaled"));
-  } else if (targetRole === 'council') {
-    match = agents.find((a) => a.displayName.includes("Council") || a.displayName.includes("Swarm"));
+  if (agents && agents.length > 0) {
+    if (targetRole === 'kc') {
+      match = agents.find((a) => 
+        a.displayName.toLowerCase().includes("knowledge catalog") || 
+        a.displayName.toLowerCase().includes("kc")
+      );
+    } else if (targetRole === 'basic') {
+      match = agents.find((a) => a.displayName.toLowerCase().includes("basic"));
+    } else if (targetRole === 'scaled') {
+      match = agents.find((a) => a.displayName.toLowerCase().includes("scaled"));
+    } else if (targetRole === 'council') {
+      match = agents.find((a) => a.displayName.toLowerCase().includes("council") || a.displayName.toLowerCase().includes("swarm"));
+    }
+
+    if (!match && targetRole === 'kc') {
+      match = agents[0]; // Fallback to newest deployed agent
+    }
   }
 
-  if (!match) {
-    match = agents[0]; // Fallback to newest deployed agent
+  if (envOverride) {
+    const display = match && match.id === envOverride ? match.displayName : `Agent Engine (${envOverride})`;
+    const endpoint = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/reasoningEngines/${envOverride}`;
+    return {
+      id: envOverride,
+      displayName: display,
+      endpoint,
+      name: match?.name || `projects/${PROJECT_ID}/locations/${LOCATION}/reasoningEngines/${envOverride}`
+    };
   }
 
-  return match ? { id: match.id, displayName: match.displayName } : null;
+  if (match) {
+    const endpoint = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/reasoningEngines/${match.id}`;
+    return {
+      id: match.id,
+      displayName: match.displayName,
+      endpoint,
+      name: match.name
+    };
+  }
+
+  return null;
+}
+
+// ADK-compliant helper to invoke Vertex AI Agent Engine reasoning engines
+async function queryADKReasoningEngine(
+  endpoint: string,
+  message: string,
+  userId: string = "demo_user",
+  sessionId?: string
+): Promise<string | null> {
+  try {
+    const accessToken = await getADCAccessToken();
+    if (!accessToken || !endpoint) return null;
+
+    // 1. Get or Create ADK Session via class_method: "create_session"
+    let activeSessionId = sessionId;
+    const sessionUrl = `${endpoint}:query`;
+    const sessionRes = await fetch(sessionUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        class_method: "create_session",
+        input: { user_id: userId }
+      }),
+    }).catch(() => null);
+
+    if (sessionRes && sessionRes.ok) {
+      const sessionData = await sessionRes.json();
+      const createdId = sessionData.output?.id || (typeof sessionData.output === "string" ? sessionData.output : null);
+      if (createdId) activeSessionId = createdId;
+    }
+
+    // 2. Query Agent Engine via :streamQuery endpoint
+    const streamUrl = `${endpoint}:streamQuery`;
+    const liveRes = await fetch(streamUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        input: {
+          message: message,
+          user_id: userId,
+          session_id: activeSessionId || `sess_${Date.now()}`
+        }
+      }),
+    }).catch(() => null);
+
+    if (liveRes && liveRes.ok) {
+      const rawText = await liveRes.text();
+      const textParts: string[] = [];
+      const lines = rawText.split("\n");
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith("data:")) {
+          const jsonStr = trimmed.substring(5).trim();
+          if (jsonStr) {
+            try {
+              const parsed = JSON.parse(jsonStr);
+              const chunkText = 
+                parsed.text || 
+                parsed.content?.parts?.[0]?.text || 
+                parsed.output?.text || 
+                (typeof parsed.output === "string" ? parsed.output : "");
+              if (chunkText) textParts.push(chunkText);
+            } catch (e) {
+              textParts.push(jsonStr);
+            }
+          }
+        } else if (trimmed && !trimmed.startsWith("event:")) {
+          textParts.push(trimmed);
+        }
+      }
+      if (textParts.length > 0) {
+        return textParts.join("\n");
+      }
+      if (rawText) return rawText;
+    }
+    return null;
+  } catch (err: any) {
+    console.warn("[ADK Agent Engine Query Error]:", err?.message || err);
+    return null;
+  }
 }
 
 // SSE Clients Registry with explicit cleanup and error handling
@@ -265,8 +384,7 @@ async function verifyDataplexPolicyAndPrecache(
   console.log(`[Dataplex Pre-Caching] Triggering policy verification for player ${playerId} with churn score ${(churnScore * 100).toFixed(1)}%`);
 
   try {
-    const client = await auth.getClient().catch(() => null);
-    const token = client ? (await client.getAccessToken()).token : null;
+    const token = await getADCAccessToken();
     
     // Certified Offer SKU verified against Dataplex aspect tags (gaming-campaign-policy-aspect)
     const certifiedOffer = {
@@ -748,8 +866,7 @@ async function startServer() {
     const query = (req.query.q as string || "").toLowerCase();
     
     try {
-      const client = await auth.getClient().catch(() => null);
-      const accessToken = client ? (await client.getAccessToken()).token : null;
+      const accessToken = await getADCAccessToken();
 
       // Real Dataplex REST API Search Proxy Call
       if (accessToken) {
@@ -866,39 +983,13 @@ FILTER USING (spend_tier = 'Whale' AND churn_risk_score >= 0.50);
   app.post("/api/chat", async (req: Request, res: Response) => {
     try {
       const message = typeof req.body?.message === "string" ? req.body.message : "";
-      const history = req.body?.history || [];
+      const agentInfo = await getAgentEngineInfo('kc');
 
-      // Try calling Vertex AI Agent Engine via ADC authentication
-      try {
-        const client = await auth.getClient().catch(() => null);
-        const accessToken = client ? (await client.getAccessToken()).token : null;
-
-        if (accessToken) {
-          const agentInfo = await getAgentEngineInfo('kc');
-          if (agentInfo) {
-            const agentEngineUrl = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/reasoningEngines/${agentInfo.id}:query`;
-            const agentRes = await fetch(agentEngineUrl, {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${accessToken}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ input: { message, history } }),
-            }).catch(() => null);
-
-            if (agentRes && agentRes.ok) {
-              const agentData = await agentRes.json();
-              const replyText = typeof agentData.output === "string" 
-                ? agentData.output 
-                : agentData.output?.text || agentData.text || "";
-              if (replyText) {
-                return res.json({ text: replyText });
-              }
-            }
-          }
+      if (agentInfo) {
+        const replyText = await queryADKReasoningEngine(agentInfo.endpoint, message);
+        if (replyText) {
+          return res.json({ text: replyText });
         }
-      } catch (agentErr: any) {
-        console.warn(`[Vertex Agent Engine] Proxy call fallback: ${agentErr.message}`);
       }
 
       // Robust Assistant Response with Dataplex Knowledge Catalog & Churn Guardrail context
@@ -1344,9 +1435,7 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       const start = Date.now();
       return withTimeout(
         (async () => {
-          const client = await auth.getClient().catch(() => null);
-          const tokenRes = client ? await client.getAccessToken().catch(() => null) : null;
-          const accessToken = typeof tokenRes === 'string' ? tokenRes : tokenRes?.token;
+          const accessToken = await getADCAccessToken();
           if (!accessToken) {
             return { status: "MOCK" as const, details: "Dataplex access token unavailable; using offline catalog aspect registry", latency_ms: Date.now() - start };
           }
@@ -1362,53 +1451,87 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       );
     };
 
-    // 6. Test Vertex AI Agent Engine (Per-Agent Probe)
-    const testVertexAgent = async (targetRole: 'kc' | 'basic' | 'scaled' | 'council' = 'kc') => {
+    // 6. Test agent_kc Vertex AI Reasoning Engine Probe
+    const testVertexAgentKC = async () => {
       const start = Date.now();
-      const agentInfo = await getAgentEngineInfo(targetRole);
-      if (!agentInfo) {
-        return { 
-          status: "MOCK" as const, 
-          agent_id: null,
-          details: `No Agent found for role '${targetRole}' in project '${PROJECT_ID}'; dev fallback active`, 
-          latency_ms: Date.now() - start 
+      const agentInfo = await getAgentEngineInfo('kc');
+
+      if (!agentInfo || !agentInfo.id) {
+        const duration = Date.now() - start;
+        return {
+          status: "OFFLINE" as const,
+          agent_id: "",
+          agent_name: "Knowledge Catalog Analytics Agent",
+          details: `No deployed agent_kc Reasoning Engine detected in project ${PROJECT_ID} (${LOCATION})`,
+          latencyMs: duration,
+          latency_ms: duration,
         };
       }
+
+      const agentId = agentInfo.id;
+      const endpoint = agentInfo.endpoint;
+
       return withTimeout(
         (async () => {
-          const client = await auth.getClient().catch(() => null);
-          const accessToken = client ? (await client.getAccessToken()).token : null;
-          if (!accessToken) {
-            return { 
-              status: "MOCK" as const, 
-              agent_id: agentInfo.id,
-              details: `Agent ID: ${agentInfo.id} | Access token unavailable (Dev Fallback)`, 
-              latency_ms: Date.now() - start 
+          try {
+            const accessToken = await getADCAccessToken();
+            
+            if (!accessToken) {
+              const duration = Date.now() - start;
+              return {
+                status: "OFFLINE" as const,
+                agent_id: agentId,
+                agent_name: agentInfo.displayName,
+                details: `ADC Auth Token Unavailable | Endpoint ${endpoint}`,
+                latencyMs: duration,
+                latency_ms: duration,
+              };
+            }
+
+            const agentRes = await fetch(endpoint, {
+              headers: { Authorization: `Bearer ${accessToken}` },
+            }).catch(() => null);
+
+            const duration = Date.now() - start;
+            if (agentRes && agentRes.ok) {
+              return {
+                status: "LIVE" as const,
+                agent_id: agentId,
+                agent_name: agentInfo.displayName,
+                details: `ADC Authenticated | ${agentInfo.displayName} (ID: ${agentId}) online & healthy`,
+                latencyMs: duration,
+                latency_ms: duration,
+              };
+            }
+
+            return {
+              status: "OFFLINE" as const,
+              agent_id: agentId,
+              agent_name: agentInfo.displayName,
+              details: `ADC Authenticated | Endpoint ${endpoint} unreachable (Status ${agentRes?.status || 'Offline'})`,
+              latencyMs: duration,
+              latency_ms: duration,
+            };
+          } catch (err: any) {
+            const duration = Date.now() - start;
+            return {
+              status: "OFFLINE" as const,
+              agent_id: agentId,
+              agent_name: agentInfo.displayName,
+              details: `Error probing Vertex Agent (${agentInfo.displayName}): ${err?.message || err}`,
+              latencyMs: duration,
+              latency_ms: duration,
             };
           }
-          const agentUrl = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/reasoningEngines/${agentInfo.id}`;
-          const agentRes = await fetch(agentUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
-          if (agentRes && agentRes.ok) {
-            return { 
-              status: "LIVE" as const, 
-              agent_id: agentInfo.id,
-              details: `Agent ID: ${agentInfo.id} | ${agentInfo.displayName} online`, 
-              latency_ms: Date.now() - start 
-            };
-          }
-          return { 
-            status: "MOCK" as const, 
-            agent_id: agentInfo.id,
-            details: `Agent ID: ${agentInfo.id} | ${agentInfo.displayName} unreachable (HTTP ${agentRes.status})`, 
-            latency_ms: Date.now() - start 
-          };
         })(),
         2000,
-        { 
-          status: "MOCK" as const, 
-          agent_id: agentInfo.id,
-          details: `Agent ID: ${agentInfo.id} | ${agentInfo.displayName} probe timed out (2s)`, 
-          latency_ms: 2000 
+        {
+          status: "OFFLINE" as const,
+          agent_id: agentId,
+          agent_name: agentInfo.displayName,
+          details: `Endpoint ${endpoint} probe timed out (2s)`,
+          latencyMs: 2000,
+          latency_ms: 2000,
         }
       );
     };
@@ -1435,9 +1558,6 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       bqmlRes, 
       dataplexRes, 
       vertexKcRes,
-      vertexBasicRes,
-      vertexScaledRes,
-      vertexCouncilRes,
       bqPlayers,
       bqSessions,
       bqTransactions,
@@ -1452,10 +1572,7 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       testPubSub(),
       testBQML(),
       testDataplex(),
-      testVertexAgent('kc'),
-      testVertexAgent('basic'),
-      testVertexAgent('scaled'),
-      testVertexAgent('council'),
+      testVertexAgentKC(),
       testBQTable("gaming_raw.gcp_players", "Player Profiles & Tiers"),
       testBQTable("gaming_raw.live_session_events", "Live Session Telemetry"),
       testBQTable("gaming_raw.iap_transactions", "IAP Transaction Log"),
@@ -1478,14 +1595,7 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       pubsub: pubsubRes,
       bqml: bqmlRes,
       dataplex: dataplexRes,
-      /*
-      // Temporarily disabled agent GCP status checks (will be re-enabled later)
-      vertex_agent: vertexKcRes,
       vertex_agent_kc: vertexKcRes,
-      vertex_agent_basic: vertexBasicRes,
-      vertex_agent_scaled: vertexScaledRes,
-      vertex_agent_council: vertexCouncilRes,
-      */
       simulator: simulatorRes,
       bq_gcp_players: bqPlayers,
       bq_live_sessions: bqSessions,
@@ -1525,13 +1635,16 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
         { id: 'pubsub', name: 'Cloud Pub/Sub Streaming Ingest', category: 'Event Streaming', status: pubsubRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: pubsubRes.status.toLowerCase() as 'live' | 'mock', details: pubsubRes.details, latency_ms: pubsubRes.latency_ms },
         { id: 'bqml', name: 'BigQuery ML (ML.PREDICT)', category: 'Predictive ML', status: bqmlRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: bqmlRes.status.toLowerCase() as 'live' | 'mock', details: bqmlRes.details, latency_ms: bqmlRes.latency_ms },
         { id: 'dataplex', name: 'Dataplex Knowledge Catalog API', category: 'Governance & Catalog', status: dataplexRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: dataplexRes.status.toLowerCase() as 'live' | 'mock', details: dataplexRes.details, latency_ms: dataplexRes.latency_ms },
-        /*
-        // Temporarily disabled agent GCP status checks (will be re-enabled later)
-        { id: 'vertex_agent_kc', name: 'Gemini Enterprise Agent (KC-Guided)', category: 'Agent Infrastructure', status: vertexKcRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: vertexKcRes.status.toLowerCase() as 'live' | 'mock', details: vertexKcRes.details, agent_id: vertexKcRes.agent_id, latency_ms: vertexKcRes.latency_ms },
-        { id: 'vertex_agent_basic', name: 'Gemini Enterprise Agent (Basic LLM)', category: 'Agent Infrastructure', status: vertexBasicRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: vertexBasicRes.status.toLowerCase() as 'live' | 'mock', details: vertexBasicRes.details, agent_id: vertexBasicRes.agent_id, latency_ms: vertexBasicRes.latency_ms },
-        { id: 'vertex_agent_scaled', name: 'Gemini Enterprise Agent (Scaled Runtime)', category: 'Agent Infrastructure', status: vertexScaledRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: vertexScaledRes.status.toLowerCase() as 'live' | 'mock', details: vertexScaledRes.details, agent_id: vertexScaledRes.agent_id, latency_ms: vertexScaledRes.latency_ms },
-        { id: 'vertex_agent_council', name: 'Gemini Enterprise Agent (Marketing Council)', category: 'Agent Infrastructure', status: vertexCouncilRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: vertexCouncilRes.status.toLowerCase() as 'live' | 'mock', details: vertexCouncilRes.details, agent_id: vertexCouncilRes.agent_id, latency_ms: vertexCouncilRes.latency_ms },
-        */
+        { 
+          id: 'vertex_agent_kc', 
+          name: 'agent_kc (Vertex AI Reasoning Engine)', 
+          category: 'Agent Infrastructure', 
+          status: vertexKcRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', 
+          mode: vertexKcRes.status.toLowerCase() as 'live' | 'mock', 
+          details: vertexKcRes.details, 
+          agent_id: vertexKcRes.agent_id, 
+          latency_ms: vertexKcRes.latency_ms 
+        },
         { id: 'simulator', name: 'Live Game Telemetry Simulator Engine', category: 'Event Streaming & Simulation', status: simulatorState.isRunning ? 'LIVE' : 'FALLBACK', mode: simulatorState.isRunning ? 'live' : 'mock', details: simulatorRes.details, latency_ms: 0 }
       ]
     });
@@ -1563,6 +1676,19 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
         discount_pct: 80,
       };
 
+      // Execute live Vertex AI Reasoning Engine Query via ADK Protocol
+      const agentInfo = await getAgentEngineInfo('kc');
+      let liveAgentOutput: string | null = null;
+
+      if (agentInfo) {
+        liveAgentOutput = await queryADKReasoningEngine(agentInfo.endpoint, queryText, playerId, sessionId);
+      }
+
+      const responseText = liveAgentOutput || `[agent-kc Analysis] Analyzing player telemetry stream for boss death anomalies:
+- Identified 4 consecutive wipeouts on 'Frost Giant' boss in Realm of Eldoria RPG.
+- Cross-referenced Dataplex Knowledge Catalog entry aspect 'gaming-campaign-policy-aspect' & BQML churn model (89% churn score for Veteran Whale cohort).
+- Formulated policy-compliant retention campaign: 80% discount on SKU 'frost_giant_shield_pack' ($0.99), within authorized 85% discount boundary.`;
+
       const traceSteps = [
         {
           step: 1,
@@ -1590,11 +1716,14 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       ];
 
       const latencyMs = Date.now() - startTime;
+
       const responsePayload = {
         status: "SUCCESS",
         player_id: playerId,
         session_id: sessionId,
         query: queryText,
+        user_prompt: queryText,
+        response_text: responseText,
         active: isActive,
         autonomous: isAutonomous,
         latency_ms: latencyMs,
@@ -1620,6 +1749,8 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
         res.setHeader("Content-Type", "text/event-stream");
         res.setHeader("Cache-Control", "no-cache");
         res.setHeader("Connection", "keep-alive");
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        res.setHeader("X-Accel-Buffering", "no");
         res.write(`event: agent_trace_step\ndata: ${JSON.stringify(responsePayload)}\n\n`);
         return res.end();
       }

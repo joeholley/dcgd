@@ -179,6 +179,17 @@ const eventListeners: Set<(event: SimulatorTelemetryEvent) => void> = new Set();
 const logListeners: Set<(logs: StreamLogEntry[]) => void> = new Set();
 const simStatePayloadListeners: Set<(payload: SimulatorStatePayload) => void> = new Set();
 
+let lastSimStatePayload: SimulatorStatePayload = {
+  isRunning: true,
+  frequencyHz: 1,
+  targetCCU: 250000,
+  activeAnomaly: null,
+};
+
+export function getSimulatorStatePayload(): SimulatorStatePayload {
+  return lastSimStatePayload;
+}
+
 // Initialize BroadcastChannel
 let broadcastChannel: BroadcastChannel | null = null;
 if (typeof window !== "undefined" && "BroadcastChannel" in window) {
@@ -205,6 +216,7 @@ if (broadcastChannel) {
       currentLogs = logs;
       notifyLogListeners();
     } else if (type === "SIMULATOR_STATE_CHANGE" && simStatePayload) {
+      lastSimStatePayload = simStatePayload;
       simStatePayloadListeners.forEach((fn) => fn(simStatePayload));
     }
   };
@@ -323,12 +335,14 @@ export function onSimulatorEvent(listener: (event: SimulatorTelemetryEvent) => v
 
 export function onSimulatorStateChange(listener: (state: SimulatorStatePayload) => void): () => void {
   simStatePayloadListeners.add(listener);
+  listener(lastSimStatePayload);
   return () => {
     simStatePayloadListeners.delete(listener);
   };
 }
 
 export function broadcastSimulatorState(payload: SimulatorStatePayload): void {
+  lastSimStatePayload = payload;
   if (broadcastChannel) {
     broadcastChannel.postMessage({ type: "SIMULATOR_STATE_CHANGE", simStatePayload: payload });
   }

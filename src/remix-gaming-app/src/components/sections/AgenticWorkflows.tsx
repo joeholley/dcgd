@@ -21,10 +21,19 @@ import {
   ShieldAlert,
   ChevronDown,
   ChevronRight,
-  Info
+  Info,
+  ExternalLink
 } from "lucide-react";
 import { cn } from "../../lib/utils";
-import { getRoutingMode, onRoutingModeChange, RoutingMode, broadcastIncomingAgentEvent } from "../../services/simulatorBridge";
+import { useDemoEvent } from "../../context/DemoEventContext";
+import { 
+  getRoutingMode, 
+  onRoutingModeChange, 
+  RoutingMode, 
+  broadcastIncomingAgentEvent,
+  onSimulatorStateChange,
+  getSimulatorStatePayload 
+} from "../../services/simulatorBridge";
 
 interface WorkflowResult {
   thinking: string[];
@@ -42,6 +51,21 @@ interface PipelineNode {
   cloud: string;
 }
 
+export interface AgentHistoryEntry {
+  id: string;
+  role: "user" | "agent";
+  text: string;
+  timestamp: string;
+  agentName?: string;
+  reasoningSteps?: string[];
+  isStreaming?: boolean;
+}
+
+const INITIAL_KC_PROMPT = "Summarize what you can do in 250 words";
+const INITIAL_KC_RESPONSE = "I am the Knowledge Catalog (KC) Guided Agent for OmniArcade. I dynamically discover, govern, and analyze live player telemetry across 150+ BigQuery tables without reliance on hardcoded schema prompts. By leveraging Dataplex Knowledge Catalog metadata, entry aspect searches, data quality scores, and lineage graphs, I identify high-risk churn signals—such as repeated boss wipeouts among veteran whale cohorts—and construct policy-compliant retention campaigns. Every promotional recommendation enforces Dataplex guardrails, capping discounts within authorized boundaries while logging audit trails to BigQuery.";
+
+const EXECUTE_RUN_USER_PROMPT = "it seems that many players are dying on a boss and there is potentially a higher churn rate. How can you help?";
+
 const getPipelineNodes = (
   wfId: string, 
   currentStep: number, 
@@ -52,32 +76,32 @@ const getPipelineNodes = (
     if (routingMode === "LIVE") {
       return [
         { label: "Simulator Client", sub: "Live telemetry stream", status: isFinished ? "completed" : (currentStep > 0 ? "completed" : (currentStep === 0 ? "active" : "pending")), icon: Gamepad2, cloud: "Game Client" },
-        { label: "Pub/Sub", sub: "gaming-live-telemetry", status: isFinished ? "completed" : (currentStep > 1 ? "completed" : (currentStep === 1 ? "active" : "pending")), icon: Server, cloud: "GCP Ingestion" },
-        { label: "BigQuery", sub: "gold_player_360 table", status: isFinished ? "completed" : (currentStep > 2 ? "completed" : (currentStep === 2 ? "active" : "pending")), icon: Database, cloud: "GCP Storage" },
-        { label: "BQML & Dataplex", sub: "Churn model & policy aspect", status: isFinished ? "completed" : (currentStep > 3 ? "completed" : (currentStep === 3 ? "active" : "pending")), icon: BrainCircuit, cloud: "GCP ML & Gov" },
-        { label: "Gemini Enterprise", sub: "Agent offer decision", status: isFinished ? "completed" : "pending", icon: Bot, cloud: "Vertex AI" }
+        { label: "Pub/Sub Topic", sub: "gaming-live-telemetry", status: isFinished ? "completed" : (currentStep > 1 ? "completed" : (currentStep === 1 ? "active" : "pending")), icon: Server, cloud: "Cloud Ingestion" },
+        { label: "BigQuery Data Warehouse", sub: "gold_player_360 table (agent-kc active)", status: isFinished ? "completed" : (currentStep > 2 ? "completed" : (currentStep === 2 ? "active" : "pending")), icon: Database, cloud: "Cloud Storage" },
+        { label: "BQML & Dataplex", sub: "Churn model & policy aspect", status: isFinished ? "completed" : (currentStep > 3 ? "completed" : (currentStep === 3 ? "active" : "pending")), icon: BrainCircuit, cloud: "Cloud ML & Gov" },
+        { label: "Gemini Enterprise", sub: "Agent offer decision", status: isFinished ? "completed" : "pending", icon: Bot, cloud: "Agent Platform" }
       ];
     } else {
       return [
-        { label: "Simulator Client", sub: "Mock RPG telemetry", status: isFinished ? "completed" : (currentStep > 0 ? "completed" : (currentStep === 0 ? "active" : "pending")), icon: Gamepad2, cloud: "Mock Client" },
-        { label: "BroadcastBridge", sub: "In-memory event channel", status: isFinished ? "completed" : (currentStep > 1 ? "completed" : (currentStep === 1 ? "active" : "pending")), icon: Network, cloud: "Client Memory" },
-        { label: "Mock BQML Engine", sub: "Static churn score (89%)", status: isFinished ? "completed" : (currentStep > 2 ? "completed" : (currentStep === 2 ? "active" : "pending")), icon: BrainCircuit, cloud: "Mock Engine" },
+        { label: "Simulator Client", sub: "Mock RPG telemetry stream", status: isFinished ? "completed" : (currentStep > 0 ? "completed" : (currentStep === 0 ? "active" : "pending")), icon: Gamepad2, cloud: "Mock Client" },
+        { label: "Pub/Sub Topic", sub: "In-memory event channel", status: isFinished ? "completed" : (currentStep > 1 ? "completed" : (currentStep === 1 ? "active" : "pending")), icon: Network, cloud: "Client Memory" },
+        { label: "BigQuery Data Warehouse", sub: "gold_player_360 table (agent-kc active)", status: isFinished ? "completed" : (currentStep > 2 ? "completed" : (currentStep === 2 ? "active" : "pending")), icon: Database, cloud: "Mock Storage" },
         { label: "Dataplex Mock", sub: "Schema aspect audit (85% max)", status: isFinished ? "completed" : (currentStep > 3 ? "completed" : (currentStep === 3 ? "active" : "pending")), icon: ShieldCheck, cloud: "Mock Gov" },
         { label: "Mock LLM Trace", sub: "Canned prompt playback", status: isFinished ? "completed" : "pending", icon: Bot, cloud: "Mock LLM" }
       ];
     }
   } else if (wfId === "Fraud & Cheat Detection Agent") {
     return [
-      { label: "AlloyDB Flow", sub: "Scan transactions", status: isFinished ? "completed" : (currentStep > 0 ? "completed" : (currentStep === 0 ? "active" : "pending")), icon: Activity, cloud: "GCP" },
+      { label: "AlloyDB Flow", sub: "Scan transactions", status: isFinished ? "completed" : (currentStep > 0 ? "completed" : (currentStep === 0 ? "active" : "pending")), icon: Activity, cloud: "Cloud" },
       { label: "AWS S3 History", sub: "Retrieve bot profiles", status: isFinished ? "completed" : (currentStep > 1 ? "completed" : (currentStep === 1 ? "active" : "pending")), icon: Database, cloud: "AWS" },
-      { label: "Catalog Engine", sub: "Run Anomaly Models", status: isFinished ? "completed" : (currentStep > 2 ? "completed" : (currentStep === 2 ? "active" : "pending")), icon: Search, cloud: "GCP" },
+      { label: "Catalog Engine", sub: "Run Anomaly Models", status: isFinished ? "completed" : (currentStep > 2 ? "completed" : (currentStep === 2 ? "active" : "pending")), icon: Search, cloud: "Cloud" },
       { label: "Security Shield", sub: "Freeze account indices", status: isFinished ? "completed" : (currentStep > 3 ? "completed" : (currentStep === 3 ? "active" : "pending")), icon: ShieldAlert, cloud: "Security Core" }
     ];
   } else {
     return [
       { label: "Active Lobbies", sub: "Monitor peak concurrents", status: isFinished ? "completed" : (currentStep > 0 ? "completed" : (currentStep === 0 ? "active" : "pending")), icon: Users, cloud: "Live Server" },
       { label: "Snowflake DB", sub: "Fetch historic SLA loads", status: isFinished ? "completed" : (currentStep > 1 ? "completed" : (currentStep === 1 ? "active" : "pending")), icon: Database, cloud: "Snowflake" },
-      { label: "Cloud Run Nodes", sub: "Scale engine servers", status: isFinished ? "completed" : (currentStep > 2 ? "completed" : (currentStep === 2 ? "active" : "pending")), icon: Server, cloud: "GCP" },
+      { label: "Cloud Run Nodes", sub: "Scale engine servers", status: isFinished ? "completed" : (currentStep > 2 ? "completed" : (currentStep === 2 ? "active" : "pending")), icon: Server, cloud: "Cloud" },
       { label: "Broker balancer", sub: "Re-calculate queue paths", status: isFinished ? "completed" : (currentStep > 3 ? "completed" : (currentStep === 3 ? "active" : "pending")), icon: Network, cloud: "Live Engine" }
     ];
   }
@@ -87,54 +111,140 @@ function AgenticPipelineDiagram({
   wfId, 
   currentStep, 
   isFinished, 
-  routingMode 
+  routingMode,
+  isSimulatorRunning,
+  isExecuting
 }: { 
   wfId: string; 
   currentStep: number; 
   isFinished: boolean;
   routingMode: RoutingMode;
+  isSimulatorRunning: boolean;
+  isExecuting?: boolean;
 }) {
   const nodes = getPipelineNodes(wfId, currentStep, isFinished, routingMode);
+  const isRetentionAgent = wfId === "Automated Player Retention Promo";
   
   return (
     <div className="p-6 bg-slate-950 border border-slate-800 rounded-[2rem] space-y-4 font-mono">
       <div className="flex items-center justify-between border-b border-white/5 pb-3">
         <span className="text-[10px] font-bold text-blue-400 font-sans tracking-widest flex items-center gap-1.5 uppercase">
-          <Network className="w-3.5 h-3.5 text-blue-500 animate-pulse" /> Dynamic Actions Map ({routingMode} MODE)
+          <Network className={cn("w-3.5 h-3.5 text-blue-500", isRetentionAgent && isSimulatorRunning && "animate-pulse")} /> Data Cloud Telemetry Flow
         </span>
-        <span className="text-[9px] px-2 py-0.5 rounded bg-blue-500/10 text-indigo-300">
-          {isFinished ? "TRACE SECURED" : "ORCHESTRATING..."}
+        <span className={cn(
+          "text-[9px] px-2 py-0.5 rounded border font-mono font-bold uppercase",
+          isRetentionAgent
+            ? (isSimulatorRunning
+                ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm shadow-emerald-500/20"
+                : "bg-slate-900 text-slate-400 border-slate-700")
+            : (isFinished ? "bg-blue-500/10 text-indigo-300 border-blue-500/20" : "bg-slate-900 text-slate-400 border-slate-800")
+        )}>
+          {isRetentionAgent
+            ? (isSimulatorRunning ? "STREAMING ACTIVE" : "SIMULATOR OFF (BQ ACTIVE)")
+            : (isFinished ? "TRACE SECURED" : "ORCHESTRATING...")}
         </span>
       </div>
 
       <div className="relative pl-6 space-y-4">
-        <div className="absolute left-[13px] top-3 bottom-3 w-0.5 bg-slate-800 border-l border-dashed border-slate-700" />
+        <div className={cn(
+          "absolute left-[13px] top-3 bottom-3 w-0.5 border-l border-dashed transition-colors duration-500",
+          isRetentionAgent && isExecuting
+            ? "border-cyan-400/80 shadow-[0_0_8px_rgba(34,211,238,0.5)]"
+            : isRetentionAgent && isSimulatorRunning
+            ? "border-emerald-400/60"
+            : "border-slate-700"
+        )} />
         
+        {/* Dynamic Telemetry Streaming Animation overlay between Simulator Client -> Pub/Sub Topic -> BQ */}
+        {isRetentionAgent && isSimulatorRunning && (
+          <div className="absolute left-[11px] top-4 h-[110px] w-1.5 overflow-hidden pointer-events-none z-0">
+            <motion.div
+              className="w-1.5 h-8 bg-gradient-to-b from-transparent via-emerald-400 to-transparent rounded-full shadow-[0_0_10px_#34d399]"
+              animate={{ y: ["-100%", "300%"] }}
+              transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
+            />
+          </div>
+        )}
+
+        {/* Dynamic Agent Pipeline Execution Streaming Animation overlay between Node 2 (BigQuery), Node 3 (BQML & Dataplex), and Node 4 (Gemini Enterprise) */}
+        {isRetentionAgent && isExecuting && (
+          <div className="absolute left-[11px] top-[98px] h-[96px] w-1.5 overflow-hidden pointer-events-none z-10">
+            {/* Upward query stream beam from Gemini Enterprise up to BQML & BigQuery */}
+            <motion.div
+              className="w-1.5 h-8 bg-gradient-to-t from-transparent via-cyan-400 to-transparent rounded-full shadow-[0_0_12px_#38bdf8]"
+              animate={{ y: ["300%", "-100%"] }}
+              transition={{ repeat: Infinity, duration: 1.2, ease: "linear" }}
+            />
+            {/* Downward decision stream pulse from Gemini/Dataplex back to BigQuery */}
+            <motion.div
+              className="w-1.5 h-6 bg-gradient-to-b from-transparent via-blue-400 to-transparent rounded-full shadow-[0_0_10px_#60a5fa]"
+              animate={{ y: ["-100%", "300%"] }}
+              transition={{ repeat: Infinity, duration: 1.6, ease: "easeInOut", delay: 0.4 }}
+            />
+            {/* High-tech energy particle dot along the execution path */}
+            <motion.div
+              className="absolute left-[1px] w-1 h-1 bg-cyan-300 rounded-full shadow-[0_0_8px_#22d3ee]"
+              animate={{ 
+                y: [0, 96, 0],
+                opacity: [0.3, 1, 0.3]
+              }}
+              transition={{ repeat: Infinity, duration: 2.0, ease: "easeInOut" }}
+            />
+          </div>
+        )}
+
         {nodes.map((node, idx) => {
           const isActive = node.status === "active";
           const isCompleted = node.status === "completed";
           const NodeIcon = node.icon;
           
+          let nodeStyling = "";
+
+          if (isRetentionAgent) {
+            if (idx === 0 || idx === 1) {
+              if (isSimulatorRunning) {
+                nodeStyling = "bg-emerald-500/20 text-emerald-400 border-emerald-500/50 shadow-md shadow-emerald-500/30 animate-pulse";
+              } else {
+                nodeStyling = "bg-slate-900/60 text-slate-600 border-slate-800 opacity-60";
+              }
+            } else if (idx === 2) {
+              nodeStyling = "bg-blue-500/20 text-blue-400 border-blue-500/50 shadow-md shadow-blue-500/20";
+            } else {
+              nodeStyling = isActive 
+                ? "bg-blue-600 text-white border-blue-400 shadow-md shadow-blue-500/30" 
+                : isCompleted 
+                ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40" 
+                : "bg-slate-900 text-slate-600 border-slate-800";
+            }
+          } else {
+            nodeStyling = isActive 
+              ? "bg-blue-600 text-white border-blue-400 shadow-md shadow-blue-500/30" 
+              : isCompleted 
+              ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40" 
+              : "bg-slate-900 text-slate-600 border-slate-800";
+          }
+
           return (
             <div key={idx} className="relative flex items-start gap-3.5 group">
               <div className="relative z-10">
                 <motion.div 
                   className={cn(
                     "w-7 h-7 rounded-full flex items-center justify-center transition-all border shrink-0 text-xs",
-                    isActive 
-                      ? "bg-blue-600 text-white border-blue-400 shadow-md shadow-blue-500/30" 
-                      : isCompleted 
-                      ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40" 
-                      : "bg-slate-900 text-slate-600 border-slate-800"
+                    nodeStyling
                   )}
                 >
-                  {isCompleted ? <CheckCircle2 className="w-4 h-4" /> : <NodeIcon className="w-3.5 h-3.5" />}
+                  {isCompleted && !isRetentionAgent ? <CheckCircle2 className="w-4 h-4" /> : <NodeIcon className="w-3.5 h-3.5" />}
                 </motion.div>
               </div>
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className={cn("text-xs font-bold truncate", isActive ? "text-blue-400" : isCompleted ? "text-white" : "text-slate-500")}>
+                  <span className={cn(
+                    "text-xs font-bold truncate",
+                    isRetentionAgent
+                      ? (idx === 2 ? "text-blue-300" : (isSimulatorRunning ? "text-emerald-300" : (idx <= 1 ? "text-slate-500" : (isActive ? "text-blue-400" : isCompleted ? "text-white" : "text-slate-500"))))
+                      : (isActive ? "text-blue-400" : isCompleted ? "text-white" : "text-slate-500")
+                  )}>
                     {node.label}
                   </span>
                   <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-900 border border-slate-800 text-slate-400 font-mono">
@@ -169,12 +279,21 @@ function InGameGiftCard({ game, amount, hash }: { game: string; amount: number; 
 }
 
 export function AgenticWorkflows() {
+  const { setActiveSection } = useDemoEvent();
   const [routingMode, setRoutingModeState] = useState<RoutingMode>(getRoutingMode());
+  const [isSimulatorRunning, setIsSimulatorRunning] = useState<boolean>(() => getSimulatorStatePayload().isRunning);
 
   useEffect(() => {
-    return onRoutingModeChange((newMode) => {
+    const unsubMode = onRoutingModeChange((newMode) => {
       setRoutingModeState(newMode);
     });
+    const unsubSim = onSimulatorStateChange((state) => {
+      setIsSimulatorRunning(state.isRunning);
+    });
+    return () => {
+      unsubMode();
+      unsubSim();
+    };
   }, []);
 
   const [executingId, setExecutingId] = useState<string | null>(null);
@@ -186,9 +305,12 @@ export function AgenticWorkflows() {
   const [followUpResponse, setFollowUpResponse] = useState<Record<string, string | null>>({});
   const traceContainerRef = useRef<HTMLDivElement | null>(null);
 
-  // Expanded card state per agent (keyed by agent ID)
+  // Feature flag to cleanly hide Active Follow-up Sub-Card (C4 requirement)
+  const SHOW_FOLLOW_UP_ROUTINES = false;
+
+  // Expanded card state per agent (keyed by agent ID) - R1: Retention agent starts collapsed
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({
-    "Automated Player Retention Promo": true, // Default open for retention agent
+    "Automated Player Retention Promo": false,
   });
 
   // Agent Control Group state: Active & Autonomous toggles per agent
@@ -198,10 +320,30 @@ export function AgenticWorkflows() {
     "Dynamic Matchmaking Balance": true,
   });
 
+  // R1: Autonomous starts disabled (Single-Invocation mode)
   const [agentAutonomous, setAgentAutonomous] = useState<Record<string, boolean>>({
-    "Automated Player Retention Promo": true,
+    "Automated Player Retention Promo": false,
     "Fraud & Cheat Detection Agent": false,
     "Dynamic Matchmaking Balance": false,
+  });
+
+  // R2: Agent response history session state pre-loaded with initial 250-word capability summary
+  const [agentHistory, setAgentHistory] = useState<Record<string, AgentHistoryEntry[]>>({
+    "Automated Player Retention Promo": [
+      {
+        id: "init-prompt-kc",
+        role: "user",
+        text: INITIAL_KC_PROMPT,
+        timestamp: "10:00 AM",
+      },
+      {
+        id: "init-response-kc",
+        role: "agent",
+        agentName: "agent-kc",
+        text: INITIAL_KC_RESPONSE,
+        timestamp: "10:00 AM",
+      },
+    ],
   });
 
   const resetWfState = (wfId: string) => {
@@ -224,15 +366,15 @@ export function AgenticWorkflows() {
   };
 
   // Coupling logic handlers
-  const handleToggleActive = (wfId: string) => {
-    resetWfState(wfId);
+  const handleToggleActive = (id: string) => {
+    resetWfState(id);
     setAgentActive((prev) => {
-      const nextActive = !prev[wfId];
+      const nextActive = !prev[id];
       // If turning Active OFF, force Autonomous OFF
       if (!nextActive) {
-        setAgentAutonomous((autoPrev) => ({ ...autoPrev, [wfId]: false }));
+        setAgentAutonomous((autoPrev) => ({ ...autoPrev, [id]: false }));
       }
-      return { ...prev, [wfId]: nextActive };
+      return { ...prev, [id]: nextActive };
     });
   };
 
@@ -302,22 +444,90 @@ export function AgenticWorkflows() {
     });
     setExpandedCards((prev) => ({ ...prev, [id]: true }));
 
+    if (id === "Automated Player Retention Promo") {
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      setAgentHistory((prev) => {
+        const existing = prev[id] || [];
+        return {
+          ...prev,
+          [id]: [
+            ...existing,
+            {
+              id: `usr-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+              role: "user",
+              text: EXECUTE_RUN_USER_PROMPT,
+              timestamp: timeStr,
+            },
+            {
+              id: `agt-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+              role: "agent",
+              agentName: "agent-kc",
+              text: "[Evaluating player telemetry & Dataplex guardrail aspect policy...]",
+              timestamp: timeStr,
+              isStreaming: true,
+              reasoningSteps: workflowData[id].thinking,
+            }
+          ]
+        };
+      });
+    }
+
     if (routingMode === "LIVE") {
-      fetch(`/api/guardrail/agent-trace?session_id=jg-session-9921&query=${encodeURIComponent(id)}&active=${agentActive[id]}&autonomous=${agentAutonomous[id]}`)
+      fetch(`/api/guardrail/agent-trace?session_id=jg-session-9921&query=${encodeURIComponent(EXECUTE_RUN_USER_PROMPT)}&active=${agentActive[id]}&autonomous=${agentAutonomous[id]}`)
         .then((res) => {
           if (!res.ok) {
             throw new Error(`HTTP ${res.status}: ${res.statusText}`);
           }
           return res.json();
         })
-        .then(() => {
+        .then((data) => {
+          if (data.error) {
+            throw new Error(data.error);
+          }
           setTraceError((prev) => ({ ...prev, [id]: null }));
+          if (id === "Automated Player Retention Promo" && data.response_text) {
+            setAgentHistory((prev) => {
+              const list = (prev[id] || []).map((entry) =>
+                entry.isStreaming === true
+                  ? { ...entry, text: data.response_text, isStreaming: false }
+                  : entry
+              );
+              return { ...prev, [id]: list };
+            });
+          }
+          setResults((prev) => ({
+            ...prev,
+            [id]: workflowData[id]
+          }));
+          setCurrentStep(3);
+          setExecutingId(null);
         })
         .catch((err) => {
           setTraceError((prev) => ({
             ...prev,
             [id]: `Vertex AI Agent Trace endpoint failed (${err.message}). Displaying fallback trace with warning.`,
           }));
+          if (id === "Automated Player Retention Promo") {
+            const fallbackText = `[agent-kc Analysis] Analyzing player telemetry stream for boss death anomalies:
+- Identified 4 consecutive wipeouts on 'Frost Giant' boss in Realm of Eldoria RPG.
+- Cross-referenced Dataplex Knowledge Catalog entry aspect 'gaming-campaign-policy-aspect' & BQML churn model (89% churn score for Veteran Whale cohort).
+- Formulated policy-compliant retention campaign: 80% discount on SKU 'frost_giant_shield_pack' ($0.99), within authorized 85% discount boundary.`;
+
+            setAgentHistory((prev) => {
+              const list = (prev[id] || []).map((entry) =>
+                entry.isStreaming === true
+                  ? { ...entry, text: fallbackText, isStreaming: false }
+                  : entry
+              );
+              return { ...prev, [id]: list };
+            });
+          }
+          setResults((prev) => ({
+            ...prev,
+            [id]: workflowData[id]
+          }));
+          setCurrentStep(3);
+          setExecutingId(null);
         });
     } else {
       setTraceError((prev) => ({ ...prev, [id]: null }));
@@ -334,23 +544,38 @@ export function AgenticWorkflows() {
           }
           return prev + 1;
         });
-      }, 900);
+      }, 700);
       return () => clearInterval(timer);
     }
   }, [executingId]);
 
   useEffect(() => {
-    if (executingId && currentStep >= 3) {
+    if (executingId && currentStep >= 3 && routingMode !== "LIVE") {
       setResults((prev) => ({
         ...prev,
         [executingId]: workflowData[executingId]
       }));
+      if (executingId === "Automated Player Retention Promo") {
+        const fullResponseText = `[agent-kc Analysis] Analyzing player telemetry stream for boss death anomalies:
+- Identified 4 consecutive wipeouts on 'Frost Giant' boss in Realm of Eldoria RPG.
+- Cross-referenced Dataplex Knowledge Catalog entry aspect 'gaming-campaign-policy-aspect' & BQML churn model (89% churn score for Veteran Whale cohort).
+- Formulated policy-compliant retention campaign: 80% discount on SKU 'frost_giant_shield_pack' ($0.99), within authorized 85% discount boundary.`;
+
+        setAgentHistory((prev) => {
+          const list = (prev[executingId] || []).map((entry) =>
+            entry.isStreaming === true
+              ? { ...entry, text: fullResponseText, isStreaming: false }
+              : entry
+          );
+          return { ...prev, [executingId]: list };
+        });
+      }
       setExecutingId(null);
     }
     if (traceContainerRef.current) {
-      traceContainerRef.current.scrollTop = traceContainerRef.current.scrollHeight;
+      traceContainerRef.current.scrollTop = 0;
     }
-  }, [executingId, currentStep]);
+  }, [executingId, currentStep, routingMode]);
 
   const handleFollowUp = (id: string, step: string) => {
     let msg = "";
@@ -524,45 +749,61 @@ export function AgenticWorkflows() {
                               <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest block font-mono">
                                 Operational Proposal Details
                               </span>
-                              <h4 className="text-base font-bold text-slate-800">
-                                {isRetentionAgent
-                                  ? "Target Cohort: Realm of Eldoria RPG - Veteran Whale Cohort"
-                                  : workflowData[wf.id].finding}
+                              <h4 className="text-base font-bold text-slate-800 leading-snug">
+                                {!results[wf.id]
+                                  ? (isRetentionAgent
+                                      ? "No active operational proposal evaluated yet. Click 'Execute Single Run' to analyze player telemetry."
+                                      : "No active evaluation")
+                                  : (isRetentionAgent
+                                      ? "Target Cohort: Realm of Eldoria RPG - Veteran Whale Cohort"
+                                      : workflowData[wf.id].finding)}
                               </h4>
                             </div>
-                            <span className="px-2.5 py-1 rounded-full bg-red-50 text-red-600 text-[10px] font-bold uppercase font-mono">
-                              P1 - $85K Exposure
-                            </span>
+                            {results[wf.id] && (
+                              <span className="px-2.5 py-1 rounded-full bg-red-50 text-red-600 text-[10px] font-bold uppercase font-mono shrink-0">
+                                P1 - $85K Exposure
+                              </span>
+                            )}
                           </div>
 
-                          <div className="grid grid-cols-2 gap-4 font-mono text-xs">
-                            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                              <span className="text-[10px] text-slate-400 font-bold uppercase block">Certified Reward SKU:</span>
-                              <span className="font-bold text-slate-700">frost_giant_shield_pack</span>
+                          {results[wf.id] ? (
+                            <div className="grid grid-cols-2 gap-4 font-mono text-xs">
+                              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                <span className="text-[10px] text-slate-400 font-bold uppercase block">Certified Reward SKU:</span>
+                                <span className="font-bold text-slate-700">frost_giant_shield_pack</span>
+                              </div>
+                              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                <span className="text-[10px] text-slate-400 font-bold uppercase block">Dataplex Aspect ID:</span>
+                                <span className="font-bold text-slate-700">gaming-campaign-policy-aspect</span>
+                              </div>
+                              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                <span className="text-[10px] text-slate-400 font-bold uppercase block">Max Discount Boundary:</span>
+                                <span className="font-bold text-emerald-600">85% (Requested: 80%)</span>
+                              </div>
+                              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                <span className="text-[10px] text-slate-400 font-bold uppercase block">Predicted Churn Score:</span>
+                                <span className="font-bold text-red-600">89% (HIGH RISK)</span>
+                              </div>
                             </div>
-                            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                              <span className="text-[10px] text-slate-400 font-bold uppercase block">Dataplex Aspect ID:</span>
-                              <span className="font-bold text-slate-700">gaming-campaign-policy-aspect</span>
+                          ) : (
+                            <div className="p-4 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-xs text-slate-500 font-mono italic">
+                              Waiting for single run telemetry analysis trigger...
                             </div>
-                            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                              <span className="text-[10px] text-slate-400 font-bold uppercase block">Max Discount Boundary:</span>
-                              <span className="font-bold text-emerald-600">85% (Requested: 80%)</span>
-                            </div>
-                            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                              <span className="text-[10px] text-slate-400 font-bold uppercase block">Predicted Churn Score:</span>
-                              <span className="font-bold text-red-600">89% (HIGH RISK)</span>
-                            </div>
-                          </div>
+                          )}
                         </div>
 
-                        {/* RIGHT: Developer Approval Gate (Single-Invocation) OR Autonomous Status Chip */}
+                        {/* RIGHT: Execution & Approval Gate */}
                         <div className="lg:col-span-5 bg-white rounded-3xl border border-slate-200/80 p-6 shadow-sm flex flex-col justify-between">
                           <div>
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block font-mono mb-2">
                               Execution & Approval Gate
                             </span>
 
-                            {isAutonomous ? (
+                            {!results[wf.id] ? (
+                              <div className="p-4 bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-xs font-mono text-slate-500">
+                                No offer currently active or pending approval.
+                              </div>
+                            ) : isAutonomous ? (
                               /* Autonomous Mode: Status Chip with Rich Hover Tooltip */
                               <div className="relative group p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-between">
                                 <div className="flex items-center gap-2">
@@ -660,72 +901,121 @@ export function AgenticWorkflows() {
                                 onClick={() => handleExecute(wf.id)}
                                 className="w-full py-3 rounded-xl bg-slate-100 text-slate-600 hover:text-blue-600 font-bold text-xs uppercase tracking-widest transition-colors flex items-center justify-center gap-2 cursor-pointer"
                               >
-                                <RotateCcw className="w-4 h-4" /> Re-Evaluate Pipeline
+                                <RotateCcw className="w-4 h-4" /> query agent again
                               </button>
                             )}
                           </div>
                         </div>
                       </div>
 
-                      {/* Bottom Row: Trace Diagnostics (LEFT) & Dynamic Actions Map (RIGHT) */}
+                      {/* Bottom Row: Agent response history (LEFT) & Data Cloud Telemetry Flow (RIGHT) */}
                       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                        {/* Trace Diagnostics with Explicit Integration TODOs */}
-                        <div className="lg:col-span-5 bg-white rounded-3xl border border-slate-200/80 p-6 shadow-sm space-y-4">
-                          <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-                            <Search className="w-4 h-4 text-slate-400" />
-                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest font-mono">
-                              LLM Trace Diagnostics (Gemini Enterprise)
-                            </span>
+                        {/* Agent response history connected to agent-kc (Enlarged C1) */}
+                        <div className="lg:col-span-7 bg-white rounded-3xl border border-slate-200/80 p-6 shadow-md space-y-4">
+                          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                            <div className="flex items-center gap-2">
+                              <Bot className="w-4 h-4 text-blue-600" />
+                              <span className="text-[10px] font-bold text-slate-700 uppercase tracking-widest font-mono">
+                                Agent response history
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setActiveSection({ id: "catalog", search: "agent-kc" })}
+                              className="text-[9px] px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 font-mono font-bold border border-blue-200/50 transition-colors cursor-pointer flex items-center gap-1 group"
+                              title="View chat session history & Dataplex catalog entries for agent-kc"
+                            >
+                              <span>agent-kc</span>
+                              <ExternalLink className="w-2.5 h-2.5 opacity-60 group-hover:opacity-100 transition-opacity" />
+                            </button>
                           </div>
-                          
-                          {/**
-                           * // TODO: [Backend Integration - Trace API] Replace canned log array with EventSource('/api/guardrail/agent-trace') or WebSocket stream from Vertex AI Reasoning Engine
-                           * // TODO: [Backend Integration - Prompt Context] Inject live player context fetched from BigQuery gold_player_360 table into system prompt buffer
-                           */}
+
                           {traceError[wf.id] && (
                             <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-600 font-mono text-[11px] flex items-center gap-2 mb-3">
                               <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0" />
                               <span>{traceError[wf.id]}</span>
                             </div>
                           )}
-                          <div ref={traceContainerRef} className="space-y-3 font-mono max-h-60 overflow-y-auto pr-1">
-                            {workflowData[wf.id].thinking.map((step, idx) => (
-                              <motion.div 
-                                key={idx}
-                                initial={{ opacity: 0, x: -10 }}
-                                animate={{ 
-                                  opacity: (executingId === wf.id ? (idx < currentStep ? 1 : 0.3) : 1),
-                                  x: 0 
-                                }}
-                                className={cn(
-                                  "flex items-center gap-3 text-[11px]",
-                                  executingId === wf.id && idx === currentStep ? "text-blue-600 font-bold" : "text-slate-500"
-                                )}
-                              >
-                                <div className={cn(
-                                  "w-1.5 h-1.5 rounded-full shrink-0",
-                                  executingId === wf.id && idx === currentStep ? "bg-blue-600 animate-pulse" : 
-                                  (executingId === wf.id && idx < currentStep) || results[wf.id] ? "bg-emerald-400" : "bg-slate-200"
-                                )} />
-                                {step}
-                              </motion.div>
-                            ))}
+
+                          <div ref={traceContainerRef} className="space-y-4 font-mono max-h-[480px] min-h-[320px] overflow-y-auto pr-1 text-xs">
+                            {(agentHistory[wf.id] && agentHistory[wf.id].length > 0) ? (
+                              [...agentHistory[wf.id]].reverse().map((entry) => (
+                                <div key={entry.id} className="space-y-2">
+                                  {entry.role === "user" ? (
+                                    <div className="bg-slate-100 border border-slate-200/60 p-3 rounded-2xl text-slate-800 space-y-1">
+                                      <div className="flex justify-between items-center text-[9px] text-slate-400 font-bold uppercase">
+                                        <span>User Query</span>
+                                        <span>{entry.timestamp}</span>
+                                      </div>
+                                      <p className="font-sans font-medium text-xs leading-relaxed">{entry.text}</p>
+                                    </div>
+                                  ) : (
+                                    <div className="bg-blue-50/50 border border-blue-100 p-3 rounded-2xl text-slate-800 space-y-2">
+                                      <div className="flex justify-between items-center text-[9px] text-blue-600 font-bold uppercase">
+                                        <span className="flex items-center gap-1.5 font-bold">
+                                          <Bot className="w-3.5 h-3.5" /> {entry.agentName || "agent-kc"}
+                                        </span>
+                                        <span>{entry.timestamp}</span>
+                                      </div>
+                                      <p className="font-sans text-xs text-slate-700 leading-relaxed whitespace-pre-line">
+                                        {entry.text}
+                                      </p>
+                                      {/* C2: Hide mock reasoning steps when agent-kc is reached; show ONLY when traceError is present or routingMode !== LIVE */}
+                                      {entry.reasoningSteps && entry.reasoningSteps.length > 0 && (Boolean(traceError[wf.id]) || routingMode !== "LIVE") && (
+                                        <div className="pt-2 border-t border-blue-100/60 space-y-1 text-[11px]">
+                                          {entry.reasoningSteps.map((step, idx) => (
+                                            <div key={idx} className="flex items-center gap-2 text-slate-500">
+                                              <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", executingId === wf.id && idx === currentStep ? "bg-blue-600 animate-pulse" : "bg-emerald-500")} />
+                                              <span>{step}</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              ))
+                            ) : (
+                              workflowData[wf.id].thinking.map((step, idx) => (
+                                <motion.div 
+                                  key={idx}
+                                  initial={{ opacity: 0, x: -10 }}
+                                  animate={{ 
+                                    opacity: (executingId === wf.id ? (idx < currentStep ? 1 : 0.3) : 1),
+                                    x: 0 
+                                  }}
+                                  className={cn(
+                                    "flex items-center gap-3 text-[11px]",
+                                    executingId === wf.id && idx === currentStep ? "text-blue-600 font-bold" : "text-slate-500"
+                                  )}
+                                >
+                                  <div className={cn(
+                                    "w-1.5 h-1.5 rounded-full shrink-0",
+                                    executingId === wf.id && idx === currentStep ? "bg-blue-600 animate-pulse" : 
+                                    (executingId === wf.id && idx < currentStep) || results[wf.id] ? "bg-emerald-400" : "bg-slate-200"
+                                  )} />
+                                  {step}
+                                </motion.div>
+                              ))
+                            )}
                           </div>
                         </div>
 
-                        {/* Dynamic Actions Map (GCP LIVE vs MOCKED Flow) */}
-                        <div className="lg:col-span-7">
+                        {/* Data Cloud Telemetry Flow Diagram */}
+                        <div className="lg:col-span-5">
                           <AgenticPipelineDiagram 
                             wfId={wf.id} 
                             currentStep={currentStep} 
                             isFinished={!!results[wf.id]} 
                             routingMode={routingMode}
+                            isSimulatorRunning={isSimulatorRunning}
+                            isExecuting={executingId === wf.id}
                           />
                         </div>
                       </div>
 
-                      {/* Active Follow-up Routines when result is active */}
-                      {results[wf.id] && (
+                      {/* Active Follow-up Routines when result is active (C4 Hidden Wrapper) */}
+                      {SHOW_FOLLOW_UP_ROUTINES && results[wf.id] && (
                         <div className="bg-white rounded-3xl border border-blue-100 p-6 shadow-sm space-y-4">
                           <div className="flex items-center justify-between">
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">
