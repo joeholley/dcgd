@@ -78,6 +78,10 @@ export function SimulatorDiagnostics({ routingMode }: SimulatorDiagnosticsProps)
     ? (probeResults?.pubsub || { status: "ACTIVE", latency: "14ms", message: "Topic 'gaming-live-telemetry' receiving stream" })
     : { status: "MOCKED", latency: "0ms (Local)", message: "MOCKED (OFFLINE SIMULATION) - In-Memory BroadcastChannel" };
 
+  const firestoreStatus: ProbeInfo = isLive
+    ? (probeResults?.firestore || { status: "ACTIVE", latency: "18ms", message: "Collections 'campaigns' & 'offers' active in Firestore" })
+    : { status: "MOCKED", latency: "0ms (Local)", message: "MOCKED (OFFLINE SIMULATION) - Local Dev Fallback" };
+
   const spannerStatus: ProbeInfo = {
     status: "NOT YET IMPLEMENTED",
     latency: "N/A",
@@ -94,6 +98,16 @@ export function SimulatorDiagnostics({ routingMode }: SimulatorDiagnosticsProps)
       border: "border-blue-500/20",
       info: pubsubStatus,
       probeCode: "pubsubClient.topic('gaming-live-telemetry').exists()",
+    },
+    {
+      name: "Cloud Firestore Operational Datastore",
+      target: "Collections: campaigns & offers",
+      icon: Database,
+      color: "text-emerald-400",
+      bg: "bg-emerald-500/10",
+      border: "border-emerald-500/20",
+      info: firestoreStatus,
+      probeCode: "firestoreClient.collection('campaigns').get()",
     },
     {
       name: "Player Profiles in Cloud Spanner",

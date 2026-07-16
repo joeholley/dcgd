@@ -97,48 +97,76 @@ interface ExemplarState {
   activeOffer: OfferPayload | null;
 }
 
-const initialExemplarStates = (): Record<PlayerCohortId, ExemplarState> => ({
-  Whale: {
-    playerId: COHORT_DEFAULTS.Whale.defaultPlayerId,
-    tier: "Whale",
-    totalSpend: COHORT_DEFAULTS.Whale.defaultSpend,
-    estimatedLtv: COHORT_DEFAULTS.Whale.defaultLtv,
-    consecutiveDeaths: 0,
-    churnEvents: 0,
-    offersAccepted: {},
-    activeOffer: null,
-  },
-  Dolphin: {
-    playerId: COHORT_DEFAULTS.Dolphin.defaultPlayerId,
-    tier: "Dolphin",
-    totalSpend: COHORT_DEFAULTS.Dolphin.defaultSpend,
-    estimatedLtv: COHORT_DEFAULTS.Dolphin.defaultLtv,
-    consecutiveDeaths: 0,
-    churnEvents: 0,
-    offersAccepted: {},
-    activeOffer: null,
-  },
-  Minnow: {
-    playerId: COHORT_DEFAULTS.Minnow.defaultPlayerId,
-    tier: "Minnow",
-    totalSpend: COHORT_DEFAULTS.Minnow.defaultSpend,
-    estimatedLtv: COHORT_DEFAULTS.Minnow.defaultLtv,
-    consecutiveDeaths: 0,
-    churnEvents: 0,
-    offersAccepted: {},
-    activeOffer: null,
-  },
-  F2P: {
-    playerId: COHORT_DEFAULTS.F2P.defaultPlayerId,
-    tier: "F2P",
-    totalSpend: COHORT_DEFAULTS.F2P.defaultSpend,
-    estimatedLtv: COHORT_DEFAULTS.F2P.defaultLtv,
-    consecutiveDeaths: 0,
-    churnEvents: 0,
-    offersAccepted: {},
-    activeOffer: null,
-  },
-});
+const SESSION_LIVE_EXEMPLARS_KEY = "omniarcade_session_live_exemplars";
+
+const initialExemplarStates = (isLive: boolean = false): Record<PlayerCohortId, ExemplarState> => {
+  const defaults: Record<PlayerCohortId, ExemplarState> = {
+    Whale: {
+      playerId: COHORT_DEFAULTS.Whale.defaultPlayerId,
+      tier: "Whale",
+      totalSpend: COHORT_DEFAULTS.Whale.defaultSpend,
+      estimatedLtv: COHORT_DEFAULTS.Whale.defaultLtv,
+      consecutiveDeaths: 0,
+      churnEvents: 0,
+      offersAccepted: {},
+      activeOffer: null,
+    },
+    Dolphin: {
+      playerId: COHORT_DEFAULTS.Dolphin.defaultPlayerId,
+      tier: "Dolphin",
+      totalSpend: COHORT_DEFAULTS.Dolphin.defaultSpend,
+      estimatedLtv: COHORT_DEFAULTS.Dolphin.defaultLtv,
+      consecutiveDeaths: 0,
+      churnEvents: 0,
+      offersAccepted: {},
+      activeOffer: null,
+    },
+    Minnow: {
+      playerId: COHORT_DEFAULTS.Minnow.defaultPlayerId,
+      tier: "Minnow",
+      totalSpend: COHORT_DEFAULTS.Minnow.defaultSpend,
+      estimatedLtv: COHORT_DEFAULTS.Minnow.defaultLtv,
+      consecutiveDeaths: 0,
+      churnEvents: 0,
+      offersAccepted: {},
+      activeOffer: null,
+    },
+    F2P: {
+      playerId: COHORT_DEFAULTS.F2P.defaultPlayerId,
+      tier: "F2P",
+      totalSpend: COHORT_DEFAULTS.F2P.defaultSpend,
+      estimatedLtv: COHORT_DEFAULTS.F2P.defaultLtv,
+      consecutiveDeaths: 0,
+      churnEvents: 0,
+      offersAccepted: {},
+      activeOffer: null,
+    },
+  };
+
+  if (isLive && typeof sessionStorage !== "undefined") {
+    try {
+      const cached = sessionStorage.getItem(SESSION_LIVE_EXEMPLARS_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        (Object.keys(parsed) as PlayerCohortId[]).forEach((tier) => {
+          const liveEx = parsed[tier];
+          if (liveEx && defaults[tier]) {
+            defaults[tier] = {
+              ...defaults[tier],
+              playerId: liveEx.player_id || liveEx.playerId || defaults[tier].playerId,
+              totalSpend: typeof liveEx.total_iap_spend === "number" ? liveEx.total_iap_spend : (typeof liveEx.totalSpend === "number" ? liveEx.totalSpend : defaults[tier].totalSpend),
+              estimatedLtv: typeof liveEx.estimated_ltv === "number" ? liveEx.estimated_ltv : (typeof liveEx.estimatedLtv === "number" ? liveEx.estimatedLtv : defaults[tier].estimatedLtv),
+            };
+          }
+        });
+      }
+    } catch (e) {
+      console.warn("[MockClientTab] Failed to parse session exemplars:", e);
+    }
+  }
+
+  return defaults;
+};
 
 interface MockClientTabProps {
   routingMode: RoutingMode;
@@ -152,8 +180,10 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
     ? simState.selectedCohort 
     : "Whale") as PlayerCohortId;
 
-  // Isolated per-exemplar client state
-  const [exemplars, setExemplars] = useState<Record<PlayerCohortId, ExemplarState>>(() => initialExemplarStates());
+  // Isolated per-exemplar client state with session-persisted live values
+  const [exemplars, setExemplars] = useState<Record<PlayerCohortId, ExemplarState>>(() => 
+    initialExemplarStates(routingMode === "LIVE")
+  );
 
   // UI animation & interactive flow states
   const [isHitAnimating, setIsHitAnimating] = useState<boolean>(false);
@@ -169,15 +199,24 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
     return () => unsubState();
   }, []);
 
-  // Fetch exemplars from BigQuery live GCP backend when routingMode === "LIVE"
+  // Fetch exemplars from BigQuery live GCP backend once per session when routingMode === "LIVE"
   const fetchLiveExemplars = useCallback(async () => {
     if (routingMode !== "LIVE") return;
+
+    // Check if session storage already has persisted exemplars for this browser session
+    if (typeof sessionStorage !== "undefined") {
+      const cached = sessionStorage.getItem(SESSION_LIVE_EXEMPLARS_KEY);
+      if (cached) return;
+    }
 
     try {
       const res = await fetch("/api/exemplars");
       if (!res.ok) return;
       const data = await res.json();
       if (data.success && data.exemplars) {
+        if (typeof sessionStorage !== "undefined") {
+          sessionStorage.setItem(SESSION_LIVE_EXEMPLARS_KEY, JSON.stringify(data.exemplars));
+        }
         setExemplars((prev) => {
           const next = { ...prev };
           (Object.keys(data.exemplars) as PlayerCohortId[]).forEach((tier) => {
@@ -567,32 +606,32 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
       </div>
 
       {/* Grid: Game Client Viewport (Left) & Telemetry Log (Right) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Mock Game Client Viewport Card */}
-        <div className="lg:col-span-5 bg-slate-950 border-4 border-slate-800 rounded-[2.5rem] p-5 shadow-2xl flex flex-col justify-between space-y-4 relative">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        {/* Left Column: Mock Game Client Viewport Card (Scaled down 50%) */}
+        <div className="lg:col-span-4 bg-slate-950 border-2 border-slate-800 rounded-2xl p-3 shadow-2xl flex flex-col space-y-3 relative max-w-[280px] w-full mx-auto">
           
           {/* Card Header Label */}
-          <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
-            <div className="flex items-center gap-2 font-mono">
-              <Gamepad2 className="w-4 h-4 text-amber-400" />
-              <h3 className="font-bold text-white uppercase tracking-wider text-xs">Mock Game Client</h3>
+          <div className="flex items-center justify-between border-b border-slate-800/80 pb-1.5">
+            <div className="flex items-center gap-1.5 font-mono">
+              <Gamepad2 className="w-3.5 h-3.5 text-amber-400" />
+              <h3 className="font-bold text-white uppercase tracking-wider text-[11px]">Mock Game Client</h3>
             </div>
           </div>
 
           {/* Interactive Player Action Triggers */}
-          <div className="space-y-3 font-mono">
-            <span className="text-xs font-bold text-slate-300 uppercase block tracking-wider">
-              Simulate Player Action Actions:
+          <div className="space-y-1.5 font-mono text-[10px]">
+            <span className="font-bold text-slate-400 uppercase block tracking-wider text-[9px]">
+              Simulate Player Actions:
             </span>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-2">
               {/* "Try Again" Button */}
               <button
                 type="button"
                 disabled={isProcessingAction || encounterState === "boss_encountered"}
                 onClick={handleTryAgain}
-                className="p-3.5 bg-red-950/40 hover:bg-red-900/60 border border-red-800/60 text-red-200 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
+                className="py-2 px-2 bg-red-950/40 hover:bg-red-900/60 border border-red-800/60 text-red-200 rounded-lg font-bold text-[10px] flex items-center justify-center gap-1 transition-all cursor-pointer shadow-md disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
               >
-                <Flame className="w-4 h-4 text-red-400" />
+                <Flame className="w-3.5 h-3.5 text-red-400 shrink-0" />
                 <span>Try Again</span>
               </button>
 
@@ -601,18 +640,18 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
                 type="button"
                 disabled={isProcessingAction || showQuitModal}
                 onClick={handleQuitMission}
-                className="p-3.5 bg-amber-950/40 hover:bg-amber-900/60 border border-amber-800/60 text-amber-200 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
+                className="py-2 px-2 bg-amber-950/40 hover:bg-amber-900/60 border border-amber-800/60 text-amber-200 rounded-lg font-bold text-[10px] flex items-center justify-center gap-1 transition-all cursor-pointer shadow-md disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
               >
-                <LogOut className="w-4 h-4 text-amber-400" />
+                <LogOut className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                 <span>Quit Mission</span>
               </button>
             </div>
           </div>
 
-          {/* 9x16 Aspect Ratio Game Client Window */}
+          {/* 9x16 Aspect Ratio Game Client Window (50% Scaled Down) */}
           <div
             className={cn(
-              "relative w-full aspect-[9/16] rounded-2xl overflow-hidden border border-slate-800/80 shadow-2xl bg-cover bg-center bg-no-repeat flex flex-col justify-between p-4 font-mono select-none transition-all duration-300",
+              "relative w-full aspect-[9/16] max-h-[350px] rounded-xl overflow-hidden border border-slate-800/80 shadow-2xl bg-cover bg-center bg-no-repeat flex flex-col justify-between p-3 font-mono select-none transition-all duration-300",
               isHitAnimating && "border-red-500/80 ring-2 ring-red-500/30 scale-[0.99]"
             )}
             style={{ backgroundImage: `url(${gameBgImage})` }}
@@ -723,22 +762,10 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
               </div>
             )}
           </div>
-
-          {/* Gameplay Stats Panel */}
-          <div className="grid grid-cols-2 gap-3 font-mono">
-            <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800">
-              <span className="text-[10px] text-slate-500 uppercase block font-bold">Wipeouts / Deaths:</span>
-              <span className="text-base font-bold text-amber-400">{activeExemplar.consecutiveDeaths} Consecutive Fails</span>
-            </div>
-            <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800">
-              <span className="text-[10px] text-slate-500 uppercase block font-bold">Exit Intent Count:</span>
-              <span className="text-base font-bold text-orange-400">{activeExemplar.churnEvents} Mission Quits</span>
-            </div>
-          </div>
         </div>
 
         {/* Right Column: Telemetry Log Feed */}
-        <div className="lg:col-span-7 h-[600px]">
+        <div className="lg:col-span-8 h-[520px]">
           <SimulatorTelemetryLog routingMode={routingMode} />
         </div>
       </div>

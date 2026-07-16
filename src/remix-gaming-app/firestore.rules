@@ -26,7 +26,6 @@ service cloud.firestore {
 
     function isValidCampaign(data) {
       return data.keys().hasAll(['name', 'cohort', 'game', 'propensity', 'originalBudget', 'aiBudget', 'message', 'isAiAdjusted', 'networks', 'status', 'createdAt']) &&
-             data.keys().size() == 11 &&
              data.name is string && data.name.size() <= 200 &&
              data.cohort is string && data.cohort.size() <= 200 &&
              data.game is string && data.game.size() <= 100 &&
@@ -40,6 +39,14 @@ service cloud.firestore {
              data.createdAt is string; // ISO string format
     }
 
+    function isValidOffer(data) {
+      return data.keys().hasAll(['sku', 'title']) &&
+             data.sku is string && data.sku.size() <= 100 &&
+             data.title is string && data.title.size() <= 200 &&
+             (data.get('gameTitle', '') is string || data.get('game_title', '') is string) &&
+             (data.get('basePrice', 0) is number || data.get('base_price_usd', 0) is number || data.get('price', 0) is number);
+    }
+
     // Reports collection
     match /reports/{reportId} {
       allow read: if true; // Publicly accessible reports for OmniArcade
@@ -51,7 +58,14 @@ service cloud.firestore {
     // Campaigns collection
     match /campaigns/{campaignId} {
       allow read, list: if true;
-      allow create: if isValidCampaign(request.resource.data);
+      allow create, update: if isValidCampaign(request.resource.data);
+      allow delete: if true;
+    }
+
+    // Offers collection
+    match /offers/{offerId} {
+      allow read, list: if true;
+      allow create, update: if isValidOffer(request.resource.data);
       allow delete: if true;
     }
     

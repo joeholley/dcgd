@@ -117,6 +117,33 @@ export function LiveOpsGuardrail() {
     latency_ms: 14,
   });
 
+  // Fetch certified promotional offers from Firestore REST API
+  useEffect(() => {
+    fetch("/api/offers")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          const firstOffer = data[0];
+          setActiveOffer({
+            offer_id: firstOffer.offer_id || firstOffer.sku || "offer_frost_giant_01",
+            sku: firstOffer.sku || "frost_giant_shield_pack",
+            title: firstOffer.title || "$0.99 Frost Giant Shield Pack",
+            description: firstOffer.description || "Instant Resurrect + 24hr Frost Giant Shield Protection + 500 Gems",
+            price: firstOffer.price ?? 0.99,
+            original_price: firstOffer.original_price ?? firstOffer.basePrice ?? 4.99,
+            discount_pct: firstOffer.discount_pct ?? 80,
+            certified_by: firstOffer.certified_by || "dataplex_policy_aspect",
+            policy_aspect_id: firstOffer.policy_aspect_id || "gaming-campaign-policy-aspect",
+            policy_status: firstOffer.policy_status || "APPROVED",
+            max_allowed_discount: firstOffer.max_allowed_discount ?? 0.85,
+            player_tier: firstOffer.player_tier || "Whale",
+            latency_ms: firstOffer.latency_ms ?? 14,
+          });
+        }
+      })
+      .catch((err) => console.warn("[LiveOpsGuardrail] /api/offers fetch warning:", err));
+  }, []);
+
   // Connect to SSE Endpoint (/api/guardrail/events)
   useEffect(() => {
     let eventSource: EventSource | null = null;

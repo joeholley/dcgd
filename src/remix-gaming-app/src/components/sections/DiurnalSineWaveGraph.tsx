@@ -26,7 +26,7 @@ interface RegionConfig {
   peakHourUtc: number;
 }
 
-const REGIONS: RegionConfig[] = [
+export const REGIONS: RegionConfig[] = [
   {
     id: "na",
     name: "North America (NA)",
@@ -61,6 +61,28 @@ const REGIONS: RegionConfig[] = [
     peakHourUtc: 12,
   },
 ];
+
+export function calculateCurrentTotalDiurnalCCU(
+  peakCCU: number,
+  activeTimezones: ActiveTimezones
+): number {
+  const now = new Date();
+  const hour = now.getUTCHours() + now.getUTCMinutes() / 60;
+  let totalVal = 0;
+
+  REGIONS.forEach((r) => {
+    if (activeTimezones?.[r.id]) {
+      const phi = r.peakHourUtc - 6;
+      const val = Math.max(0, Math.sin((Math.PI * (hour - phi)) / 12)) ** 2;
+      const regionalPeak = r.weight * peakCCU;
+      const waveFloor = regionalPeak * 0.01;
+      const ccu = Math.max(waveFloor, val * regionalPeak);
+      totalVal += ccu;
+    }
+  });
+
+  return Math.round(totalVal);
+}
 
 export function DiurnalSineWaveGraph({
   peakCCU,
@@ -150,6 +172,16 @@ export function DiurnalSineWaveGraph({
     return { points, currentUtcHour };
   }, [peakCCU, activeTimezones]);
 
+  // Current real-time regional CCUs and current total CCU
+  const currentCCUMetrics = useMemo(() => {
+    const currentPtIndex = Math.round((data.currentUtcHour / 24) * pointsCount);
+    const currentPt = data.points[Math.max(0, Math.min(pointsCount, currentPtIndex))];
+    return {
+      regionalCCU: currentPt ? currentPt.regionalCCU : { apac: 0, emea: 0, na: 0 },
+      totalCCU: currentPt ? currentPt.totalCCU : 0,
+    };
+  }, [data, pointsCount]);
+
   // Helper to compute local regional timestamp for a given UTC hour
   const getRegionalTimestamp = (utcHour: number, regionId: string) => {
     let offset = 0;
@@ -226,10 +258,11 @@ export function DiurnalSineWaveGraph({
         </div>
 
         {/* Upper-Right Control Header: Timezone Toggle Chips & Local Machine Time Clock */}
-        <div className="flex items-center flex-wrap gap-3 text-xs">
-          <div className="flex items-center flex-wrap gap-2">
+        <div className="flex items-center justify-end flex-wrap gap-3 text-xs ml-auto">
+          <div className="flex items-center justify-end flex-wrap gap-2 ml-auto">
             {REGIONS.map((r) => {
               const isActive = activeTimezones[r.id];
+              const regionalCCUVal = currentCCUMetrics.regionalCCU[r.id] || 0;
               return (
                 <button
                   key={r.id}
@@ -247,6 +280,12 @@ export function DiurnalSineWaveGraph({
                     style={{ backgroundColor: isActive ? r.color : "#475569" }}
                   />
                   <span>{r.name} ({r.city})</span>
+                  <span className={cn(
+                    "px-1.5 py-0.5 rounded text-[10px] font-bold border",
+                    isActive ? "bg-slate-950/80 border-slate-700/60 text-white" : "bg-slate-950/40 border-slate-800/40 text-slate-500"
+                  )}>
+                    {regionalCCUVal.toLocaleString()} CCU
+                  </span>
                   <span className="flex items-center gap-1 opacity-80 text-[10px] bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">
                     <Clock className="w-3 h-3" />
                     {cityTimes[r.id] || "--:--"}
@@ -256,10 +295,13 @@ export function DiurnalSineWaveGraph({
             })}
           </div>
 
-          {/* Local Machine Time Relocated to Upper-Right Header */}
-          <span className="flex items-center gap-1.5 text-[10px] text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-500/30 font-bold shrink-0 shadow-sm ml-auto font-mono">
+          {/* Local Machine Time Relocated to Upper-Right Header with Total CCU */}
+          <span className="flex items-center gap-2 text-[10px] text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-500/30 font-bold shrink-0 shadow-sm ml-auto font-mono">
             <Clock className="w-3 h-3 text-emerald-400 animate-pulse" />
             <span>Local: {localMachineTime || "--:--:--"}</span>
+            <span className="bg-emerald-950/90 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-500/40 text-[10px] tabular-nums min-w-[95px] inline-block text-center">
+              {currentCCUMetrics.totalCCU.toLocaleString()} Total CCU
+            </span>
           </span>
         </div>
       </div>

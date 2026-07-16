@@ -68,6 +68,7 @@ export function Diagnostics() {
     { id: 'bq_latency', name: 'BigQuery Table: gaming_silver.server_latency', description: 'CCU, Ping Latency & FPS', status: 'FALLBACK', mode: 'mock', latencyMs: 9, details: 'Table gaming_silver.server_latency unreachable; dev fallback active' },
     { id: 'bq_difficulty', name: 'BigQuery Table: gaming_gold.gold_level_difficulty_funnel', description: 'Level Completion & Failure Funnel', status: 'FALLBACK', mode: 'mock', latencyMs: 12, details: 'Table gaming_gold.gold_level_difficulty_funnel unreachable; dev fallback active' },
     { id: 'pubsub', name: 'Cloud Pub/Sub Streaming Ingest', description: 'gaming-live-telemetry & BQ Direct Sub', status: 'FALLBACK', mode: 'mock', latencyMs: 16, details: 'Pub/Sub topic gaming-live-telemetry active (Dev Mock)' },
+    { id: 'firestore', name: 'Cloud Firestore Operational Datastore', description: 'Campaigns & Certified Offers Collection Store', status: 'FALLBACK', mode: 'mock', latencyMs: 8, details: 'Firestore campaigns & offers collections active (Dev Fallback)' },
     { id: 'bqml', name: 'BigQuery ML (ML.PREDICT)', description: 'ML.PREDICT gaming_raw.player_churn_model', status: 'FALLBACK', mode: 'mock', latencyMs: 5, details: 'Dynamic heuristic churn scoring active in dev fallback' },
     { id: 'dataplex', name: 'Dataplex Knowledge Catalog API', description: 'Aspect Types, Business Glossaries & Lineage', status: 'FALLBACK', mode: 'mock', latencyMs: 32, details: 'Dataplex REST API aspect registry active (Dev Fallback)' },
     { 
@@ -275,7 +276,7 @@ export function Diagnostics() {
     eventRateHz: number;
   }>({
     isRunning: false,
-    currentCCU: 14280,
+    currentCCU: 250000,
     activeAnomaly: "high_churn_boss_deaths",
     totalEventsPublished: 0,
     eventRateHz: 12,
@@ -288,7 +289,7 @@ export function Diagnostics() {
         const data = await res.json();
         setSimulator({
           isRunning: !!data.isRunning,
-          currentCCU: data.currentCCU || 14280,
+          currentCCU: data.currentCCU || 250000,
           activeAnomaly: data.activeAnomaly || null,
           totalEventsPublished: data.totalEventsPublished || 0,
           eventRateHz: data.eventRateHz || 12,

@@ -7,6 +7,7 @@ import dotenv from "dotenv";
 import { GoogleAuth } from "google-auth-library";
 import { PubSub } from "@google-cloud/pubsub";
 import { BigQuery } from "@google-cloud/bigquery";
+import { Firestore } from "@google-cloud/firestore";
 import { 
   queryPlayer360, 
   queryRegionalKPIs, 
@@ -76,6 +77,7 @@ const auth = new GoogleAuth({
 
 const pubsubClient = new PubSub({ projectId: PROJECT_ID });
 const bigqueryClient = new BigQuery({ projectId: PROJECT_ID });
+const firestoreClient = new Firestore({ projectId: PROJECT_ID });
 
 /**
  * Safely resolves a Google ADC Access Token (string or object.token)
@@ -543,7 +545,7 @@ function calculateCurrentCCU(): number {
   const now = new Date();
   const tSeconds = (now.getUTCHours() * 3600 + now.getUTCMinutes() * 60 + now.getUTCSeconds()) % 86400;
   const sinVal = Math.sin((Math.PI * tSeconds) / 86400);
-  return Math.floor(1200 + 17300 * (sinVal * sinVal));
+  return Math.floor(15000 + 235000 * (sinVal * sinVal));
 }
 
 const simulatorState: SimulatorState = {
@@ -654,7 +656,7 @@ async function startServer() {
   // CORS headers for local testing
   app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method === "OPTIONS") {
       return res.sendStatus(200);
@@ -740,6 +742,225 @@ async function startServer() {
       event_rate_hz: simulatorState.eventRateHz,
       current_ccu: simulatorState.currentCCU,
     });
+  });
+
+  // --------------------------------------------------------------------------
+  // Firestore Campaigns & Certified Offers REST APIs
+  // --------------------------------------------------------------------------
+  const DEFAULT_CAMPAIGNS = [
+    {
+      id: "cmp_eldoria_dormant_2026_01",
+      name: "High-Spender Cosmic Reactivation",
+      cohort: "Realm of Eldoria Dormant Cohort",
+      game: "Realm of Eldoria RPG",
+      propensity: 88,
+      originalBudget: 4000,
+      aiBudget: 5500,
+      message: "Ready to conquer the stars again, Commander? A rare Legendary Obsidian Blade is waiting in your gift crate!",
+      isAiAdjusted: true,
+      networks: ["Google Ads", "Google Analytics"],
+      status: "Active",
+      createdAt: new Date(Date.now() - 86450000).toISOString()
+    },
+    {
+      id: "cmp_speedy_promo_2026_02",
+      name: "Speed Racer Turbo Boost",
+      cohort: "Retro Speed Racer Churn-Risk",
+      game: "Retro Speed Racer",
+      propensity: 42,
+      originalBudget: 1500,
+      aiBudget: 900,
+      message: "The track is clear! Drag your Retro Speed Racer back today and claim 150 gold coins!",
+      isAiAdjusted: true,
+      networks: ["Google Ads"],
+      status: "Active",
+      createdAt: new Date(Date.now() - 172800000).toISOString()
+    }
+  ];
+
+  const DEFAULT_OFFERS = [
+    {
+      offer_id: "offer_frost_giant_01",
+      sku: "frost_giant_shield_pack",
+      title: "$0.99 Frost Giant Shield Pack",
+      gameTitle: "Realm of Eldoria RPG",
+      description: "Instant Resurrect + 24hr Frost Giant Shield Protection + 500 Gems",
+      price: 0.99,
+      basePrice: 4.99,
+      original_price: 4.99,
+      discount_pct: 80,
+      certified_by: "dataplex_policy_aspect",
+      policy_aspect_id: "gaming-campaign-policy-aspect",
+      policy_status: "APPROVED",
+      max_allowed_discount: 0.85,
+      player_tier: "Whale",
+      status: "ACTIVE_PRODUCTION",
+      latency_ms: 14,
+    },
+    {
+      offer_id: "offer_speed_boost_02",
+      sku: "speed_racer_gold_boost",
+      title: "150 Turbo Gold Pack",
+      gameTitle: "Retro Speed Racer",
+      description: "150 Gold Coins + Exclusive Cosmic Nitro Flame Trail",
+      price: 1.99,
+      basePrice: 5.99,
+      original_price: 5.99,
+      discount_pct: 66,
+      certified_by: "dataplex_policy_aspect",
+      policy_aspect_id: "gaming-campaign-policy-aspect",
+      policy_status: "APPROVED",
+      max_allowed_discount: 0.70,
+      player_tier: "Dolphin",
+      status: "ACTIVE_PRODUCTION",
+      latency_ms: 12,
+    },
+    {
+      offer_id: "offer_puzzle_expansion_03",
+      sku: "puzzle_quest_expansion_pass",
+      title: "Magic Forest Expansion Pass",
+      gameTitle: "Puzzle Quest Saga",
+      description: "Secret Forest Levels + 25% Off All Magic Chests",
+      price: 2.99,
+      basePrice: 9.99,
+      original_price: 9.99,
+      discount_pct: 70,
+      certified_by: "dataplex_policy_aspect",
+      policy_aspect_id: "gaming-campaign-policy-aspect",
+      policy_status: "APPROVED",
+      max_allowed_discount: 0.75,
+      player_tier: "Minnow",
+      status: "ACTIVE_PRODUCTION",
+      latency_ms: 15,
+    }
+  ];
+
+  // Campaigns API
+  app.get("/api/campaigns", async (_req: Request, res: Response) => {
+    try {
+      const snapshot = await firestoreClient.collection("campaigns").get();
+      if (snapshot.empty) {
+        for (const camp of DEFAULT_CAMPAIGNS) {
+          await firestoreClient.collection("campaigns").doc(camp.id).set(camp, { merge: true }).catch(() => {});
+        }
+        return res.json(DEFAULT_CAMPAIGNS);
+      }
+      const campaigns = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      return res.json(campaigns);
+    } catch (err: any) {
+      console.warn("[Firestore REST] GET /api/campaigns fallback to defaults:", err.message);
+      return res.json(DEFAULT_CAMPAIGNS);
+    }
+  });
+
+  app.get("/api/campaigns/:id", async (req: Request, res: Response) => {
+    try {
+      const docRef = await firestoreClient.collection("campaigns").doc(req.params.id).get();
+      if (!docRef.exists) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+      return res.json({ id: docRef.id, ...docRef.data() });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/campaigns", async (req: Request, res: Response) => {
+    try {
+      const data = req.body || {};
+      const id = data.id || `camp_${Date.now()}`;
+      await firestoreClient.collection("campaigns").doc(id).set(data, { merge: true });
+      return res.status(201).json({ id, ...data });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/campaigns/:id", async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id;
+      const data = req.body || {};
+      await firestoreClient.collection("campaigns").doc(id).set(data, { merge: true });
+      return res.json({ id, ...data });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/campaigns/:id", async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id;
+      await firestoreClient.collection("campaigns").doc(id).delete();
+      return res.json({ success: true, id });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Offers API
+  app.get("/api/offers", async (_req: Request, res: Response) => {
+    try {
+      const snapshot = await firestoreClient.collection("offers").get();
+      if (snapshot.empty) {
+        // Seed default offers into Firestore
+        for (const offer of DEFAULT_OFFERS) {
+          await firestoreClient.collection("offers").doc(offer.sku).set(offer, { merge: true }).catch(() => {});
+        }
+        return res.json(DEFAULT_OFFERS);
+      }
+      const offers = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      return res.json(offers);
+    } catch (err: any) {
+      console.warn("[Firestore REST] GET /api/offers fallback to defaults:", err.message);
+      return res.json(DEFAULT_OFFERS);
+    }
+  });
+
+  app.get("/api/offers/:sku", async (req: Request, res: Response) => {
+    try {
+      const sku = req.params.sku;
+      const docRef = await firestoreClient.collection("offers").doc(sku).get();
+      if (docRef.exists) {
+        return res.json({ id: docRef.id, ...docRef.data() });
+      }
+      const fallback = DEFAULT_OFFERS.find(o => o.sku === sku);
+      if (fallback) return res.json(fallback);
+      return res.status(404).json({ error: "Offer not found" });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/offers", async (req: Request, res: Response) => {
+    try {
+      const data = req.body || {};
+      const sku = data.sku || data.offer_id || `offer_${Date.now()}`;
+      await firestoreClient.collection("offers").doc(sku).set(data, { merge: true });
+      return res.status(201).json({ sku, ...data });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/offers/:sku", async (req: Request, res: Response) => {
+    try {
+      const sku = req.params.sku;
+      const data = req.body || {};
+      await firestoreClient.collection("offers").doc(sku).set(data, { merge: true });
+      return res.json({ sku, ...data });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/offers/:sku", async (req: Request, res: Response) => {
+    try {
+      const sku = req.params.sku;
+      await firestoreClient.collection("offers").doc(sku).delete();
+      return res.json({ success: true, sku });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
   });
 
   // --------------------------------------------------------------------------
@@ -1707,6 +1928,23 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       );
     };
 
+    // 7. Test Cloud Firestore Native Database Probe
+    const testFirestore = async () => {
+      const start = Date.now();
+      return withTimeout(
+        (async (): Promise<{ status: "LIVE" | "MOCK"; details: string; latency_ms: number }> => {
+          try {
+            const snapshot = await firestoreClient.collection("campaigns").limit(1).get();
+            return { status: "LIVE", details: `Cloud Firestore Native DB active (${snapshot.size} records in sample)`, latency_ms: Date.now() - start };
+          } catch (err: any) {
+            return { status: "MOCK", details: `Firestore lookup fallback: ${err?.message || "error"}`, latency_ms: Date.now() - start };
+          }
+        })(),
+        2000,
+        { status: "MOCK", details: "Firestore probe timed out (2s); local in-memory fallback active", latency_ms: 2000 }
+      );
+    };
+
     const [
       authRes, 
       bqRes,
@@ -1714,6 +1952,7 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       bqmlRes, 
       dataplexRes, 
       vertexKcRes,
+      firestoreRes,
       bqPlayers,
       bqSessions,
       bqTransactions,
@@ -1729,6 +1968,7 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       testBQML(),
       testDataplex(),
       testVertexAgentKC(),
+      testFirestore(),
       testBQTable("gaming_raw.gcp_players", "Player Profiles & Tiers"),
       testBQTable("gaming_raw.live_session_events", "Live Session Telemetry"),
       testBQTable("gaming_raw.iap_transactions", "IAP Transaction Log"),
@@ -1745,10 +1985,11 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       latency_ms: 0
     };
 
-    const services = {
+    const services: Record<string, any> = {
       auth: authRes,
       bigquery: bqRes,
       pubsub: pubsubRes,
+      firestore: firestoreRes,
       bqml: bqmlRes,
       dataplex: dataplexRes,
       vertex_agent: vertexKcRes,
@@ -1764,8 +2005,8 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       bq_difficulty_funnel: bqDifficulty
     };
 
-    const isAllLive = Object.values(services).every((s) => s.status === "LIVE");
-    const isAllMock = Object.values(services).every((s) => s.status === "MOCK");
+    const isAllLive = Object.values(services).every((s: any) => s?.status === "LIVE");
+    const isAllMock = Object.values(services).every((s: any) => s?.status === "MOCK");
     const overallStatus = isAllLive ? "ALL_LIVE" : isAllMock ? "OFFLINE_MOCK" : "HEALTHY_WITH_FALLBACKS";
 
     const bqTables = [
@@ -1788,6 +2029,7 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       services,
       gcp_services: [
         { id: 'auth', name: 'Google Cloud OAuth / ADC', category: 'Authentication', status: authRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: authRes.status.toLowerCase() as 'live' | 'mock', details: authRes.details, latency_ms: authRes.latency_ms },
+        { id: 'firestore', name: 'Cloud Firestore Operational Datastore', category: 'Operational Database', status: firestoreRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: firestoreRes.status.toLowerCase() as 'live' | 'mock', details: firestoreRes.details, latency_ms: firestoreRes.latency_ms },
         ...bqTables.map(t => ({ id: t.id, name: t.name, category: t.category, status: t.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: t.status.toLowerCase() as 'live' | 'mock', details: t.details, latency_ms: t.latency_ms })),
         { id: 'pubsub', name: 'Cloud Pub/Sub Streaming Ingest', category: 'Event Streaming', status: pubsubRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: pubsubRes.status.toLowerCase() as 'live' | 'mock', details: pubsubRes.details, latency_ms: pubsubRes.latency_ms },
         { id: 'bqml', name: 'BigQuery ML (ML.PREDICT)', category: 'Predictive ML', status: bqmlRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: bqmlRes.status.toLowerCase() as 'live' | 'mock', details: bqmlRes.details, latency_ms: bqmlRes.latency_ms },

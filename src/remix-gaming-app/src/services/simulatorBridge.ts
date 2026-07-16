@@ -41,7 +41,7 @@ export interface SimulatorPersistentState {
 }
 
 export const STORAGE_KEYS = {
-  SIMULATOR_STATE: "dcgd_simulator_app_state_v2",
+  SIMULATOR_STATE: "dcgd_simulator_app_state_v3",
   STREAM_LOGS: "dcgd_simulator_stream_logs_v2",
   ROUTING_MODE_LEGACY: "dcgd_telemetry_routing_mode",
 };

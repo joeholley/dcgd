@@ -357,6 +357,7 @@ gcloud services enable \
   dataplex.googleapis.com \
   datalineage.googleapis.com \
   aiplatform.googleapis.com \
+  firestore.googleapis.com \
   --project="${GCP_PROJECT}"
 
 log_success "Step 0 Pre-flight checks completed."
@@ -625,6 +626,12 @@ if [ "$RUN_STEP_4" = true ]; then
     PIDS+=($!)
   fi
 
+  if [ -f "${SCRIPTS_DIR}/09_create_firestore_aspects.py" ]; then
+    log_info "Launching 09_create_firestore_aspects.py (background)..."
+    PYTHONPATH="/usr/lib/google-cloud-sdk/lib/third_party:/usr/lib/google-cloud-sdk/lib:${PYTHONPATH:-}" python3 "${SCRIPTS_DIR}/09_create_firestore_aspects.py" &
+    PIDS+=($!)
+  fi
+
   if [ -f "${SCRIPTS_DIR}/07_create_lineage.py" ]; then
     log_info "Launching 07_create_lineage.py (background)..."
     PYTHONPATH="/usr/lib/google-cloud-sdk/lib/third_party:/usr/lib/google-cloud-sdk/lib:${PYTHONPATH:-}" python3 "${SCRIPTS_DIR}/07_create_lineage.py" &
@@ -657,10 +664,14 @@ fi
 if [ "$RUN_STEP_5" = true ]; then
   log_step "STEP 5: In-Warehouse BQML Churn Model Training & Validation"
 
-  log_info "Training BQML Logistic Regression model 'gaming_raw.player_churn_model'..."
-  bq query --location="${GCP_REGION}" --use_legacy_sql=false "CALL \`${GCP_PROJECT}.gaming_raw.train_churn_model\`();"
-
-  log_success "Step 5 BQML model trained."
+  if bq show --location="${GCP_REGION}" "${GCP_PROJECT}:gaming_raw.player_churn_model" >/dev/null 2>&1; then
+    log_info "BQML model 'gaming_raw.player_churn_model' already exists in ${GCP_PROJECT}. Skipping retraining."
+    log_success "Step 5 BQML model verified (already trained)."
+  else
+    log_info "Training BQML Logistic Regression model 'gaming_raw.player_churn_model'..."
+    bq query --location="${GCP_REGION}" --use_legacy_sql=false "CALL \`${GCP_PROJECT}.gaming_raw.train_churn_model\`();"
+    log_success "Step 5 BQML model trained."
+  fi
 else
   log_info "[SKIPPED] Step 5: In-Warehouse BQML Churn Model Training"
 fi

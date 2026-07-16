@@ -1039,9 +1039,23 @@ export function CampaignEngine({
     }
   }, [selectedCohortIndex]);
 
-  // Load campaigns from Firestore
+  // Load campaigns from REST API /api/campaigns with Firestore fallback
   const fetchCampaigns = async () => {
     setLoading(true);
+    try {
+      const res = await fetch("/api/campaigns");
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          setCampaigns(data);
+          setLoading(false);
+          return;
+        }
+      }
+    } catch (apiErr) {
+      console.warn("[CampaignEngine] REST API fetch failed, trying SDK/mock:", apiErr);
+    }
+
     if (isUsingFirebaseMock) {
       setCampaigns([
         {
@@ -1167,8 +1181,22 @@ export function CampaignEngine({
     fetchCampaigns();
   }, []);
 
-  // Handle saving campaign to Firestore
+  // Handle saving campaign via REST /api/campaigns with Firestore fallback
   const saveCampaign = async (newCamp: Omit<Campaign, "id">) => {
+    try {
+      const res = await fetch("/api/campaigns", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newCamp)
+      });
+      if (res.ok) {
+        await fetchCampaigns();
+        return;
+      }
+    } catch (apiErr) {
+      console.warn("POST /api/campaigns failed, trying client SDK:", apiErr);
+    }
+
     if (isUsingFirebaseMock) {
       setCampaigns(prev => [
         { id: `mock-${Date.now()}`, ...newCamp },
@@ -1195,7 +1223,36 @@ export function CampaignEngine({
     }
   };
 
+  const handleUpdateCampaignStatus = async (id: string, updatedFields: Partial<Campaign>) => {
+    try {
+      const res = await fetch(`/api/campaigns/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updatedFields)
+      });
+      if (res.ok) {
+        await fetchCampaigns();
+        return;
+      }
+    } catch (apiErr) {
+      console.warn(`PUT /api/campaigns/${id} failed:`, apiErr);
+    }
+    setCampaigns(prev => prev.map(c => c.id === id ? { ...c, ...updatedFields } : c));
+  };
+
   const handleDeleteCampaign = async (id: string) => {
+    try {
+      const res = await fetch(`/api/campaigns/${id}`, {
+        method: "DELETE"
+      });
+      if (res.ok) {
+        await fetchCampaigns();
+        return;
+      }
+    } catch (apiErr) {
+      console.warn(`DELETE /api/campaigns/${id} failed, trying client SDK:`, apiErr);
+    }
+
     if (isUsingFirebaseMock) {
       setCampaigns(prev => prev.filter(c => c.id !== id));
       return;
@@ -1807,6 +1864,18 @@ export function CampaignEngine({
                             </span>
                           )}
                         </div>
+                      </td>
+                      <td className="py-4 text-left">
+                        <select
+                          value={camp.status || "Active"}
+                          onChange={(e) => handleUpdateCampaignStatus(camp.id, { status: e.target.value as Campaign["status"] })}
+                          className="px-2 py-1 text-xs font-semibold rounded bg-slate-100 border border-slate-200 text-slate-700 cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        >
+                          <option value="Active">{t("Active")}</option>
+                          <option value="Pending">{t("Pending")}</option>
+                          <option value="Paused">{t("Paused")}</option>
+                          <option value="Archived">{t("Archived")}</option>
+                        </select>
                       </td>
                       <td className="py-4 text-right">
                         <button

@@ -36,6 +36,7 @@ import {
   AnomalyType,
   onSimulatorEvent
 } from "../services/simulatorBridge";
+import { calculateCurrentTotalDiurnalCCU } from "./sections/DiurnalSineWaveGraph";
 
 const LAYOUT_TRANSLATIONS: Record<string, Record<Country, string>> = {
   "Gaming Overview": {
@@ -130,7 +131,7 @@ export function Layout({
     totalEventsPublished: number;
   }>({
     isRunning: false,
-    currentCCU: 14280,
+    currentCCU: 250000,
     activeAnomaly: "high_churn_boss_deaths",
     totalEventsPublished: 0,
   });
@@ -144,7 +145,6 @@ export function Layout({
       setSimulator((prev) => {
         if (
           prev.isRunning === state.isRunning &&
-          prev.currentCCU === state.targetCCU &&
           prev.activeAnomaly === state.activeAnomaly
         ) {
           return prev;
@@ -152,7 +152,6 @@ export function Layout({
         return {
           ...prev,
           isRunning: state.isRunning,
-          currentCCU: state.targetCCU,
           activeAnomaly: state.activeAnomaly,
         };
       });
@@ -171,18 +170,23 @@ export function Layout({
     });
 
     const unsubEvent = onSimulatorEvent((event) => {
-      if (event.type === "ccu_telemetry_ping" && event.payload?.currentCCU) {
-        setSimulator((prev) => {
-          if (prev.currentCCU === event.payload.currentCCU) return prev;
-          return {
-            ...prev,
-            currentCCU: event.payload.currentCCU,
-          };
-        });
-      }
+      // Event listener maintained for telemetry stream actions
     });
 
+    const syncDiurnalCCU = () => {
+      const state = getSimulatorState();
+      const liveCCU = calculateCurrentTotalDiurnalCCU(state.peakCCU, state.activeTimezones);
+      setSimulator((prev) => {
+        if (prev.currentCCU === liveCCU) return prev;
+        return { ...prev, currentCCU: liveCCU };
+      });
+    };
+
+    syncDiurnalCCU();
+    const intervalId = setInterval(syncDiurnalCCU, 1000);
+
     return () => {
+      clearInterval(intervalId);
       unsubMode();
       unsubState();
       unsubStateUpdate();
@@ -198,13 +202,11 @@ export function Layout({
         const data = await res.json();
         setSimulator((prev) => {
           const isRunning = !!data.is_running;
-          const currentCCU = data.current_ccu || 14280;
           const activeAnomaly = data.active_anomaly || null;
           const totalEventsPublished = data.total_events_published || 0;
 
           if (
             prev.isRunning === isRunning &&
-            prev.currentCCU === currentCCU &&
             prev.activeAnomaly === activeAnomaly &&
             prev.totalEventsPublished === totalEventsPublished
           ) {
@@ -215,13 +217,13 @@ export function Layout({
           broadcastSimulatorState({
             isRunning,
             frequencyHz: data.event_rate_hz || 2,
-            targetCCU: currentCCU,
+            targetCCU: getSimulatorState().peakCCU,
             activeAnomaly,
           });
 
           return {
+            ...prev,
             isRunning,
-            currentCCU,
             activeAnomaly,
             totalEventsPublished,
           };
@@ -415,23 +417,12 @@ export function Layout({
             <span>{simulator.isRunning ? "ON" : "OFF"}</span>
           </button>
 
-          <div className="flex items-center gap-1.5 text-slate-200 font-semibold text-[11px]">
+          <div className="flex items-center gap-1.5 text-slate-200 font-semibold text-[11px] w-[135px] shrink-0 font-mono">
             <Activity className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-            <span>{simulator.currentCCU.toLocaleString()} CCU</span>
+            <span className="tabular-nums font-bold min-w-[95px] inline-block">
+              {simulator.currentCCU.toLocaleString()} CCU
+            </span>
           </div>
-
-          {/* Cohort Badge */}
-          {(() => {
-            const cohortInfo = COHORT_BADGES[selectedCohort];
-            if (!cohortInfo) return null;
-            const CohortIcon = cohortInfo.icon;
-            return (
-              <div className={cn("flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-bold", cohortInfo.color)}>
-                <CohortIcon className="w-3 h-3 shrink-0" />
-                <span>{cohortInfo.label}</span>
-              </div>
-            );
-          })()}
 
           <div className="flex items-center gap-1.5 border-l border-slate-700/80 pl-2.5">
             <span className="text-[10px] text-slate-400 font-bold uppercase hidden sm:inline">Anomaly:</span>
