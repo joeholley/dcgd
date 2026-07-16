@@ -1,3 +1,4 @@
+import { SessionIdBadge, DataModeBadge, DataMode } from "../DataModeBadge";
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
@@ -50,6 +51,8 @@ interface Message {
 }
 
 export function GamingAssistant({ isOpen, onToggle }: { isOpen: boolean; onToggle: () => void }) {
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [dataMode, setDataMode] = useState<DataMode>("mock");
   const [messages, setMessages] = useState<Message[]>([
     { 
       role: "bot", 
@@ -198,6 +201,8 @@ export function GamingAssistant({ isOpen, onToggle }: { isOpen: boolean; onToggl
         };
       } else {
         let apiText = "";
+        let chatSessionId: string | null = null;
+        let chatMode: DataMode = "mock";
         try {
           const res = await fetch("/api/chat", {
             method: "POST",
@@ -206,10 +211,15 @@ export function GamingAssistant({ isOpen, onToggle }: { isOpen: boolean; onToggl
           });
           if (res.ok) {
             const data = await res.json();
-            apiText = data.text;
+            apiText = data.text || data.response_text || "";
+            chatSessionId = data.session_id || null;
+            chatMode = data.mode === "LIVE" ? "live" : (data.status === "ERROR" ? "error" : "mock");
+            if (chatSessionId) setActiveSessionId(chatSessionId);
+            setDataMode(chatMode);
           }
         } catch {
           apiText = "";
+          setDataMode("error");
         }
 
         botResponse = {
@@ -217,7 +227,13 @@ export function GamingAssistant({ isOpen, onToggle }: { isOpen: boolean; onToggl
           stepper: finalSteps,
           content: apiText ? (
             <div className="space-y-3">
-              <p className="text-xs text-slate-700 font-bold">PineCore AI Response:</p>
+              <div className="flex items-center justify-between flex-wrap gap-1 border-b border-slate-100 pb-1.5">
+                <p className="text-xs text-slate-700 font-bold">PineCore AI Response</p>
+                <div className="flex items-center gap-1.5">
+                  {chatSessionId && <SessionIdBadge sessionId={chatSessionId} />}
+                  <DataModeBadge mode={chatMode} source="agent_kc" />
+                </div>
+              </div>
               <div className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap font-sans">
                 {apiText}
               </div>
@@ -271,9 +287,9 @@ export function GamingAssistant({ isOpen, onToggle }: { isOpen: boolean; onToggl
                  </div>
                  <div>
                    <h3 className="text-sm font-bold text-slate-800">PineCore AI Chatbot</h3>
-                   <div className="flex items-center gap-1.5 mt-0.5">
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Dataplex & ADC Synced</span>
+                   <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                      <DataModeBadge mode={dataMode} source="Vertex AI Reasoning Engine" />
+                      {activeSessionId && <SessionIdBadge sessionId={activeSessionId} label="Session" />}
                    </div>
                  </div>
                </div>

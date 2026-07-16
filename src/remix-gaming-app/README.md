@@ -48,21 +48,20 @@ An enterprise React 19 + Express web application providing real-time game analyt
 
 
 
-### 2. Full Platform Deployment (Cloud Build & Private Cloud Run)
+### 2. Full Platform Deployment (Cloud Build & Public Cloud Run)
 To deploy the entire backend infrastructure, Dataform pipelines, BQML model, Dataplex tags, and unified UI in one command:
 ```bash
 # From repository root:
 bash ./deploy-demo.sh
 ```
 
-### 3. Accessing the Private Cloud Run Deployment
+### 3. Accessing the Public Cloud Run Deployment
 
-After deployment, access the private Cloud Run service from Cloud Shell:
+After deployment, the script displays the public Cloud Run URL. You can also fetch it anytime via:
 
 ```bash
-gcloud run services proxy gaming-demo-app --port=8080 --region=us-central1
+gcloud run services describe gaming-demo-app --region=us-central1 --format='value(status.url)'
 ```
-Then click **Web Preview** -> **Preview on port 8080** in Google Cloud Shell.
 
 ### 4. Running UI Development Server Locally
 ```bash

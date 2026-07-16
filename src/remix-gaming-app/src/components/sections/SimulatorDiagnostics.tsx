@@ -51,7 +51,7 @@ export function SimulatorDiagnostics({ routingMode }: SimulatorDiagnosticsProps)
           setProbeResults({
             pubsub: { status: "ACTIVE", latency: "14ms", message: "Topic 'gaming-live-telemetry' receiving stream" },
             bigquery: { status: "ACTIVE", latency: "42ms", message: "Table 'gaming_gold.gold_player_360' active (1.4M rows)" },
-            bqml: { status: "ACTIVE", latency: "88ms", message: "Model 'gaming_raw.gaming_player_churn_model' (BQML XGBoost 94.2% ROC-AUC)" },
+            bqml: { status: "ACTIVE", latency: "88ms", message: "Model 'gaming_raw.player_churn_model' (BQML XGBoost 94.2% ROC-AUC)" },
             dataplex: { status: "ACTIVE", latency: "24ms", message: "Governance Aspect 'gaming-campaign-policy-aspect' verified" },
             vertex: { status: "ACTIVE", latency: "120ms", message: "Gemini Enterprise Agent Runtime 'omniarcade-guardrail-agent'" }
           });
@@ -78,10 +78,10 @@ export function SimulatorDiagnostics({ routingMode }: SimulatorDiagnosticsProps)
     ? (probeResults?.pubsub || { status: "ACTIVE", latency: "14ms", message: "Topic 'gaming-live-telemetry' receiving stream" })
     : { status: "MOCKED", latency: "0ms (Local)", message: "MOCKED (OFFLINE SIMULATION) - In-Memory BroadcastChannel" };
 
-  const firebaseStatus: ProbeInfo = {
+  const spannerStatus: ProbeInfo = {
     status: "NOT YET IMPLEMENTED",
     latency: "N/A",
-    message: "NOT YET IMPLEMENTED - Standalone JSON fallback active for 'player_profile'.${player_id}.'offers_accepted'",
+    message: "NOT YET IMPLEMENTED - Standalone JSON fallback active for table 'player_profiles'.${player_id}.'offers_accepted'",
   };
 
   const services = [
@@ -96,14 +96,14 @@ export function SimulatorDiagnostics({ routingMode }: SimulatorDiagnosticsProps)
       probeCode: "pubsubClient.topic('gaming-live-telemetry').exists()",
     },
     {
-      name: "Player Profiles in Firebase Realtime Database",
-      target: "Node: player_profile.${player_id}",
+      name: "Player Profiles in Cloud Spanner",
+      target: "Table: player_profiles (player_id, offers_accepted)",
       icon: Database,
       color: "text-amber-400",
       bg: "bg-amber-500/10",
       border: "border-amber-500/20",
-      info: firebaseStatus,
-      probeCode: "firebase.database().ref('player_profile').once('value')",
+      info: spannerStatus,
+      probeCode: "spanner.instance('gaming-db').database('player-360').run('SELECT 1 FROM player_profiles')",
     },
   ];
 

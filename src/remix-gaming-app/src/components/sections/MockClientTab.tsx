@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 import gameBgImage from "../../assets/image_1783953739614717.png";
 import { cn } from "../../lib/utils";
+import { SessionIdBadge } from "../SessionIdBadge";
+import { DataModeBadge } from "../DataModeBadge";
 import { 
   getSimulatorState, 
   updateSimulatorState, 
@@ -481,6 +483,11 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
           {(["Whale", "Dolphin", "Minnow", "F2P"] as const).map((tier) => {
             const ex = exemplars[tier];
             const isSelected = selectedTier === tier;
+            const promoState = simState.cohortPromos?.[tier];
+            const isPromoActive = Boolean(promoState?.active);
+            const currentChurnPct = (calculateChurnProbability(ex) * 100).toFixed(0);
+            const threshPct = ((promoState?.churnThreshold || 0.85) * 100).toFixed(0);
+
             return (
               <button
                 key={tier}
@@ -493,30 +500,46 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
                     : "bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200"
                 )}
               >
-                {/* Chip Header format */}
+                {/* Chip Header format with PROMO ACTIVE chip */}
                 <div className="flex justify-between items-center text-xs">
-                  <span className="font-bold flex items-center gap-1.5 text-white">
-                    {tier === "Whale" && <Crown className="w-3.5 h-3.5 text-amber-400" />}
-                    {tier === "Dolphin" && <Sparkles className="w-3.5 h-3.5 text-cyan-400" />}
-                    {tier === "Minnow" && <Fish className="w-3.5 h-3.5 text-purple-400" />}
-                    {tier === "F2P" && <Coins className="w-3.5 h-3.5 text-emerald-400" />}
-                    <span>{tier}</span>
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-bold flex items-center gap-1.5 text-white">
+                      {tier === "Whale" && <Crown className="w-3.5 h-3.5 text-amber-400" />}
+                      {tier === "Dolphin" && <Sparkles className="w-3.5 h-3.5 text-cyan-400" />}
+                      {tier === "Minnow" && <Fish className="w-3.5 h-3.5 text-purple-400" />}
+                      {tier === "F2P" && <Coins className="w-3.5 h-3.5 text-emerald-400" />}
+                      <span>{tier}</span>
+                    </span>
+                    {isPromoActive && (
+                      <span className="text-[9px] font-extrabold px-1.5 py-0.2 rounded border bg-emerald-500/20 text-emerald-400 border-emerald-500/50 shadow-sm shadow-emerald-500/30 animate-pulse tracking-wide font-mono uppercase">
+                        PROMO ACTIVE
+                      </span>
+                    )}
+                  </div>
                   {isSelected && <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />}
                 </div>
 
-                {/* Structured Chip Label Display */}
+                {/* Structured Chip Label Display with Churn Ratio Readout */}
                 <div className="text-[11px] font-mono space-y-1 bg-slate-950/80 p-2 rounded-lg border border-slate-800/80">
-                  <div className="flex justify-between items-center text-slate-200 font-semibold truncate">
+                  <div className="flex justify-between items-center text-slate-200 font-semibold truncate gap-1">
                     <span>ID: <span className="text-amber-300">{ex.playerId}</span></span>
-                    <span className={cn(
-                      "text-[9px] font-bold px-1.5 py-0.5 rounded border font-mono",
-                      calculateChurnProbability(ex) >= 0.85
-                        ? "bg-red-500/20 text-red-400 border-red-500/40 animate-pulse"
-                        : "bg-slate-900 text-slate-400 border-slate-800"
-                    )}>
-                      Churn: {(calculateChurnProbability(ex) * 100).toFixed(0)}%
-                    </span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {isPromoActive && (
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border bg-emerald-500/20 text-emerald-300 border-emerald-500/40 font-mono">
+                          {promoState.discountPercentage}% OFF
+                        </span>
+                      )}
+                      <span className={cn(
+                        "text-[9px] font-bold px-1.5 py-0.5 rounded border font-mono",
+                        isPromoActive
+                          ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                          : (calculateChurnProbability(ex) >= 0.85
+                              ? "bg-red-500/20 text-red-400 border-red-500/40 animate-pulse"
+                              : "bg-slate-900 text-slate-400 border-slate-800")
+                      )}>
+                        {isPromoActive ? `${currentChurnPct}% / ${threshPct}%` : `Churn: ${currentChurnPct}%`}
+                      </span>
+                    </div>
                   </div>
                   <div className="flex justify-between text-[10px] text-slate-400">
                     <span>Spend: <strong className="text-emerald-400">${ex.totalSpend.toLocaleString()}</strong></span>
@@ -692,6 +715,11 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
                   <ShoppingBag className="w-4 h-4" />
                   <span>[Accept & Purchase Offer]</span>
                 </button>
+                <div className="pt-2 border-t border-amber-500/30 flex items-center justify-between text-[9px] font-mono text-slate-400">
+                  <span className="flex items-center gap-1">Origin: <strong className="text-blue-400 font-sans">agent_kc</strong></span>
+                  <SessionIdBadge sessionId={`sess_live_${activeExemplar.playerId}`} label="Session" />
+                  <DataModeBadge mode="live" source="agent_kc Datastore Ingestion" />
+                </div>
               </div>
             )}
           </div>

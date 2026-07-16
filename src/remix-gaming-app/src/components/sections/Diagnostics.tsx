@@ -68,7 +68,7 @@ export function Diagnostics() {
     { id: 'bq_latency', name: 'BigQuery Table: gaming_silver.server_latency', description: 'CCU, Ping Latency & FPS', status: 'FALLBACK', mode: 'mock', latencyMs: 9, details: 'Table gaming_silver.server_latency unreachable; dev fallback active' },
     { id: 'bq_difficulty', name: 'BigQuery Table: gaming_gold.gold_level_difficulty_funnel', description: 'Level Completion & Failure Funnel', status: 'FALLBACK', mode: 'mock', latencyMs: 12, details: 'Table gaming_gold.gold_level_difficulty_funnel unreachable; dev fallback active' },
     { id: 'pubsub', name: 'Cloud Pub/Sub Streaming Ingest', description: 'gaming-live-telemetry & BQ Direct Sub', status: 'FALLBACK', mode: 'mock', latencyMs: 16, details: 'Pub/Sub topic gaming-live-telemetry active (Dev Mock)' },
-    { id: 'bqml', name: 'BigQuery ML (ML.PREDICT)', description: 'ML.PREDICT gaming_raw.gaming_player_churn_model', status: 'FALLBACK', mode: 'mock', latencyMs: 5, details: 'Dynamic heuristic churn scoring active in dev fallback' },
+    { id: 'bqml', name: 'BigQuery ML (ML.PREDICT)', description: 'ML.PREDICT gaming_raw.player_churn_model', status: 'FALLBACK', mode: 'mock', latencyMs: 5, details: 'Dynamic heuristic churn scoring active in dev fallback' },
     { id: 'dataplex', name: 'Dataplex Knowledge Catalog API', description: 'Aspect Types, Business Glossaries & Lineage', status: 'FALLBACK', mode: 'mock', latencyMs: 32, details: 'Dataplex REST API aspect registry active (Dev Fallback)' },
     { 
       id: 'vertex_agent_kc', 

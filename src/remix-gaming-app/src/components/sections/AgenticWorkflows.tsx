@@ -1,3 +1,4 @@
+import { SessionIdBadge, DataModeBadge } from "../DataModeBadge";
 import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import { motion, AnimatePresence } from "motion/react";
@@ -90,6 +91,167 @@ function extractCleanTextPayload(input: string): string {
   }
   return input;
 }
+
+export interface TargetCohortPayload {
+  cohort_id: string;
+  churn_threshold: number;
+  offer_details?: string;
+}
+
+export interface DecisionPayload {
+  intervention_type: string;
+  sku_id: string;
+  discount_percentage: number;
+  target_cohorts: TargetCohortPayload[];
+  reasoning: string;
+}
+
+function extractJsonObject(input: string): string | null {
+  if (!input) return null;
+  const startIdx = input.indexOf("{");
+  if (startIdx === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = startIdx; i < input.length; i++) {
+    const char = input[i];
+
+    if (inString) {
+      if (escape) {
+        escape = false;
+      } else if (char === "\\") {
+        escape = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+    } else {
+      if (char === '"') {
+        inString = true;
+      } else if (char === "{") {
+        depth++;
+      } else if (char === "}") {
+        depth--;
+        if (depth === 0) {
+          return input.substring(startIdx, i + 1);
+        }
+      }
+    }
+  }
+  return null;
+}
+
+export function parseDecisionPayload(input: string): DecisionPayload | null {
+  if (!input) return null;
+  const cleanInput = extractCleanTextPayload(input);
+
+  let rawJson: string | null = null;
+
+  const payloadHeaderIdx = cleanInput.indexOf("Decision Payload:");
+  const textToSearch = payloadHeaderIdx !== -1 ? cleanInput.substring(payloadHeaderIdx) : cleanInput;
+
+  const codeBlockMatch = textToSearch.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (codeBlockMatch) {
+    rawJson = codeBlockMatch[1].trim();
+  } else {
+    rawJson = extractJsonObject(textToSearch);
+  }
+
+  if (!rawJson && payloadHeaderIdx !== -1) {
+    rawJson = extractJsonObject(cleanInput);
+  }
+
+  if (rawJson) {
+    try {
+      const parsed = JSON.parse(rawJson);
+      
+      // Standardize cohort payload schema
+      if (parsed.target_cohorts || parsed.target_players || parsed.sku_id || parsed.intervention_type) {
+        let cohortsList: TargetCohortPayload[] = [];
+
+        if (Array.isArray(parsed.target_cohorts)) {
+          cohortsList = parsed.target_cohorts.map((tc: any) => ({
+            cohort_id: tc.cohort_id || tc.payer_tier || tc.tier || "Minnow",
+            churn_threshold: typeof tc.churn_threshold === "number" ? tc.churn_threshold : (typeof tc.churn_probability === "number" ? tc.churn_probability : 0.85),
+            offer_details: tc.offer_details || tc.details || "",
+          }));
+        } else if (Array.isArray(parsed.target_players)) {
+          // Backward compatibility map for legacy target_players format
+          const map = new Map<string, number>();
+          parsed.target_players.forEach((tp: any) => {
+            const tier = tp.payer_tier || tp.tier || "Minnow";
+            const churn = typeof tp.churn_probability === "number" ? tp.churn_probability : 0.85;
+            if (!map.has(tier) || churn < map.get(tier)!) {
+              map.set(tier, churn);
+            }
+          });
+          map.forEach((churn, tier) => {
+            cohortsList.push({
+              cohort_id: tier,
+              churn_threshold: churn,
+              offer_details: `Compliant discount of ${parsed.discount_percentage || 25}% applied to ${tier} cohort.`,
+            });
+          });
+        }
+
+        return {
+          intervention_type: parsed.intervention_type || "proactive_churn_offer",
+          sku_id: parsed.sku_id || parsed.sku || "frost_giant_shield_pack",
+          discount_percentage: typeof parsed.discount_percentage === "number" ? parsed.discount_percentage : (parsed.discount || 25),
+          target_cohorts: cohortsList,
+          reasoning: parsed.reasoning || parsed.offer_details || "Targeting cohorts with high churn probability based on boss wipeouts.",
+        };
+      }
+
+      // Single player / cohort legacy schema fallback
+      if (parsed.offer_payload || parsed.churn_score) {
+        return {
+          intervention_type: "proactive_churn_offer",
+          sku_id: parsed.offer_payload?.sku || parsed.sku_id || "frost_giant_shield_pack",
+          discount_percentage: typeof parsed.discount_percentage === "number" ? parsed.discount_percentage : 25,
+          target_cohorts: [
+            {
+              cohort_id: parsed.payer_tier || "Minnow",
+              churn_threshold: typeof parsed.churn_score === "number" ? parsed.churn_score : 0.87,
+              offer_details: parsed.offer_payload?.title || "Compliant discount applied.",
+            }
+          ],
+          reasoning: parsed.reasoning || `Targeting cohort ${parsed.payer_tier || 'Minnow'} with high churn risk.`,
+        };
+      }
+    } catch (e) {
+      console.warn("Failed to parse JSON decision payload from response:", e);
+    }
+  }
+
+  return null;
+}
+
+const DEFAULT_RETENTION_FALLBACK_RESPONSE = `[agent-kc Analysis] Analyzing player telemetry stream for boss death anomalies:
+- Identified 4 consecutive wipeouts on 'Frost Giant' boss in Realm of Eldoria RPG.
+- Cross-referenced Dataplex Knowledge Catalog entry aspect 'gaming-campaign-policy-aspect' & BQML churn model.
+
+Decision Payload:
+
+{
+  "intervention_type": "proactive_churn_offer",
+  "sku_id": "frost_giant_shield_pack",
+  "discount_percentage": 25.0,
+  "target_cohorts": [
+    {
+      "cohort_id": "Minnow",
+      "churn_threshold": 0.85,
+      "offer_details": "Compliant discount of 25% applied, as requested 80% exceeds Minnow tier cap (25%)."
+    },
+    {
+      "cohort_id": "F2P",
+      "churn_threshold": 0.85,
+      "offer_details": "Compliant discount of 25% applied, as requested 80% exceeds F2P tier cap (25%)."
+    }
+  ],
+  "reasoning": "Targeting Minnow and F2P cohorts with high churn probability (>=85%) who encountered difficulty with the Frost Giant Boss. Discount adjusted to comply with tier policy caps (max 25%)."
+}`;
 
 const getPipelineNodes = (
   wfId: string, 
@@ -327,9 +489,7 @@ export function AgenticWorkflows() {
   const [approvedActions, setApprovedActions] = useState<Record<string, boolean>>({});
   const [rejectedActions, setRejectedActions] = useState<Record<string, boolean>>({});
   const [traceError, setTraceError] = useState<Record<string, string | null>>({});
-  const [activeSessionIds, setActiveSessionIds] = useState<Record<string, string | null>>({
-    "Automated Player Retention Promo": "jg-session-9921",
-  });
+  const [activeSessionIds, setActiveSessionIds] = useState<Record<string, string | null>>({});
   const [followUpResponse, setFollowUpResponse] = useState<Record<string, string | null>>({});
   const traceContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -373,6 +533,20 @@ export function AgenticWorkflows() {
       },
     ],
   });
+
+  const [parsedDecision, setParsedDecision] = useState<DecisionPayload | null>(null);
+
+  // Auto-parse decision payload from the latest agent response history entry
+  useEffect(() => {
+    const historyList = agentHistory["Automated Player Retention Promo"] || [];
+    const lastAgentMsg = [...historyList].reverse().find(e => e.role === "agent" && e.id !== "init-response-kc");
+    if (lastAgentMsg && lastAgentMsg.text) {
+      const parsed = parseDecisionPayload(lastAgentMsg.text);
+      if (parsed) {
+        setParsedDecision(parsed);
+      }
+    }
+  }, [agentHistory]);
 
   const resetWfState = (wfId: string) => {
     setApprovedActions((prev) => {
@@ -501,7 +675,10 @@ export function AgenticWorkflows() {
     }
 
     if (routingMode === "LIVE") {
-      fetch(`/api/guardrail/agent-trace?session_id=jg-session-9921&query=${encodeURIComponent(EXECUTE_RUN_API_PROMPT)}&active=${agentActive[id]}&autonomous=${agentAutonomous[id]}`)
+      const existingSessionId = activeSessionIds[id];
+      const validSessionId = (existingSessionId && !existingSessionId.startsWith("jg-session") && !existingSessionId.startsWith("sess_")) ? existingSessionId : undefined;
+      const traceUrl = `/api/guardrail/agent-trace?${validSessionId ? `session_id=${encodeURIComponent(validSessionId)}&` : ""}query=${encodeURIComponent(EXECUTE_RUN_API_PROMPT)}&active=${agentActive[id]}&autonomous=${agentAutonomous[id]}`;
+      fetch(traceUrl)
         .then((res) => {
           if (!res.ok) {
             throw new Error(`HTTP ${res.status}: ${res.statusText}`);
@@ -540,10 +717,7 @@ export function AgenticWorkflows() {
             [id]: `Vertex AI Agent Trace endpoint failed (${err.message}). Displaying fallback trace with warning.`,
           }));
           if (id === "Automated Player Retention Promo") {
-            const fallbackText = `[agent-kc Analysis] Analyzing player telemetry stream for boss death anomalies:
-- Identified 4 consecutive wipeouts on 'Frost Giant' boss in Realm of Eldoria RPG.
-- Cross-referenced Dataplex Knowledge Catalog entry aspect 'gaming-campaign-policy-aspect' & BQML churn model (89% churn score for Veteran Whale cohort).
-- Formulated policy-compliant retention campaign: 80% discount on SKU 'frost_giant_shield_pack' ($0.99), within authorized 85% discount boundary.`;
+            const fallbackText = DEFAULT_RETENTION_FALLBACK_RESPONSE;
 
             setAgentHistory((prev) => {
               const list = (prev[id] || []).map((entry) =>
@@ -588,10 +762,7 @@ export function AgenticWorkflows() {
         [executingId]: workflowData[executingId]
       }));
       if (executingId === "Automated Player Retention Promo") {
-        const fullResponseText = `[agent-kc Analysis] Analyzing player telemetry stream for boss death anomalies:
-- Identified 4 consecutive wipeouts on 'Frost Giant' boss in Realm of Eldoria RPG.
-- Cross-referenced Dataplex Knowledge Catalog entry aspect 'gaming-campaign-policy-aspect' & BQML churn model (89% churn score for Veteran Whale cohort).
-- Formulated policy-compliant retention campaign: 80% discount on SKU 'frost_giant_shield_pack' ($0.99), within authorized 85% discount boundary.`;
+        const fullResponseText = DEFAULT_RETENTION_FALLBACK_RESPONSE;
 
         setAgentHistory((prev) => {
           const list = (prev[executingId] || []).map((entry) =>
@@ -787,7 +958,9 @@ export function AgenticWorkflows() {
                                       ? "No active operational proposal evaluated yet. Click 'Execute Single Run' to analyze player telemetry."
                                       : "No active evaluation")
                                   : (isRetentionAgent
-                                      ? "Target Cohort: Realm of Eldoria RPG - Veteran Whale Cohort"
+                                      ? (parsedDecision && parsedDecision.target_cohorts.length > 0
+                                          ? `Target Cohorts: Realm of Eldoria RPG - ${parsedDecision.target_cohorts.map(c => c.cohort_id).join(", ")} Cohorts`
+                                          : "Target Cohort: Realm of Eldoria RPG - Minnow & F2P Cohorts")
                                       : workflowData[wf.id].finding)}
                               </h4>
                             </div>
@@ -799,23 +972,45 @@ export function AgenticWorkflows() {
                           </div>
 
                           {results[wf.id] ? (
-                            <div className="grid grid-cols-2 gap-4 font-mono text-xs">
-                              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                <span className="text-[10px] text-slate-400 font-bold uppercase block">Certified Reward SKU:</span>
-                                <span className="font-bold text-slate-700">frost_giant_shield_pack</span>
+                            <div className="space-y-3 font-mono text-xs">
+                              <div className="grid grid-cols-2 gap-4">
+                                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Certified Reward SKU:</span>
+                                  <span className="font-bold text-slate-700">{parsedDecision?.sku_id || "frost_giant_shield_pack"}</span>
+                                </div>
+                                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Dataplex Aspect ID:</span>
+                                  <span className="font-bold text-slate-700">gaming-campaign-policy-aspect</span>
+                                </div>
+                                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Max Discount Boundary:</span>
+                                  <span className="font-bold text-emerald-600">
+                                    {parsedDecision ? `${parsedDecision.discount_percentage}% Compliant Cap` : "25% (Policy Limit Cap)"}
+                                  </span>
+                                </div>
+                                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Predicted Churn Threshold:</span>
+                                  <span className="font-bold text-red-600">
+                                    {parsedDecision && parsedDecision.target_cohorts.length > 0
+                                      ? `${(Math.min(...parsedDecision.target_cohorts.map(c => c.churn_threshold)) * 100).toFixed(0)}% Minimum Threshold (${parsedDecision.target_cohorts.length} Cohorts)`
+                                      : "85% (HIGH RISK)"}
+                                  </span>
+                                </div>
                               </div>
-                              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                <span className="text-[10px] text-slate-400 font-bold uppercase block">Dataplex Aspect ID:</span>
-                                <span className="font-bold text-slate-700">gaming-campaign-policy-aspect</span>
-                              </div>
-                              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                <span className="text-[10px] text-slate-400 font-bold uppercase block">Max Discount Boundary:</span>
-                                <span className="font-bold text-emerald-600">85% (Requested: 80%)</span>
-                              </div>
-                              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                <span className="text-[10px] text-slate-400 font-bold uppercase block">Predicted Churn Score:</span>
-                                <span className="font-bold text-red-600">89% (HIGH RISK)</span>
-                              </div>
+
+                              {parsedDecision && (
+                                <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-100 text-[11px] text-slate-700">
+                                  <span className="font-bold text-blue-900 block mb-1">Targeted Cohorts & Policy Rationale:</span>
+                                  <p className="text-[10px] text-slate-600 italic mb-2">{parsedDecision.reasoning}</p>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {parsedDecision.target_cohorts.map((tc, idx) => (
+                                      <span key={idx} className="px-2 py-0.5 rounded bg-white border border-blue-200 text-[9px] text-slate-800">
+                                        <strong className="text-blue-700">{tc.cohort_id} Cohort</strong>: {(tc.churn_threshold * 100).toFixed(0)}% churn threshold — {tc.offer_details || "Compliant 25% discount"}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           ) : (
                             <div className="p-4 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-xs text-slate-500 font-mono italic">
@@ -851,9 +1046,9 @@ export function AgenticWorkflows() {
                                 <div className="absolute top-full left-0 right-0 mt-2 p-4 rounded-xl bg-slate-900 text-white font-mono text-[11px] shadow-2xl opacity-0 group-hover:opacity-100 transition-all z-30 border border-slate-700 space-y-1">
                                   <p className="font-bold text-emerald-400">[DATAPLEX POLICY COMPLIANCE VERIFIED]</p>
                                   <p>- Aspect Check: `gaming-campaign-policy-aspect` PASSED</p>
-                                  <p>- Max Discount Boundary (85% limit) honored (Requested: 80%)</p>
-                                  <p>- BQML Churn Score: 0.89 (High risk threshold: 0.70)</p>
-                                  <p>- Target Segment: Veteran Whale Cohort</p>
+                                  <p>- Max Discount Boundary ({parsedDecision ? `${parsedDecision.discount_percentage}%` : "25%"}) limit honored</p>
+                                  <p>- BQML Minimum Churn Score: {parsedDecision && parsedDecision.target_cohorts.length > 0 ? Math.min(...parsedDecision.target_cohorts.map(c => c.churn_threshold)) : "0.85"}</p>
+                                  <p>- Target Segments: {parsedDecision ? parsedDecision.target_cohorts.map(c => c.cohort_id).join(", ") : "Minnow, F2P"}</p>
                                 </div>
                               </div>
                             ) : (
@@ -873,15 +1068,28 @@ export function AgenticWorkflows() {
                                       onClick={() => {
                                         setApprovedActions(prev => ({ ...prev, [wf.id]: true }));
                                         setRejectedActions(prev => ({ ...prev, [wf.id]: false }));
+
+                                        const targetTiers = isRetentionAgent && parsedDecision && parsedDecision.target_cohorts.length > 0
+                                          ? parsedDecision.target_cohorts.map(c => c.cohort_id)
+                                          : ["Minnow", "F2P"];
+
+                                        const minChurn = isRetentionAgent && parsedDecision && parsedDecision.target_cohorts.length > 0
+                                          ? Math.min(...parsedDecision.target_cohorts.map(c => c.churn_threshold))
+                                          : 0.85;
+
                                         broadcastIncomingAgentEvent({
                                           eventType: "in_game_retention_offer_injected",
                                           payload: {
                                             agentId: wf.id,
-                                            cohortId: "veteran_whale",
-                                            sku: "frost_giant_shield_pack",
-                                            discount: "80%",
-                                            price: "$0.99",
+                                            intervention_type: parsedDecision?.intervention_type || "proactive_churn_offer",
+                                            target_cohorts: targetTiers,
+                                            sku_id: parsedDecision?.sku_id || "frost_giant_shield_pack",
+                                            discount_percentage: parsedDecision?.discount_percentage ?? 25.0,
+                                            churn_threshold: minChurn,
+                                            target_cohort_details: parsedDecision?.target_cohorts || [],
+                                            reasoning: parsedDecision?.reasoning || "",
                                             title: "Frost Giant Shield & Resurrect Crate",
+                                            price: "$0.99",
                                             dataplexAspectVerified: true,
                                             timestamp: Date.now()
                                           }
@@ -953,12 +1161,10 @@ export function AgenticWorkflows() {
                             </div>
 
                             <div className="flex items-center gap-2">
-                              {routingMode === "LIVE" && activeSessionIds[wf.id] && (
-                                <span className="text-[9px] px-2 py-0.5 rounded bg-blue-50/80 text-blue-700 font-mono font-medium border border-blue-200/60 flex items-center gap-1.5" title="Established ADK Session ID">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                  Session: <code className="font-bold">{activeSessionIds[wf.id]}</code>
-                                </span>
+                              {activeSessionIds[wf.id] && (
+                                <SessionIdBadge sessionId={activeSessionIds[wf.id]} />
                               )}
+                              <DataModeBadge mode={routingMode === "LIVE" ? "live" : "mock"} source="agent_kc (Vertex AI Reasoning Engine)" />
 
                               <button
                                 type="button"

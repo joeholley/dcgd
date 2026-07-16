@@ -10,7 +10,7 @@ This repository reconciles three game analytics projects into a single, unified 
 
 ## 🚀 One-Step Automated Deployment
 
-To deploy the entire end-to-end platform (Terraform -> Pub/Sub -> Dataform -> BQML -> Dataplex -> Cloud Build -> Private Cloud Run), execute the master deployment runbook:
+To deploy the entire end-to-end platform (Terraform -> Pub/Sub -> Dataform -> BQML -> Dataplex -> Cloud Build -> Public Cloud Run), execute the master deployment runbook:
 
 ### Prerequisites & Cloud Shell Setup
 
@@ -40,17 +40,14 @@ gcloud auth application-default login
 bash ./deploy-demo.sh
 ```
 
-### Accessing the Private Cloud Run Application
+### Accessing the Public Cloud Run Application
 
-The deployment script builds container images via **Cloud Build** and deploys the unified application to **Cloud Run** in authenticated/private mode (`--no-allow-unauthenticated`).
+The deployment script builds container images via **Cloud Build** and deploys the unified application to **Cloud Run** in public mode (`--allow-unauthenticated`).
 
-To view the application from Google Cloud Shell:
-
+Once deployment completes, the script outputs the public HTTP endpoint URL:
 ```bash
-# 1. Start the gcloud run proxy on port 8080
-gcloud run services proxy gaming-demo-app --port=8080 --region=us-central1
-
-# 2. In Google Cloud Shell, click 'Web Preview' -> 'Preview on port 8080'
+# Get service URL directly via gcloud
+gcloud run services describe gaming-demo-app --region=us-central1 --format='value(status.url)'
 ```
 
 ---
@@ -94,23 +91,20 @@ python3 08_create_churn_guardrail_aspects.py
 python3 07_create_lineage.py
 ```
 
-### Step 3: Build & Deploy Container to Private Cloud Run
+### Step 3: Build & Deploy Container to Public Cloud Run
 
 ```bash
 # Build unified container image via Cloud Build
 gcloud builds submit --config=cloudbuild.yaml \
   --substitutions=_LOCATION=us-central1,_REPOSITORY=gaming-demo-images .
 
-# Deploy to Cloud Run (Private/Authenticated mode)
+# Deploy to Cloud Run (Public/Unauthenticated mode)
 gcloud run deploy gaming-demo-app \
   --image="us-central1-docker.pkg.dev/YOUR_PROJECT_ID/gaming-demo-images/gaming-app:latest" \
   --region=us-central1 \
   --service-account="gaming-runner-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-  --no-allow-unauthenticated \
+  --allow-unauthenticated \
   --port=8080
-
-# Proxy & Access via Cloud Shell Web Preview
-gcloud run services proxy gaming-demo-app --port=8080 --region=us-central1
 ```
 
 ---

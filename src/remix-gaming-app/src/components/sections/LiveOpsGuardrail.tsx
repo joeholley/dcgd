@@ -1,3 +1,4 @@
+import { SessionIdBadge, DataModeBadge } from "../DataModeBadge";
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
@@ -22,7 +23,6 @@ import {
   Lock
 } from "lucide-react";
 import { cn } from "../../lib/utils";
-import { DataModeBadge } from "../DataModeBadge";
 import { useDemoEvent } from "../../context/DemoEventContext";
 import { 
   getSimulatorState, 
@@ -479,9 +479,13 @@ export function LiveOpsGuardrail() {
                           INSTANT CHURN GUARDRAIL OFFER
                         </span>
                       </div>
-                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[9px] font-mono font-bold uppercase">
-                        ⚡ {lastLatency}ms Execution (Pre-Cached)
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <SessionIdBadge sessionId={telemetryLogs[0]?.session_id || "sess_guardrail_live"} />
+                        <DataModeBadge mode="live" source="agent_kc" />
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[9px] font-mono font-bold uppercase">
+                          ⚡ {lastLatency}ms
+                        </span>
+                      </div>
                     </div>
 
                     {/* Offer Body */}
@@ -617,7 +621,7 @@ export function LiveOpsGuardrail() {
                 <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block">BQML Logistic Model</span>
                 <h3 className="text-lg font-bold text-white">Real-Time Churn Propensity</h3>
                 <p className="text-xs text-slate-400 font-light mt-1">
-                  Trained on <code className="text-blue-400">gaming_raw.gaming_player_churn_model</code> via BigQuery ML.
+                  Trained on <code className="text-blue-400">gaming_raw.player_churn_model</code> via BigQuery ML.
                 </p>
               </div>
 
@@ -717,7 +721,7 @@ export function LiveOpsGuardrail() {
                       <span>{new Date(log.timestamp).toLocaleTimeString()}</span>
                     </div>
                     <div className="text-slate-300 grid grid-cols-2 gap-2 text-[10px]">
-                      <div>Session: <span className="text-slate-400">{log.session_id.substring(0, 14)}...</span></div>
+                      <div>Session: <SessionIdBadge sessionId={log.session_id} /></div>
                       <div>Pub/Sub ID: <span className="text-slate-400">{log.pubsub_message_id?.substring(0, 12)}...</span></div>
                       <div>Deaths: <span className="text-amber-400">{log.consecutive_deaths}</span></div>
                       <div>BQML Score: <span className="text-emerald-400 font-bold">{(log.predicted_churn_score * 100).toFixed(0)}% ({log.churn_risk_level})</span></div>

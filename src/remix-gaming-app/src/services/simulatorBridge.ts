@@ -16,6 +16,16 @@ export interface CohortStats {
 
 export type CohortStatsMap = Record<PlayerCohortId, CohortStats>;
 
+export interface CohortPromoState {
+  active: boolean;
+  discountPercentage: number;
+  churnThreshold: number; // e.g. 0.85
+  skuId: string;
+  interventionType?: string;
+}
+
+export type CohortPromosMap = Record<PlayerCohortId, CohortPromoState>;
+
 export interface SimulatorPersistentState {
   routingMode: RoutingMode;
   selectedCohort: PlayerCohortId;
@@ -27,6 +37,7 @@ export interface SimulatorPersistentState {
     na: boolean;
   };
   cohortStats: CohortStatsMap;
+  cohortPromos: CohortPromosMap;
 }
 
 export const STORAGE_KEYS = {
@@ -73,11 +84,28 @@ export function buildGcpConsolePubSubUrl(
   return `https://console.cloud.google.com/cloudpubsub/topic/detail/${topicName}?project=${projectId}`;
 }
 
+export function normalizeCohortId(rawTier: string): PlayerCohortId | null {
+  if (!rawTier) return null;
+  const upper = rawTier.trim().toUpperCase();
+  if (upper.includes("WHALE")) return "Whale";
+  if (upper.includes("DOLPHIN")) return "Dolphin";
+  if (upper.includes("MINNOW")) return "Minnow";
+  if (upper.includes("F2P") || upper.includes("FREE")) return "F2P";
+  return null;
+}
+
 const DEFAULT_COHORT_STATS: CohortStatsMap = {
   Whale: { playerDeaths: 0, quitAttempts: 0 },
   Dolphin: { playerDeaths: 0, quitAttempts: 0 },
   Minnow: { playerDeaths: 0, quitAttempts: 0 },
   F2P: { playerDeaths: 0, quitAttempts: 0 },
+};
+
+const DEFAULT_COHORT_PROMOS: CohortPromosMap = {
+  Whale: { active: false, discountPercentage: 0, churnThreshold: 0.85, skuId: "" },
+  Dolphin: { active: false, discountPercentage: 0, churnThreshold: 0.85, skuId: "" },
+  Minnow: { active: false, discountPercentage: 0, churnThreshold: 0.85, skuId: "" },
+  F2P: { active: false, discountPercentage: 0, churnThreshold: 0.85, skuId: "" },
 };
 
 const DEFAULT_STATE: SimulatorPersistentState = {
@@ -91,6 +119,7 @@ const DEFAULT_STATE: SimulatorPersistentState = {
     na: true,
   },
   cohortStats: { ...DEFAULT_COHORT_STATS },
+  cohortPromos: { ...DEFAULT_COHORT_PROMOS },
 };
 
 const CHANNEL_NAME = "omniarcade_simulator_channel";
@@ -143,6 +172,36 @@ function loadInitialState(): SimulatorPersistentState {
           F2P: {
             playerDeaths: typeof parsed.cohortStats?.F2P?.playerDeaths === "number" ? parsed.cohortStats.F2P.playerDeaths : 0,
             quitAttempts: typeof parsed.cohortStats?.F2P?.quitAttempts === "number" ? parsed.cohortStats.F2P.quitAttempts : 0,
+          },
+        },
+        cohortPromos: {
+          Whale: {
+            active: Boolean(parsed.cohortPromos?.Whale?.active),
+            discountPercentage: typeof parsed.cohortPromos?.Whale?.discountPercentage === "number" ? parsed.cohortPromos.Whale.discountPercentage : 0,
+            churnThreshold: typeof parsed.cohortPromos?.Whale?.churnThreshold === "number" ? parsed.cohortPromos.Whale.churnThreshold : 0.85,
+            skuId: parsed.cohortPromos?.Whale?.skuId || "",
+            interventionType: parsed.cohortPromos?.Whale?.interventionType,
+          },
+          Dolphin: {
+            active: Boolean(parsed.cohortPromos?.Dolphin?.active),
+            discountPercentage: typeof parsed.cohortPromos?.Dolphin?.discountPercentage === "number" ? parsed.cohortPromos.Dolphin.discountPercentage : 0,
+            churnThreshold: typeof parsed.cohortPromos?.Dolphin?.churnThreshold === "number" ? parsed.cohortPromos.Dolphin.churnThreshold : 0.85,
+            skuId: parsed.cohortPromos?.Dolphin?.skuId || "",
+            interventionType: parsed.cohortPromos?.Dolphin?.interventionType,
+          },
+          Minnow: {
+            active: Boolean(parsed.cohortPromos?.Minnow?.active),
+            discountPercentage: typeof parsed.cohortPromos?.Minnow?.discountPercentage === "number" ? parsed.cohortPromos.Minnow.discountPercentage : 0,
+            churnThreshold: typeof parsed.cohortPromos?.Minnow?.churnThreshold === "number" ? parsed.cohortPromos.Minnow.churnThreshold : 0.85,
+            skuId: parsed.cohortPromos?.Minnow?.skuId || "",
+            interventionType: parsed.cohortPromos?.Minnow?.interventionType,
+          },
+          F2P: {
+            active: Boolean(parsed.cohortPromos?.F2P?.active),
+            discountPercentage: typeof parsed.cohortPromos?.F2P?.discountPercentage === "number" ? parsed.cohortPromos.F2P.discountPercentage : 0,
+            churnThreshold: typeof parsed.cohortPromos?.F2P?.churnThreshold === "number" ? parsed.cohortPromos.F2P.churnThreshold : 0.85,
+            skuId: parsed.cohortPromos?.F2P?.skuId || "",
+            interventionType: parsed.cohortPromos?.F2P?.interventionType,
           },
         },
       };
@@ -273,6 +332,10 @@ export function updateSimulatorState(updates: Partial<SimulatorPersistentState>)
       ...currentState.cohortStats,
       ...(updates.cohortStats || {}),
     },
+    cohortPromos: {
+      ...currentState.cohortPromos,
+      ...(updates.cohortPromos || {}),
+    },
   };
   notifyStateListeners();
   if (broadcastChannel) {
@@ -302,6 +365,17 @@ export function updateCohortStats(
     },
   };
   updateSimulatorState({ cohortStats: updatedCohortStats });
+}
+
+export function resetCohortPromos(): void {
+  updateSimulatorState({
+    cohortPromos: {
+      Whale: { active: false, discountPercentage: 0, churnThreshold: 0.85, skuId: "" },
+      Dolphin: { active: false, discountPercentage: 0, churnThreshold: 0.85, skuId: "" },
+      Minnow: { active: false, discountPercentage: 0, churnThreshold: 0.85, skuId: "" },
+      F2P: { active: false, discountPercentage: 0, churnThreshold: 0.85, skuId: "" },
+    },
+  });
 }
 
 export function onSimulatorStateUpdate(listener: (state: SimulatorPersistentState) => void): () => void {
@@ -398,6 +472,47 @@ export function broadcastIncomingAgentEvent(event: { eventType: string; payload:
     success: true,
     payload: event.payload,
   });
+
+  if (event.eventType === "in_game_retention_offer_injected") {
+    const payload = event.payload || {};
+    let targetCohorts: PlayerCohortId[] = [];
+
+    if (Array.isArray(payload.target_cohorts)) {
+      targetCohorts = payload.target_cohorts.map((c: string) => normalizeCohortId(c)).filter(Boolean) as PlayerCohortId[];
+    } else if (Array.isArray(payload.target_players)) {
+      targetCohorts = Array.from(new Set(payload.target_players.map((p: any) => normalizeCohortId(p.payer_tier)).filter(Boolean))) as PlayerCohortId[];
+    } else if (payload.cohortId) {
+      const normalized = normalizeCohortId(payload.cohortId);
+      if (normalized) targetCohorts = [normalized];
+    }
+
+    if (targetCohorts.length === 0) {
+      targetCohorts = ["Minnow", "F2P"];
+    }
+
+    const discountPercentage = typeof payload.discount_percentage === "number"
+      ? payload.discount_percentage
+      : (typeof payload.discount === "string" ? parseFloat(payload.discount) : 25);
+
+    const churnThreshold = typeof payload.churn_threshold === "number"
+      ? payload.churn_threshold
+      : 0.85;
+
+    const skuId = payload.sku_id || payload.sku || "frost_giant_shield_pack";
+
+    const updatedPromos = { ...currentState.cohortPromos };
+    targetCohorts.forEach((cohort) => {
+      updatedPromos[cohort] = {
+        active: true,
+        discountPercentage,
+        churnThreshold,
+        skuId,
+        interventionType: payload.intervention_type || "proactive_churn_offer",
+      };
+    });
+
+    updateSimulatorState({ cohortPromos: updatedPromos });
+  }
 }
 
 /**

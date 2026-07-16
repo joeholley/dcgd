@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Database, ShieldCheck, Cpu, AlertTriangle, Info } from 'lucide-react';
 
-export type DataMode = 'live' | 'mock' | 'hybrid';
+export type DataMode = 'live' | 'mock' | 'hybrid' | 'error';
 
 interface DataModeBadgeProps {
   mode: DataMode;
@@ -42,6 +42,15 @@ export function DataModeBadge({ mode, source, details, className = '' }: DataMod
       dot: 'bg-purple-400',
       icon: Cpu,
       desc: 'Partial GCP backend connection with dev fallbacks',
+    },
+    error: {
+      label: 'ERROR / FALLBACK',
+      bg: 'bg-red-500/10 hover:bg-red-500/20',
+      border: 'border-red-500/30',
+      text: 'text-red-400',
+      dot: 'bg-red-400',
+      icon: AlertTriangle,
+      desc: 'Execution error or connection failure; using fallback response',
     },
   };
 
@@ -85,3 +94,5 @@ export function DataModeBadge({ mode, source, details, className = '' }: DataMod
     </div>
   );
 }
+
+export { SessionIdBadge } from './SessionIdBadge';

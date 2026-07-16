@@ -10,7 +10,7 @@
 #   Step 5: In-Warehouse BQML Churn Prediction Model Training
 #   Step 6: Vertex AI Agent Engine / ADK Agent Deployment
 #   Step 7: Cloud Build Container Compilation (Artifact Registry)
-#   Step 8: Private Cloud Run Service Deployment
+#   Step 8: Public Cloud Run Service Deployment (Unauthenticated)
 # ==============================================================================
 
 set -eo pipefail
@@ -190,7 +190,7 @@ Steps Runbook:
   Step 5: In-Warehouse BQML Churn Prediction Model Training
   Step 6: Vertex AI Agent Engine / ADK Agent Deployment
   Step 7: Cloud Build Container Compilation (Artifact Registry)
-  Step 8: Private Cloud Run Service Deployment
+  Step 8: Public Cloud Run Service Deployment (Unauthenticated)
 
 Options:
   --steps <1-8>         Comma-separated list of step numbers to run (disables all other steps).
@@ -657,7 +657,7 @@ fi
 if [ "$RUN_STEP_5" = true ]; then
   log_step "STEP 5: In-Warehouse BQML Churn Model Training & Validation"
 
-  log_info "Training BQML Logistic Regression model 'gaming_raw.gaming_player_churn_model'..."
+  log_info "Training BQML Logistic Regression model 'gaming_raw.player_churn_model'..."
   bq query --location="${GCP_REGION}" --use_legacy_sql=false "CALL \`${GCP_PROJECT}.gaming_raw.train_churn_model\`();"
 
   log_success "Step 5 BQML model trained."
@@ -723,14 +723,14 @@ else
 fi
 
 # ==============================================================================
-# Step 8: Private Cloud Run Deployment (Authenticated & Private)
+# Step 8: Public Cloud Run Deployment (Unauthenticated & Public)
 # ==============================================================================
 SERVICE_NAME="gaming-demo-app"
 IMAGE_URI="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/gaming-demo-images/gaming-app:latest"
 RUNNER_SA="gaming-runner-sa@${GCP_PROJECT}.iam.gserviceaccount.com"
 
 if [ "$RUN_STEP_8" = true ]; then
-  log_step "STEP 8: Private Cloud Run Deployment (Authenticated & Private)"
+  log_step "STEP 8: Public Cloud Run Deployment (Unauthenticated & Public)"
 
   log_info "Verifying Cloud Run execution service account '${RUNNER_SA}'..."
   if ! gcloud iam service-accounts describe "${RUNNER_SA}" --project="${GCP_PROJECT}" &>/dev/null; then
@@ -740,19 +740,39 @@ if [ "$RUN_STEP_8" = true ]; then
       --project="${GCP_PROJECT}"
   fi
 
-  log_info "Deploying Cloud Run service '${SERVICE_NAME}' with --no-allow-unauthenticated..."
+  log_info "Relaxing Cloud Run unauthenticated invoker organization policy if restricted..."
+  gcloud org-policies set-policy --project="${GCP_PROJECT}" /dev/stdin 2>/dev/null <<POLICY || true
+name: projects/${GCP_PROJECT_NUMBER}/policies/run.managed.requireInvokerIam
+spec:
+  rules:
+  - enforce: false
+POLICY
+
+  log_info "Deploying Cloud Run service '${SERVICE_NAME}' with --allow-unauthenticated..."
   gcloud run deploy "${SERVICE_NAME}" \
     --image="${IMAGE_URI}" \
     --region="${GCP_REGION}" \
     --service-account="${RUNNER_SA}" \
-    --no-allow-unauthenticated \
+    --allow-unauthenticated \
     --ingress=all \
     --set-env-vars="GOOGLE_CLOUD_PROJECT=${GCP_PROJECT},GCP_LOCATION=${GCP_REGION},BIGQUERY_LOCATION=${GCP_REGION},NODE_ENV=production" \
     --port=8080
 
-  log_success "Step 8 Cloud Run service deployed in private/authenticated mode."
+  log_info "Ensuring public IAM invoker binding (allUsers -> roles/run.invoker)..."
+  gcloud run services add-iam-policy-binding "${SERVICE_NAME}" \
+    --member="allUsers" \
+    --role="roles/run.invoker" \
+    --region="${GCP_REGION}" \
+    --project="${GCP_PROJECT}" >/dev/null 2>&1 || true
+
+  RUN_URL=$(gcloud run services describe "${SERVICE_NAME}" --project="${GCP_PROJECT}" --region="${GCP_REGION}" --format='value(status.url)' 2>/dev/null || echo "")
+
+  log_success "Step 8 Cloud Run service deployed in public/unauthenticated mode."
+  if [ -n "${RUN_URL}" ]; then
+    log_success "Public URL: ${RUN_URL}"
+  fi
 else
-  log_info "[SKIPPED] Step 8: Private Cloud Run Deployment"
+  log_info "[SKIPPED] Step 8: Public Cloud Run Deployment"
 fi
 
 # ==============================================================================
@@ -772,10 +792,14 @@ log_info "Summary of Execution:"
   log_info "  - Step 8 (Cloud Run Deployment): $([ "$RUN_STEP_8" = true ] && echo "APPLIED" || echo "SKIPPED")"
   
   if [ "$RUN_STEP_8" = true ]; then
+    RUN_URL=$(gcloud run services describe "${SERVICE_NAME}" --project="${GCP_PROJECT}" --region="${GCP_REGION}" --format='value(status.url)' 2>/dev/null || echo "")
     log_info ""
-    log_info "To access the private Cloud Run service from Cloud Shell Web Preview:"
-    log_info "  $ gcloud run services proxy ${SERVICE_NAME} --port=8080 --region=${GCP_REGION}"
-    log_info "Then click 'Web Preview' in Cloud Shell and select 'Preview on port 8080'."
+    if [ -n "${RUN_URL}" ]; then
+      log_info "Public Application Endpoint:"
+      log_info "  URL: ${RUN_URL}"
+    else
+      log_info "Cloud Run service deployed. Run 'gcloud run services describe ${SERVICE_NAME} --region=${GCP_REGION}' to retrieve URL."
+    fi
   fi
 
 exit 0

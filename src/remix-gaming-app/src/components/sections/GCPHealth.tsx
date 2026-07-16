@@ -105,7 +105,7 @@ export function GCPHealth() {
       icon: Compass,
     },
     {
-      key: "vertex_agent_kc" as const,
+      key: "vertex_agent" as const,
       name: "Knowledge Catalog Agent (agent_kc)",
       description: "Vertex AI Reasoning Engine health check & live endpoint",
       icon: Server,
@@ -190,7 +190,9 @@ export function GCPHealth() {
           {/* Service Health Cards Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {serviceConfigs.map((config) => {
-              const serviceHealth = healthData.services?.[config.key];
+              const serviceHealth = (healthData.services as any)?.[config.key] || 
+                (config.key === "vertex_agent" ? (healthData.services as any)?.["vertex_agent_kc"] : null) ||
+                (config.key === "vertex_agent" ? (healthData.services as any)?.["vertex_agent"] : null);
               const isLive = serviceHealth?.status === "LIVE";
               const Icon = config.icon;
 
@@ -232,6 +234,15 @@ export function GCPHealth() {
                           {serviceHealth?.latency_ms ?? 0} ms
                         </span>
                       </div>
+
+                      {config.key === "vertex_agent" && (serviceHealth as any)?.endpoint && (
+                        <div className="flex items-center justify-between text-xs pt-1.5 border-t border-slate-800/60">
+                          <span className="text-slate-400 font-medium">Resource Endpoint</span>
+                          <span className="font-mono text-blue-400 text-[10px] truncate max-w-[200px]" title={(serviceHealth as any).endpoint}>
+                            {(serviceHealth as any).endpoint}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     <div className="text-xs text-slate-400 bg-slate-950/50 p-2.5 rounded-lg border border-slate-800/50 font-mono text-[11px] leading-relaxed">
