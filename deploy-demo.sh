@@ -575,17 +575,21 @@ datasetSuffix: ""
 defaultAssertionDataset: gaming_dataform_assertions
 EOF
 
-    log_info "Ensuring Cloud Build service account IAM permissions for BigQuery Dataform execution..."
+    log_info "Ensuring Cloud Build service account IAM permissions for BigQuery Dataform & Dataplex execution..."
     grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/bigquery.user"
     grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/bigquery.dataViewer"
     grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/bigquery.dataEditor"
     grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/storage.objectViewer"
     grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/logging.logWriter"
+    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/dataplex.catalogEditor"
+    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/datalineage.admin"
     grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/bigquery.user"
     grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/bigquery.dataViewer"
     grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/bigquery.dataEditor"
     grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/storage.objectViewer"
     grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/logging.logWriter"
+    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/dataplex.catalogEditor"
+    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/datalineage.admin"
 
     log_info "Submitting Cloud Build job to execute Dataform Medallion pipeline..."
     gcloud builds submit \
