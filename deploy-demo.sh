@@ -461,14 +461,11 @@ if [ "$RUN_STEP_3" = true ]; then
   if [ -d "$DATAFORM_DIR" ]; then
     log_info "Compiling and running Dataform Medallion models in ${DATAFORM_DIR}..."
 
-    log_info "Ensuring all required BigQuery datasets exist in ${GCP_PROJECT} before table seeding..."
-    for ds in gaming_raw gaming_synthetic gaming_silver gaming_gold gaming_central_identity gaming_fps_studio gaming_mmo_studio gaming_mobile_studio gaming_sports_studio gaming_strategy_studio gaming_telemetry_bronze gaming_telemetry_silver gaming_telemetry_gold gaming_telemetry_dashboards gaming_telemetry_reference gaming_agent_analytics gaming_dataform_assertions gaming_telemetry_graph; do
-      log_info "  - Checking/creating dataset: ${ds}..."
-      bq mk --location="${GCP_REGION}" --dataset "${GCP_PROJECT}:${ds}" &>/dev/null || true
-    done
-
     log_info "Ensuring source tables exist and are seeded before Dataform execution..."
     bq query --location="${GCP_REGION}" --use_legacy_sql=false "
+      CREATE SCHEMA IF NOT EXISTS \`${GCP_PROJECT}.gaming_central_identity\` OPTIONS(location='${GCP_REGION}');
+      CREATE SCHEMA IF NOT EXISTS \`${GCP_PROJECT}.gaming_raw\` OPTIONS(location='${GCP_REGION}');
+
       CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.gaming_central_identity.players\` (
         user_id STRING,
         username STRING,
@@ -587,6 +584,7 @@ EOF
     grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/bigquery.jobUser"
     grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/logging.logWriter"
     grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/logging.logWriter"
+    grant_role_silently "serviceAccount:service-${GCP_PROJECT_NUMBER}@gcp-sa-cloudbuild.iam.gserviceaccount.com" "roles/bigquery.admin"
 
     log_info "Submitting Cloud Build job to execute Dataform Medallion pipeline..."
     gcloud builds submit \
