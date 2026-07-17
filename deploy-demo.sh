@@ -844,6 +844,17 @@ RUNNER_SA="gaming-runner-sa@${GCP_PROJECT}.iam.gserviceaccount.com"
 if [ "$RUN_STEP_8" = true ]; then
   log_step "STEP 8: Public Cloud Run Deployment (Unauthenticated & Public)"
 
+  log_info "Enabling required GCP APIs for Cloud Run deployment..."
+  gcloud services enable \
+    run.googleapis.com \
+    aiplatform.googleapis.com \
+    bigquery.googleapis.com \
+    dataplex.googleapis.com \
+    secretmanager.googleapis.com \
+    firestore.googleapis.com \
+    pubsub.googleapis.com \
+    --project="${GCP_PROJECT}"
+
   log_info "Verifying Cloud Run execution service account '${RUNNER_SA}'..."
   if ! gcloud iam service-accounts describe "${RUNNER_SA}" --project="${GCP_PROJECT}" &>/dev/null; then
     log_warn "Service account '${RUNNER_SA}' not found. Creating..."
@@ -852,13 +863,22 @@ if [ "$RUN_STEP_8" = true ]; then
       --project="${GCP_PROJECT}"
   fi
 
-  log_info "Relaxing Cloud Run unauthenticated invoker organization policy if restricted..."
-  gcloud org-policies set-policy --project="${GCP_PROJECT}" /dev/stdin 2>/dev/null <<POLICY || true
-name: projects/${GCP_PROJECT_NUMBER}/policies/run.managed.requireInvokerIam
-spec:
-  rules:
-  - enforce: false
-POLICY
+  log_info "Ensuring Cloud Run execution service account IAM permissions for BigQuery, Dataplex, & Vertex AI..."
+  grant_roles_silently "serviceAccount:${RUNNER_SA}" \
+    "roles/bigquery.admin" \
+    "roles/aiplatform.admin" \
+    "roles/aiplatform.user" \
+    "roles/dataplex.admin" \
+    "roles/dataplex.editor" \
+    "roles/dataplex.catalogEditor" \
+    "roles/datalineage.admin" \
+    "roles/storage.admin" \
+    "roles/logging.logWriter" \
+    "roles/pubsub.editor" \
+    "roles/datastore.user" \
+    "roles/secretmanager.secretAccessor"
+
+  KC_AGENT_ID=$(gcloud secrets versions access latest --secret="kc-agent-id" --project="${GCP_PROJECT}" 2>/dev/null || true)
 
   log_info "Deploying Cloud Run service '${SERVICE_NAME}' with --allow-unauthenticated..."
   gcloud run deploy "${SERVICE_NAME}" \
@@ -867,15 +887,18 @@ POLICY
     --service-account="${RUNNER_SA}" \
     --allow-unauthenticated \
     --ingress=all \
-    --set-env-vars="GOOGLE_CLOUD_PROJECT=${GCP_PROJECT},GCP_LOCATION=${GCP_REGION},BIGQUERY_LOCATION=${GCP_REGION},NODE_ENV=production" \
-    --port=8080
+    --set-env-vars="GOOGLE_CLOUD_PROJECT=${GCP_PROJECT},GCP_LOCATION=${GCP_REGION},BIGQUERY_LOCATION=${GCP_REGION},PROJECT_NUMBER=${GCP_PROJECT_NUMBER},KC_AGENT_ID=${KC_AGENT_ID:-},NODE_ENV=production" \
+    --port=8080 \
+    --quiet
 
   log_info "Ensuring public IAM invoker binding (allUsers -> roles/run.invoker)..."
-  gcloud run services add-iam-policy-binding "${SERVICE_NAME}" \
+  if ! gcloud run services add-iam-policy-binding "${SERVICE_NAME}" \
     --member="allUsers" \
     --role="roles/run.invoker" \
     --region="${GCP_REGION}" \
-    --project="${GCP_PROJECT}" >/dev/null 2>&1 || true
+    --project="${GCP_PROJECT}" --quiet >/dev/null; then
+    log_warn "Notice: allUsers invoker policy binding returned non-zero (may require organization policy admin intervention)."
+  fi
 
   RUN_URL=$(gcloud run services describe "${SERVICE_NAME}" --project="${GCP_PROJECT}" --region="${GCP_REGION}" --format='value(status.url)' 2>/dev/null || echo "")
 

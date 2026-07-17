@@ -12,7 +12,13 @@ import {
   CheckCircle2,
   Fish,
   Coins,
-  Swords
+  Swords,
+  Scaling,
+  Maximize2,
+  Minimize2,
+  Smartphone,
+  Monitor,
+  Move
 } from "lucide-react";
 import gameBgImage from "../../assets/image_1783953739614717.png";
 import { cn } from "../../lib/utils";
@@ -190,6 +196,92 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
   const [isProcessingAction, setIsProcessingAction] = useState<boolean>(false);
   const [encounterState, setEncounterState] = useState<EncounterState>("idle");
   const [showQuitModal, setShowQuitModal] = useState<boolean>(false);
+
+  // Resizable Mock Game Client Viewport State
+  const [clientWidth, setClientWidth] = useState<number>(() => {
+    if (typeof localStorage !== "undefined") {
+      const saved = localStorage.getItem("dcgd_mock_client_width");
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed >= 220 && parsed <= 720) return parsed;
+      }
+    }
+    return 320;
+  });
+
+  const [aspectRatio, setAspectRatio] = useState<"9/16" | "16/9" | "4/3" | "free">(() => {
+    if (typeof localStorage !== "undefined") {
+      const saved = localStorage.getItem("dcgd_mock_client_aspect");
+      if (saved && ["9/16", "16/9", "4/3", "free"].includes(saved)) {
+        return saved as "9/16" | "16/9" | "4/3" | "free";
+      }
+    }
+    return "9/16";
+  });
+
+  const [customHeight, setCustomHeight] = useState<number>(() => {
+    if (typeof localStorage !== "undefined") {
+      const saved = localStorage.getItem("dcgd_mock_client_height");
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed >= 250 && parsed <= 850) return parsed;
+      }
+    }
+    return 480;
+  });
+
+  const [isResizing, setIsResizing] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("dcgd_mock_client_width", clientWidth.toString());
+      localStorage.setItem("dcgd_mock_client_aspect", aspectRatio);
+      localStorage.setItem("dcgd_mock_client_height", customHeight.toString());
+    }
+  }, [clientWidth, aspectRatio, customHeight]);
+
+  const handleStartResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsResizing(true);
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startW = clientWidth;
+    const startH = customHeight;
+
+    const handleMouseMove = (moveEvt: MouseEvent) => {
+      const deltaX = moveEvt.clientX - startX;
+      const deltaY = moveEvt.clientY - startY;
+
+      const newWidth = Math.max(240, Math.min(720, startW + deltaX));
+      setClientWidth(newWidth);
+
+      if (aspectRatio === "free") {
+        const newHeight = Math.max(260, Math.min(850, startH + deltaY));
+        setCustomHeight(newHeight);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    document.body.style.cursor = "nwse-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+  }, [clientWidth, customHeight, aspectRatio]);
+
+  const handleResetSize = () => {
+    setClientWidth(320);
+    setAspectRatio("9/16");
+    setCustomHeight(480);
+  };
 
   // Sync global simulator state changes
   useEffect(() => {
@@ -606,15 +698,85 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
       </div>
 
       {/* Grid: Game Client Viewport (Left) & Telemetry Log (Right) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-        {/* Left Column: Mock Game Client Viewport Card (Scaled down 50%) */}
-        <div className="lg:col-span-4 bg-slate-950 border-2 border-slate-800 rounded-2xl p-3 shadow-2xl flex flex-col space-y-3 relative max-w-[280px] w-full mx-auto">
-          
-          {/* Card Header Label */}
-          <div className="flex items-center justify-between border-b border-slate-800/80 pb-1.5">
-            <div className="flex items-center gap-1.5 font-mono">
-              <Gamepad2 className="w-3.5 h-3.5 text-amber-400" />
-              <h3 className="font-bold text-white uppercase tracking-wider text-[11px]">Mock Game Client</h3>
+      <div className="flex flex-col lg:flex-row gap-5 items-start">
+        {/* Left Column: Mock Game Client Viewport Card (Resizable) */}
+        <div 
+          className={cn(
+            "bg-slate-950 border-2 border-slate-800 rounded-2xl p-3 shadow-2xl flex flex-col space-y-3 relative shrink-0 transition-[width] duration-75 mx-auto lg:mx-0",
+            isResizing ? "border-amber-500/80 ring-2 ring-amber-500/30 shadow-amber-500/10" : ""
+          )}
+          style={{ width: `${clientWidth}px`, maxWidth: "100%" }}
+        >
+          {/* Card Header Label & Resizing Controls */}
+          <div className="flex flex-col space-y-2 border-b border-slate-800/80 pb-2 font-mono">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Gamepad2 className="w-3.5 h-3.5 text-amber-400" />
+                <h3 className="font-bold text-white uppercase tracking-wider text-[11px]">Mock Game Client</h3>
+              </div>
+
+              {/* Dimensions readout & reset button */}
+              <div className="flex items-center gap-1.5 text-[9px]">
+                <span className="bg-slate-900 border border-slate-800 text-amber-400 px-2 py-0.5 rounded font-bold">
+                  {clientWidth}px {aspectRatio !== "free" ? `(${aspectRatio})` : `× ${customHeight}px`}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleResetSize}
+                  className="p-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 transition-colors cursor-pointer"
+                  title="Reset viewport size to default (320px 9:16)"
+                >
+                  <RotateCcw className="w-3 h-3 text-amber-400" />
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Size Presets & Aspect Ratio Selector Bar */}
+            <div className="flex items-center justify-between gap-1 text-[9px] pt-1">
+              {/* Size presets */}
+              <div className="flex items-center gap-1 bg-slate-900/90 p-0.5 rounded-lg border border-slate-800">
+                <span className="text-slate-500 px-1 text-[8px] uppercase">Width:</span>
+                {[
+                  { label: "S", width: 280 },
+                  { label: "M", width: 340 },
+                  { label: "L", width: 440 },
+                  { label: "XL", width: 560 },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => setClientWidth(preset.width)}
+                    className={cn(
+                      "px-1.5 py-0.5 rounded text-[9px] font-bold transition-all cursor-pointer",
+                      clientWidth === preset.width
+                        ? "bg-amber-500 text-slate-950 shadow-sm"
+                        : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                    )}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Aspect Ratios */}
+              <div className="flex items-center gap-1 bg-slate-900/90 p-0.5 rounded-lg border border-slate-800">
+                {(["9/16", "16/9", "4/3", "free"] as const).map((ratio) => (
+                  <button
+                    key={ratio}
+                    type="button"
+                    onClick={() => setAspectRatio(ratio)}
+                    className={cn(
+                      "px-1.5 py-0.5 rounded text-[9px] font-bold transition-all cursor-pointer uppercase",
+                      aspectRatio === ratio
+                        ? "bg-indigo-600 text-white shadow-sm"
+                        : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                    )}
+                    title={`Set aspect ratio to ${ratio}`}
+                  >
+                    {ratio === "9/16" ? "9:16" : ratio === "16/9" ? "16:9" : ratio === "4/3" ? "4:3" : "Free"}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -648,13 +810,19 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
             </div>
           </div>
 
-          {/* 9x16 Aspect Ratio Game Client Window (50% Scaled Down) */}
+          {/* Aspect Ratio Game Client Window (Resizable & Scalable) */}
           <div
             className={cn(
-              "relative w-full aspect-[9/16] max-h-[350px] rounded-xl overflow-hidden border border-slate-800/80 shadow-2xl bg-cover bg-center bg-no-repeat flex flex-col justify-between p-3 font-mono select-none transition-all duration-300",
+              "relative w-full rounded-xl overflow-hidden border border-slate-800/80 shadow-2xl bg-cover bg-center bg-no-repeat flex flex-col justify-between p-3 font-mono select-none transition-all duration-200",
               isHitAnimating && "border-red-500/80 ring-2 ring-red-500/30 scale-[0.99]"
             )}
-            style={{ backgroundImage: `url(${gameBgImage})` }}
+            style={{ 
+              backgroundImage: `url(${gameBgImage})`,
+              aspectRatio: aspectRatio === "free" ? undefined : aspectRatio.replace(":", "/"),
+              height: aspectRatio === "free" ? `${customHeight}px` : undefined,
+              minHeight: "280px",
+              maxHeight: aspectRatio === "9/16" && clientWidth <= 320 ? "460px" : undefined
+            }}
           >
             {/* Background darkening overlay for high contrast */}
             <div className="absolute inset-0 bg-slate-950/20 pointer-events-none" />
@@ -762,10 +930,24 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
               </div>
             )}
           </div>
+
+          {/* Interactive Drag-to-Resize Handle Indicator Pill at bottom-right corner */}
+          <div
+            onMouseDown={handleStartResize}
+            className={cn(
+              "absolute -bottom-2.5 -right-2.5 w-7 h-7 rounded-full bg-slate-900 border-2 flex items-center justify-center cursor-nwse-resize transition-all z-40 shadow-xl group",
+              isResizing || aspectRatio === "free"
+                ? "border-amber-400 text-amber-300 bg-amber-950/90 ring-4 ring-amber-500/20 scale-110"
+                : "border-slate-700 text-slate-400 hover:border-amber-500 hover:text-amber-300 hover:bg-slate-800"
+            )}
+            title="Click & drag to resize Mock Game Client viewport (width & height)"
+          >
+            <Scaling className="w-3.5 h-3.5 transform group-hover:scale-110 transition-transform" />
+          </div>
         </div>
 
-        {/* Right Column: Telemetry Log Feed */}
-        <div className="lg:col-span-8 h-[520px]">
+        {/* Right Column: Telemetry Log Feed (Fills remaining horizontal space) */}
+        <div className="flex-1 min-w-0 w-full h-[580px]">
           <SimulatorTelemetryLog routingMode={routingMode} />
         </div>
       </div>
