@@ -300,9 +300,9 @@ check_tool() {
     else
       log_error "  - Tool 'terraform': STUB / UNINSTALLED ($path)"
       log_error "    Google Cloud Shell placeholder detected. Install real Terraform with:"
-      log_error "      wget -O - https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg"
-      log_error "      echo \"deb [arch=\$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com \$(grep -oP '(?<=UBUNTU_CODENAME=).*' /etc/os-release || lsb_release -cs) main\" | sudo tee /etc/apt/sources.list.d/hashicorp.list"
-      log_error "      sudo apt update && sudo apt install -y terraform"
+      echo "wget -O - https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg" >&2
+      echo "echo \"deb [arch=\$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com \$(grep -oP '(?<=UBUNTU_CODENAME=).*' /etc/os-release || lsb_release -cs) main\" | sudo tee /etc/apt/sources.list.d/hashicorp.list" >&2
+      echo "sudo apt update && sudo apt install -y terraform" >&2
       PREFLIGHT_FAILED=1
       return 1
     fi
