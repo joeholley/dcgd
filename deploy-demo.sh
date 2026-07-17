@@ -48,35 +48,46 @@ log_step() {
   echo -e "${BOLD}${BLUE}======================================================================${NC}\n"
 }
 
-grant_role_silently() {
+grant_roles_silently() {
   local member="$1"
-  local role="$2"
+  shift
+  local roles=("$@")
+
+  if [ ${#roles[@]} -eq 0 ]; then
+    return 0
+  fi
+
   local existing_roles
   existing_roles=$(gcloud projects get-iam-policy "${GCP_PROJECT}" \
     --flatten="bindings[].members" \
     --filter="bindings.members='${member}'" \
     --format="value(bindings.role)" 2>/dev/null || true)
 
-  if echo "${existing_roles}" | grep -q -w "${role}"; then
-    log_info "  - ${member} already has ${role} (skipped)"
-    return 0
-  fi
-
-  log_info "  - Granting ${role} to ${member}..."
   local err_log
   err_log=$(mktemp)
-  if gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
-    --member="${member}" \
-    --role="${role}" \
-    --condition=None >/dev/null 2>"${err_log}"; then
-    log_info "    Updated IAM policy for project [${GCP_PROJECT}]."
-  else
-    log_error "    Failed to update IAM policy. Error details:"
-    cat "${err_log}" >&2
-    rm -f "${err_log}"
-    return 1
-  fi
+
+  for role in "${roles[@]}"; do
+    if echo "${existing_roles}" | grep -q -w "${role}"; then
+      log_info "  - ${member} already has ${role} (skipped)"
+    else
+      log_info "  - Granting ${role} to ${member}..."
+      if gcloud projects add-iam-policy-binding "${GCP_PROJECT}" \
+        --member="${member}" \
+        --role="${role}" \
+        --condition=None >/dev/null 2>"${err_log}"; then
+        log_info "    Updated IAM policy for project [${GCP_PROJECT}]."
+      else
+        log_error "    Failed to update IAM policy for ${role}. Error details:"
+        cat "${err_log}" >&2
+      fi
+    fi
+  done
+
   rm -f "${err_log}"
+}
+
+grant_role_silently() {
+  grant_roles_silently "$@"
 }
 
 # Base paths
@@ -576,20 +587,29 @@ defaultAssertionDataset: gaming_dataform_assertions
 EOF
 
     log_info "Ensuring Cloud Build service account IAM permissions for BigQuery Dataform & Dataplex execution..."
-    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/bigquery.user"
-    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/bigquery.dataViewer"
-    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/bigquery.dataEditor"
-    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/storage.objectViewer"
-    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/logging.logWriter"
-    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/dataplex.catalogEditor"
-    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/datalineage.admin"
-    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/bigquery.user"
-    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/bigquery.dataViewer"
-    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/bigquery.dataEditor"
-    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/storage.objectViewer"
-    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/logging.logWriter"
-    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/dataplex.catalogEditor"
-    grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/datalineage.admin"
+    grant_roles_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
+      "roles/bigquery.user" \
+      "roles/bigquery.dataViewer" \
+      "roles/bigquery.dataEditor" \
+      "roles/storage.objectViewer" \
+      "roles/logging.logWriter" \
+      "roles/dataplex.catalogEditor" \
+      "roles/dataplex.editor" \
+      "roles/dataplex.entryGroupOwner" \
+      "roles/dataplex.admin" \
+      "roles/datalineage.admin"
+
+    grant_roles_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+      "roles/bigquery.user" \
+      "roles/bigquery.dataViewer" \
+      "roles/bigquery.dataEditor" \
+      "roles/storage.objectViewer" \
+      "roles/logging.logWriter" \
+      "roles/dataplex.catalogEditor" \
+      "roles/dataplex.editor" \
+      "roles/dataplex.entryGroupOwner" \
+      "roles/dataplex.admin" \
+      "roles/datalineage.admin"
 
     log_info "Submitting Cloud Build job to execute Dataform Medallion pipeline..."
     gcloud builds submit \
@@ -613,6 +633,35 @@ fi
 # ==============================================================================
 if [ "$RUN_STEP_4" = true ]; then
   log_step "STEP 4: Dataplex Aspect Tags & Business Glossary Registration"
+
+  log_info "Ensuring Dataplex IAM permissions for Aspect Tags & Entry Group modifications..."
+  grant_roles_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
+    "roles/dataplex.catalogEditor" \
+    "roles/dataplex.editor" \
+    "roles/dataplex.entryGroupOwner" \
+    "roles/dataplex.admin" \
+    "roles/datalineage.admin"
+
+  grant_roles_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+    "roles/dataplex.catalogEditor" \
+    "roles/dataplex.editor" \
+    "roles/dataplex.entryGroupOwner" \
+    "roles/dataplex.admin" \
+    "roles/datalineage.admin"
+
+  ACTIVE_ACCOUNT=$(gcloud config get-value account 2>/dev/null || true)
+  if [ -n "${ACTIVE_ACCOUNT}" ]; then
+    if [[ "${ACTIVE_ACCOUNT}" == *"gserviceaccount.com"* ]]; then
+      MEMBER_PREFIX="serviceAccount"
+    else
+      MEMBER_PREFIX="user"
+    fi
+    grant_roles_silently "${MEMBER_PREFIX}:${ACTIVE_ACCOUNT}" \
+      "roles/dataplex.catalogEditor" \
+      "roles/dataplex.editor" \
+      "roles/dataplex.entryGroupOwner" \
+      "roles/dataplex.admin"
+  fi
 
   SCRIPTS_DIR="${GAMING_DIR}/scripts"
   log_info "Registering Dataplex Business Glossaries, Aspect Tags, & Lineage in parallel..."
@@ -745,12 +794,15 @@ if [ "$RUN_STEP_7" = true ]; then
   fi
 
   log_info "Ensuring Cloud Build & Compute service account IAM permissions..."
-  grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/storage.admin"
-  grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/artifactregistry.writer"
-  grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" "roles/logging.logWriter"
-  grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/storage.admin"
-  grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/artifactregistry.writer"
-  grant_role_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" "roles/logging.logWriter"
+  grant_roles_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+    "roles/storage.admin" \
+    "roles/artifactregistry.writer" \
+    "roles/logging.logWriter"
+
+  grant_roles_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
+    "roles/storage.admin" \
+    "roles/artifactregistry.writer" \
+    "roles/logging.logWriter"
   log_info "Submitting Cloud Build job to compile unified container image..."
   gcloud builds submit --verbosity=info --config="${REPO_ROOT}/cloudbuild.yaml" \
     --substitutions=_LOCATION="${GCP_REGION}",_REPOSITORY="gaming-demo-images",_TAG="latest" \
