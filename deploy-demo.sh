@@ -759,6 +759,27 @@ fi
 if [ "$RUN_STEP_6" = true ]; then
   log_step "STEP 6: Vertex AI Agent Engine / ADK Agent Deployment (src/agents/kc)"
 
+  log_info "Ensuring Vertex AI IAM permissions for Reasoning Engine agent deployment..."
+  grant_roles_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+    "roles/aiplatform.admin" \
+    "roles/aiplatform.user"
+
+  grant_roles_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
+    "roles/aiplatform.admin" \
+    "roles/aiplatform.user"
+
+  ACTIVE_ACCOUNT=$(gcloud config get-value account 2>/dev/null || true)
+  if [ -n "${ACTIVE_ACCOUNT}" ]; then
+    if [[ "${ACTIVE_ACCOUNT}" == *"gserviceaccount.com"* ]]; then
+      MEMBER_PREFIX="serviceAccount"
+    else
+      MEMBER_PREFIX="user"
+    fi
+    grant_roles_silently "${MEMBER_PREFIX}:${ACTIVE_ACCOUNT}" \
+      "roles/aiplatform.admin" \
+      "roles/aiplatform.user"
+  fi
+
   KC_AGENT_DIR="${REPO_ROOT}/src/agents/kc"
   if [ -f "${KC_AGENT_DIR}/deploy.sh" ]; then
     log_info "Executing new agent deployment script: ${KC_AGENT_DIR}/deploy.sh..."
