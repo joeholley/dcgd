@@ -669,6 +669,32 @@ if [ "$RUN_STEP_5" = true ]; then
     log_info "BQML model 'gaming_raw.player_churn_model' already exists in ${GCP_PROJECT}. Skipping retraining."
     log_success "Step 5 BQML model verified (already trained)."
   else
+    log_info "Syncing Gold Player 360 features and updating BQML training procedure..."
+    bq query --location="${GCP_REGION}" --use_legacy_sql=false "
+      CREATE OR REPLACE TABLE \`${GCP_PROJECT}.gaming_gold.gold_player_360\` AS
+      SELECT * FROM \`${GCP_PROJECT}.gaming_telemetry_gold.gold_player_360\`;
+
+      CREATE OR REPLACE PROCEDURE \`${GCP_PROJECT}.gaming_raw.train_churn_model\`()
+      BEGIN
+        CREATE OR REPLACE MODEL \`${GCP_PROJECT}.gaming_raw.player_churn_model\`
+        OPTIONS (
+          MODEL_TYPE = 'LOGISTIC_REG',
+          INPUT_LABEL_COLS = ['is_churned'],
+          AUTO_CLASS_WEIGHTS = TRUE
+        ) AS
+        SELECT 
+          consecutive_deaths,
+          session_duration_seconds,
+          payer_tier,
+          total_iap_spend,
+          days_since_last_login,
+          favorite_category,
+          is_churned
+        FROM \`${GCP_PROJECT}.gaming_telemetry_gold.gold_player_360\`
+        WHERE is_churned IS NOT NULL;
+      END;
+    "
+
     log_info "Training BQML Logistic Regression model 'gaming_raw.player_churn_model'..."
     bq query --location="${GCP_REGION}" --use_legacy_sql=false "CALL \`${GCP_PROJECT}.gaming_raw.train_churn_model\`();"
     log_success "Step 5 BQML model trained."
