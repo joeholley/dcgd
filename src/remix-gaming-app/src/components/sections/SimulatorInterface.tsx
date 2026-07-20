@@ -36,6 +36,8 @@ export function SimulatorInterface() {
   const [simState, setSimState] = useState<SimulatorPersistentState>(() => getSimulatorState());
 
   useEffect(() => {
+    document.title = "Realms of Eldoria Simulator";
+
     const unsubMode = onRoutingModeChange((newMode) => {
       setRoutingModeState(newMode);
     });

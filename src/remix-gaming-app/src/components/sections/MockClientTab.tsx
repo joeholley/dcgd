@@ -206,10 +206,10 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
         if (!isNaN(parsed) && parsed >= 220 && parsed <= 720) return parsed;
       }
     }
-    return 320;
+    return 400;
   });
 
-  const [aspectRatio, setAspectRatio] = useState<"9/16" | "16/9" | "4/3" | "free">(() => {
+  const [aspectRatio, setAspectRatio] = useState<"9/16" | "16/9" | "4/3" | "free">((): "9/16" | "16/9" | "4/3" | "free" => {
     if (typeof localStorage !== "undefined") {
       const saved = localStorage.getItem("dcgd_mock_client_aspect");
       if (saved && ["9/16", "16/9", "4/3", "free"].includes(saved)) {
@@ -227,7 +227,7 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
         if (!isNaN(parsed) && parsed >= 250 && parsed <= 850) return parsed;
       }
     }
-    return 480;
+    return 600;
   });
 
   const [isResizing, setIsResizing] = useState<boolean>(false);
@@ -278,9 +278,9 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
   }, [clientWidth, customHeight, aspectRatio]);
 
   const handleResetSize = () => {
-    setClientWidth(320);
+    setClientWidth(400);
     setAspectRatio("9/16");
-    setCustomHeight(480);
+    setCustomHeight(600);
   };
 
   // Sync global simulator state changes
@@ -724,7 +724,7 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
                   type="button"
                   onClick={handleResetSize}
                   className="p-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 transition-colors cursor-pointer"
-                  title="Reset viewport size to default (320px 9:16)"
+                  title="Reset viewport size to default (400px 9:16)"
                 >
                   <RotateCcw className="w-3 h-3 text-amber-400" />
                 </button>

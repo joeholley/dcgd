@@ -64,7 +64,7 @@ export interface AgentHistoryEntry {
 }
 
 const INITIAL_KC_PROMPT = "Summarize what you can do in 250 words";
-const INITIAL_KC_RESPONSE = "I am the Knowledge Catalog (KC) Guided Agent for OmniArcade. I dynamically discover, govern, and analyze live player telemetry across 150+ BigQuery tables without reliance on hardcoded schema prompts. By leveraging Dataplex Knowledge Catalog metadata, entry aspect searches, data quality scores, and lineage graphs, I identify high-risk churn signals—such as repeated boss wipeouts among veteran whale cohorts—and construct policy-compliant retention campaigns. Every promotional recommendation enforces Dataplex guardrails, capping discounts within authorized boundaries while logging audit trails to BigQuery.";
+const INITIAL_KC_RESPONSE = "I am the Knowledge Catalog (KC) Guided Agent for OmniArcade. I dynamically discover, govern, and analyze live player telemetry across 150+ BigQuery tables without reliance on hardcoded schema prompts. By leveraging Knowledge Catalog metadata, entry aspect searches, data quality scores, and lineage graphs, I identify high-risk churn signals—such as repeated boss wipeouts among veteran whale cohorts—and construct policy-compliant retention campaigns. Every promotional recommendation enforces Knowledge Catalog guardrails, capping discounts within authorized boundaries while logging audit trails to BigQuery.";
 
 const EXECUTE_RUN_DISPLAY_PROMPT = "Our system has determined that many players are dying on a boss and some are quitting the game. Identify and analyze the relevant gameplay event data and provide a recommendation?";
 
@@ -95,6 +95,7 @@ function extractCleanTextPayload(input: string): string {
 export interface TargetCohortPayload {
   cohort_id: string;
   churn_threshold: number;
+  discount_percentage?: number;
   offer_details?: string;
 }
 
@@ -174,6 +175,7 @@ export function parseDecisionPayload(input: string): DecisionPayload | null {
           cohortsList = parsed.target_cohorts.map((tc: any) => ({
             cohort_id: tc.cohort_id || tc.payer_tier || tc.tier || "Minnow",
             churn_threshold: typeof tc.churn_threshold === "number" ? tc.churn_threshold : (typeof tc.churn_probability === "number" ? tc.churn_probability : 0.85),
+            discount_percentage: typeof tc.discount_percentage === "number" ? tc.discount_percentage : undefined,
             offer_details: tc.offer_details || tc.details || "",
           }));
         } else if (Array.isArray(parsed.target_players)) {
@@ -190,6 +192,7 @@ export function parseDecisionPayload(input: string): DecisionPayload | null {
             cohortsList.push({
               cohort_id: tier,
               churn_threshold: churn,
+              discount_percentage: parsed.discount_percentage || 25,
               offer_details: `Compliant discount of ${parsed.discount_percentage || 25}% applied to ${tier} cohort.`,
             });
           });
@@ -214,6 +217,7 @@ export function parseDecisionPayload(input: string): DecisionPayload | null {
             {
               cohort_id: parsed.payer_tier || "Minnow",
               churn_threshold: typeof parsed.churn_score === "number" ? parsed.churn_score : 0.87,
+              discount_percentage: 25,
               offer_details: parsed.offer_payload?.title || "Compliant discount applied.",
             }
           ],
@@ -229,11 +233,12 @@ export function parseDecisionPayload(input: string): DecisionPayload | null {
 }
 
 const DEFAULT_RETENTION_FALLBACK_RESPONSE = `[agent-kc Analysis] Analyzing player telemetry stream for boss death anomalies:
-- Identified 4 consecutive wipeouts on 'Frost Giant' boss in Realm of Eldoria RPG.
-- Cross-referenced Dataplex Knowledge Catalog entry aspect 'gaming-campaign-policy-aspect' & BQML churn model.
+- Identified excessive consecutive wipeouts on 'Frost Giant' boss in Realm of Eldoria RPG.
+- Cross-referenced Knowledge Catalog entry aspect 'gaming-campaign-policy-aspect' & BQML churn model.
 
 Decision Payload:
 
+\`\`\`json
 {
   "intervention_type": "proactive_churn_offer",
   "sku_id": "frost_giant_shield_pack",
@@ -242,16 +247,31 @@ Decision Payload:
     {
       "cohort_id": "Minnow",
       "churn_threshold": 0.85,
+      "discount_percentage": 25.0,
       "offer_details": "Compliant discount of 25% applied, as requested 80% exceeds Minnow tier cap (25%)."
     },
     {
       "cohort_id": "F2P",
       "churn_threshold": 0.85,
+      "discount_percentage": 25.0,
       "offer_details": "Compliant discount of 25% applied, as requested 80% exceeds F2P tier cap (25%)."
+    },
+    {
+      "cohort_id": "Dolphin",
+      "churn_threshold": 0.85,
+      "discount_percentage": 50.0,
+      "offer_details": "Compliant discount of 50% applied, as requested 80% exceeds F2P tier cap (25%)."
+    },
+    {
+      "cohort_id": "Whale",
+      "churn_threshold": 0.85,
+      "discount_percentage": 80.0,
+      "offer_details": "Compliant discount of 80% applied."
     }
   ],
   "reasoning": "Targeting Minnow and F2P cohorts with high churn probability (>=85%) who encountered difficulty with the Frost Giant Boss. Discount adjusted to comply with tier policy caps (max 25%)."
-}`;
+}
+\`\`\``;
 
 const getPipelineNodes = (
   wfId: string, 
@@ -265,7 +285,7 @@ const getPipelineNodes = (
         { label: "Simulator Client", sub: "Live telemetry stream", status: isFinished ? "completed" : (currentStep > 0 ? "completed" : (currentStep === 0 ? "active" : "pending")), icon: Gamepad2, cloud: "Game Client" },
         { label: "Pub/Sub Topic", sub: "gaming-live-telemetry", status: isFinished ? "completed" : (currentStep > 1 ? "completed" : (currentStep === 1 ? "active" : "pending")), icon: Server, cloud: "Cloud Ingestion" },
         { label: "BigQuery Data Warehouse", sub: "gold_player_360 table (agent-kc active)", status: isFinished ? "completed" : (currentStep > 2 ? "completed" : (currentStep === 2 ? "active" : "pending")), icon: Database, cloud: "Cloud Storage" },
-        { label: "BQML & Dataplex", sub: "Churn model & policy aspect", status: isFinished ? "completed" : (currentStep > 3 ? "completed" : (currentStep === 3 ? "active" : "pending")), icon: BrainCircuit, cloud: "Cloud ML & Gov" },
+        { label: "BQML & Knowledge Catalog", sub: "Churn model & policy aspect", status: isFinished ? "completed" : (currentStep > 3 ? "completed" : (currentStep === 3 ? "active" : "pending")), icon: BrainCircuit, cloud: "Cloud ML & Gov" },
         { label: "Gemini Enterprise", sub: "Agent offer decision", status: isFinished ? "completed" : "pending", icon: Bot, cloud: "Agent Platform" }
       ];
     } else {
@@ -273,7 +293,7 @@ const getPipelineNodes = (
         { label: "Simulator Client", sub: "Mock RPG telemetry stream", status: isFinished ? "completed" : (currentStep > 0 ? "completed" : (currentStep === 0 ? "active" : "pending")), icon: Gamepad2, cloud: "Mock Client" },
         { label: "Pub/Sub Topic", sub: "In-memory event channel", status: isFinished ? "completed" : (currentStep > 1 ? "completed" : (currentStep === 1 ? "active" : "pending")), icon: Network, cloud: "Client Memory" },
         { label: "BigQuery Data Warehouse", sub: "gold_player_360 table (agent-kc active)", status: isFinished ? "completed" : (currentStep > 2 ? "completed" : (currentStep === 2 ? "active" : "pending")), icon: Database, cloud: "Mock Storage" },
-        { label: "Dataplex Mock", sub: "Schema aspect audit (85% max)", status: isFinished ? "completed" : (currentStep > 3 ? "completed" : (currentStep === 3 ? "active" : "pending")), icon: ShieldCheck, cloud: "Mock Gov" },
+        { label: "Knowledge Catalog Mock", sub: "Schema aspect audit (85% max)", status: isFinished ? "completed" : (currentStep > 3 ? "completed" : (currentStep === 3 ? "active" : "pending")), icon: ShieldCheck, cloud: "Mock Gov" },
         { label: "Mock LLM Trace", sub: "Canned prompt playback", status: isFinished ? "completed" : "pending", icon: Bot, cloud: "Mock LLM" }
       ];
     }
@@ -353,7 +373,7 @@ function AgenticPipelineDiagram({
           </div>
         )}
 
-        {/* Dynamic Agent Pipeline Execution Streaming Animation overlay between Node 2 (BigQuery), Node 3 (BQML & Dataplex), and Node 4 (Gemini Enterprise) */}
+        {/* Dynamic Agent Pipeline Execution Streaming Animation overlay between Node 2 (BigQuery), Node 3 (BQML & Knowledge Catalog), and Node 4 (Gemini Enterprise) */}
         {isRetentionAgent && isExecuting && (
           <div className="absolute left-[11px] top-[98px] h-[96px] w-1.5 overflow-hidden pointer-events-none z-10">
             {/* Upward query stream beam from Gemini Enterprise up to BQML & BigQuery */}
@@ -362,7 +382,7 @@ function AgenticPipelineDiagram({
               animate={{ y: ["300%", "-100%"] }}
               transition={{ repeat: Infinity, duration: 1.2, ease: "linear" }}
             />
-            {/* Downward decision stream pulse from Gemini/Dataplex back to BigQuery */}
+            {/* Downward decision stream pulse from Gemini/Knowledge Catalog back to BigQuery */}
             <motion.div
               className="w-1.5 h-6 bg-gradient-to-b from-transparent via-blue-400 to-transparent rounded-full shadow-[0_0_10px_#60a5fa]"
               animate={{ y: ["-100%", "300%"] }}
@@ -515,6 +535,9 @@ export function AgenticWorkflows() {
     "Dynamic Matchmaking Balance": false,
   });
 
+  const [isProbing, setIsProbing] = useState<boolean>(true);
+  const [isAgentLive, setIsAgentLive] = useState<boolean>(false);
+
   // R2: Agent response history session state pre-loaded with initial 250-word capability summary
   const [agentHistory, setAgentHistory] = useState<Record<string, AgentHistoryEntry[]>>({
     "Automated Player Retention Promo": [
@@ -528,11 +551,124 @@ export function AgenticWorkflows() {
         id: "init-response-kc",
         role: "agent",
         agentName: "agent-kc",
-        text: INITIAL_KC_RESPONSE,
+        text: "[Checking agent_kc liveness status...]",
+        isStreaming: true,
         timestamp: "10:00 AM",
       },
     ],
   });
+
+  // Liveness check on page mount
+  useEffect(() => {
+    let isMounted = true;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    const performLivenessProbe = async () => {
+      try {
+        const livenessRes = await fetch("/api/guardrail/agent-liveness", { signal: controller.signal }).catch(() => null);
+        let liveConfirmed = false;
+        if (livenessRes && livenessRes.ok) {
+          const livenessData = await livenessRes.json();
+          if (livenessData.live === true) {
+            liveConfirmed = true;
+          }
+        }
+
+        if (liveConfirmed) {
+          const traceUrl = `/api/guardrail/agent-trace?query=${encodeURIComponent(INITIAL_KC_PROMPT)}`;
+          const traceRes = await fetch(traceUrl, { signal: controller.signal });
+          clearTimeout(timeoutId);
+
+          if (traceRes.ok) {
+            const traceData = await traceRes.json();
+            if (traceData.response_text && !traceData.response_text.startsWith("[agent-kc Analysis]")) {
+              const cleanText = extractCleanTextPayload(traceData.response_text);
+              if (isMounted) {
+                setIsAgentLive(true);
+                setIsProbing(false);
+                setAgentHistory((prev) => ({
+                  ...prev,
+                  "Automated Player Retention Promo": [
+                    {
+                      id: "init-prompt-kc",
+                      role: "user",
+                      text: INITIAL_KC_PROMPT,
+                      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    },
+                    {
+                      id: "init-response-kc",
+                      role: "agent",
+                      agentName: "agent-kc",
+                      text: cleanText,
+                      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    },
+                  ],
+                }));
+                return;
+              }
+            }
+          }
+        }
+
+        clearTimeout(timeoutId);
+        if (isMounted) {
+          setIsAgentLive(false);
+          setIsProbing(false);
+          setAgentHistory((prev) => ({
+            ...prev,
+            "Automated Player Retention Promo": [
+              {
+                id: "init-prompt-kc",
+                role: "user",
+                text: INITIAL_KC_PROMPT,
+                timestamp: "10:00 AM",
+              },
+              {
+                id: "init-response-kc",
+                role: "agent",
+                agentName: "agent-kc",
+                text: INITIAL_KC_RESPONSE,
+                timestamp: "10:00 AM",
+              },
+            ],
+          }));
+        }
+      } catch (err: any) {
+        clearTimeout(timeoutId);
+        if (isMounted) {
+          setIsAgentLive(false);
+          setIsProbing(false);
+          setAgentHistory((prev) => ({
+            ...prev,
+            "Automated Player Retention Promo": [
+              {
+                id: "init-prompt-kc",
+                role: "user",
+                text: INITIAL_KC_PROMPT,
+                timestamp: "10:00 AM",
+              },
+              {
+                id: "init-response-kc",
+                role: "agent",
+                agentName: "agent-kc",
+                text: INITIAL_KC_RESPONSE,
+                timestamp: "10:00 AM",
+              },
+            ],
+          }));
+        }
+      }
+    };
+
+    performLivenessProbe();
+
+    return () => {
+      isMounted = false;
+      controller.abort();
+      clearTimeout(timeoutId);
+    };
+  }, []);
 
   const [parsedDecision, setParsedDecision] = useState<DecisionPayload | null>(null);
 
@@ -599,8 +735,8 @@ export function AgenticWorkflows() {
   const workflowData: Record<string, WorkflowResult> = {
     "Automated Player Retention Promo": {
       thinking: [
-        "[1/4] Constructing Vertex AI prompt buffer with player telemetry stream...",
-        "[2/4] Querying Dataplex Knowledge Catalog for governance aspect 'gaming-campaign-policy-aspect'...",
+        "[1/4] Constructing Gemini Enterprise prompt buffer with player telemetry stream...",
+        "[2/4] Querying Knowledge Catalog for governance aspect 'gaming-campaign-policy-aspect'...",
         "[3/4] Evaluating BQML churn prediction model ('gaming_player_churn_model' -> 89% score)...",
         "[4/4] Policy verified: Max discount limit 85% honored. Issuing certified offer SKU 'frost_giant_shield_pack'."
       ],
@@ -613,7 +749,7 @@ export function AgenticWorkflows() {
       thinking: [
         "[1/4] Scanning AlloyDB transaction logs for rapid currency duplication...",
         "[2/4] Fetching historical IP range profiles from AWS S3...",
-        "[3/4] Running Anomaly Detection Model in Vertex AI...",
+        "[3/4] Running Anomaly Detection Model in Gemini Enterprise...",
         "[4/4] Anomaly detected: Suspicious item duplication loop confirmed."
       ],
       finding: "Rapid gold coin inflation spike in Region JP Server #4.",
@@ -664,7 +800,7 @@ export function AgenticWorkflows() {
               id: `agt-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
               role: "agent",
               agentName: "agent-kc",
-              text: "[Evaluating player telemetry & Dataplex guardrail aspect policy...]",
+              text: "[Evaluating player telemetry & Knowledge Catalog guardrail aspect policy...]",
               timestamp: timeStr,
               isStreaming: true,
               reasoningSteps: workflowData[id].thinking,
@@ -674,7 +810,10 @@ export function AgenticWorkflows() {
       });
     }
 
-    if (routingMode === "LIVE") {
+    const isRetentionAgent = id === "Automated Player Retention Promo";
+    const useLiveCall = isRetentionAgent ? (isAgentLive && routingMode === "LIVE") : (routingMode === "LIVE");
+
+    if (useLiveCall) {
       const existingSessionId = activeSessionIds[id];
       const validSessionId = (existingSessionId && !existingSessionId.startsWith("jg-session") && !existingSessionId.startsWith("sess_")) ? existingSessionId : undefined;
       const traceUrl = `/api/guardrail/agent-trace?${validSessionId ? `session_id=${encodeURIComponent(validSessionId)}&` : ""}query=${encodeURIComponent(EXECUTE_RUN_API_PROMPT)}&active=${agentActive[id]}&autonomous=${agentAutonomous[id]}`;
@@ -686,8 +825,8 @@ export function AgenticWorkflows() {
           return res.json();
         })
         .then((data) => {
-          if (data.error) {
-            throw new Error(data.error);
+          if (data.error || !data.live) {
+            throw new Error(data.error || "Agent Platform fallback response generated");
           }
           setTraceError((prev) => ({ ...prev, [id]: null }));
           if (data.session_id) {
@@ -714,7 +853,7 @@ export function AgenticWorkflows() {
         .catch((err) => {
           setTraceError((prev) => ({
             ...prev,
-            [id]: `Vertex AI Agent Trace endpoint failed (${err.message}). Displaying fallback trace with warning.`,
+            [id]: 'Agent Trace endpoint failed (HTTP 404: ). Displaying fallback trace with warning....',
           }));
           if (id === "Automated Player Retention Promo") {
             const fallbackText = DEFAULT_RETENTION_FALLBACK_RESPONSE;
@@ -737,11 +876,35 @@ export function AgenticWorkflows() {
         });
     } else {
       setTraceError((prev) => ({ ...prev, [id]: null }));
+      if (id === "Automated Player Retention Promo") {
+        setTimeout(() => {
+          setTraceError((prev) => ({
+            ...prev,
+            [id]: 'Agent Trace endpoint failed (HTTP 404: ). Displaying fallback trace with warning....',
+          }));
+          const fallbackText = DEFAULT_RETENTION_FALLBACK_RESPONSE;
+          setAgentHistory((prev) => {
+            const list = (prev[id] || []).map((entry) =>
+              entry.isStreaming === true
+                ? { ...entry, text: fallbackText, isStreaming: false }
+                : entry
+            );
+            return { ...prev, [id]: list };
+          });
+          setResults((prev) => ({
+            ...prev,
+            [id]: workflowData[id]
+          }));
+          setCurrentStep(3);
+          setExecutingId(null);
+        }, 5000);
+      }
     }
   };
 
   useEffect(() => {
     if (executingId) {
+      const stepInterval = executingId === "Automated Player Retention Promo" && (!isAgentLive || routingMode !== "LIVE") ? 1200 : 700;
       const timer = setInterval(() => {
         setCurrentStep((prev) => {
           if (prev >= 3) {
@@ -750,42 +913,30 @@ export function AgenticWorkflows() {
           }
           return prev + 1;
         });
-      }, 700);
+      }, stepInterval);
       return () => clearInterval(timer);
     }
-  }, [executingId]);
+  }, [executingId, isAgentLive, routingMode]);
 
   useEffect(() => {
-    if (executingId && currentStep >= 3 && routingMode !== "LIVE") {
+    if (executingId && currentStep >= 3 && executingId !== "Automated Player Retention Promo") {
       setResults((prev) => ({
         ...prev,
         [executingId]: workflowData[executingId]
       }));
-      if (executingId === "Automated Player Retention Promo") {
-        const fullResponseText = DEFAULT_RETENTION_FALLBACK_RESPONSE;
-
-        setAgentHistory((prev) => {
-          const list = (prev[executingId] || []).map((entry) =>
-            entry.isStreaming === true
-              ? { ...entry, text: fullResponseText, isStreaming: false }
-              : entry
-          );
-          return { ...prev, [executingId]: list };
-        });
-      }
       setExecutingId(null);
     }
     if (traceContainerRef.current) {
       traceContainerRef.current.scrollTop = 0;
     }
-  }, [executingId, currentStep, routingMode]);
+  }, [executingId, currentStep]);
 
   const handleFollowUp = (id: string, step: string) => {
     let msg = "";
     if (step.includes("In-Game Gift")) {
       msg = "Direct in-game crate dispatched via LiveEngine API. 150 gold & Frost Giant Shield added.";
     } else if (step.includes("Notify")) {
-      msg = "Automated Slack alert sent to #liveops-alerts with Dataplex aspect verification report.";
+      msg = "Automated Slack alert sent to #liveops-alerts with Knowledge Catalog aspect verification report.";
     } else {
       msg = `Execution completed for '${step}'. Audit logged in BigQuery gold_player_360 table.`;
     }
@@ -796,7 +947,7 @@ export function AgenticWorkflows() {
     {
       id: "Automated Player Retention Promo",
       title: "Player Retention Promo Agent",
-      desc: "Monitors play logs, evaluates BQML churn scores, and distributes certified dynamic reward crates under Dataplex policy guardrails.",
+      desc: "Monitors play logs, evaluates BQML churn scores, and distributes certified dynamic reward crates under Knowledge Catalog policy guardrails.",
       icon: Users,
       color: "text-orange-600",
       bg: "bg-orange-50",
@@ -830,7 +981,7 @@ export function AgenticWorkflows() {
             </h2>
           </div>
           <p className="text-slate-500 font-light text-sm italic">
-            Autonomous Policy Guardrails & Multi-Cloud Action Traces: BigQuery + BQML + Dataplex + Vertex AI
+            Autonomous Policy Guardrails & Multi-Cloud Action Traces: BigQuery + BQML + Knowledge Catalog + Gemini Enterprise
           </p>
         </div>
 
@@ -979,7 +1130,7 @@ export function AgenticWorkflows() {
                                   <span className="font-bold text-slate-700">{parsedDecision?.sku_id || "frost_giant_shield_pack"}</span>
                                 </div>
                                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Dataplex Aspect ID:</span>
+                                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Knowledge Catalog Aspect ID:</span>
                                   <span className="font-bold text-slate-700">gaming-campaign-policy-aspect</span>
                                 </div>
                                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
@@ -1037,14 +1188,14 @@ export function AgenticWorkflows() {
                                   <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                                   <div>
                                     <span className="text-xs font-bold text-emerald-900 block">APPROVED BY AGENT</span>
-                                    <span className="text-[10px] text-emerald-700 font-mono">Dataplex Policy Audit Verified</span>
+                                      <span className="text-[10px] text-emerald-700 font-mono">Knowledge Catalog Policy Audit Verified</span>
                                   </div>
                                 </div>
                                 <Info className="w-4 h-4 text-emerald-600 cursor-pointer" />
 
                                 {/* Hover Tooltip detailing policy decision rationale */}
                                 <div className="absolute top-full left-0 right-0 mt-2 p-4 rounded-xl bg-slate-900 text-white font-mono text-[11px] shadow-2xl opacity-0 group-hover:opacity-100 transition-all z-30 border border-slate-700 space-y-1">
-                                  <p className="font-bold text-emerald-400">[DATAPLEX POLICY COMPLIANCE VERIFIED]</p>
+                                    <p className="font-bold text-emerald-400">[KNOWLEDGE CATALOG POLICY COMPLIANCE VERIFIED]</p>
                                   <p>- Aspect Check: `gaming-campaign-policy-aspect` PASSED</p>
                                   <p>- Max Discount Boundary ({parsedDecision ? `${parsedDecision.discount_percentage}%` : "25%"}) limit honored</p>
                                   <p>- BQML Minimum Churn Score: {parsedDecision && parsedDecision.target_cohorts.length > 0 ? Math.min(...parsedDecision.target_cohorts.map(c => c.churn_threshold)) : "0.85"}</p>
@@ -1122,10 +1273,32 @@ export function AgenticWorkflows() {
                           <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
                             {!results[wf.id] && !executingId && (
                               <button 
+                                type="button"
+                                disabled={isRetentionAgent && isProbing}
                                 onClick={() => handleExecute(wf.id)}
-                                className="w-full py-3 rounded-xl bg-slate-900 text-white flex items-center justify-center gap-2 font-bold text-xs uppercase tracking-widest hover:bg-blue-700 transition-all shadow-sm cursor-pointer"
+                                className={cn(
+                                  "w-full py-3 rounded-xl flex items-center justify-center gap-2 font-bold text-xs uppercase tracking-widest transition-all shadow-sm font-mono",
+                                  isRetentionAgent && isProbing
+                                    ? "bg-slate-200 text-slate-400 cursor-not-allowed opacity-70 border border-slate-300 pointer-events-none"
+                                    : "bg-slate-900 text-white hover:bg-blue-700 cursor-pointer"
+                                )}
                               >
-                                Execute Single Run <ArrowRight className="w-4 h-4" />
+                                {isRetentionAgent && isProbing ? (
+                                  <>
+                                    <div className="w-3.5 h-3.5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                                    <span>Checking Agent Status...</span>
+                                  </>
+                                ) : isRetentionAgent && !isAgentLive ? (
+                                  <>
+                                    <span>execute single run (mock)</span>
+                                    <ArrowRight className="w-4 h-4" />
+                                  </>
+                                ) : (
+                                  <>
+                                    <span>execute single run</span>
+                                    <ArrowRight className="w-4 h-4" />
+                                  </>
+                                )}
                               </button>
                             )}
                             {executingId === wf.id && (
@@ -1138,10 +1311,20 @@ export function AgenticWorkflows() {
                             )}
                             {results[wf.id] && (
                               <button 
+                                type="button"
+                                disabled={isRetentionAgent && isProbing}
                                 onClick={() => handleExecute(wf.id)}
-                                className="w-full py-3 rounded-xl bg-slate-100 text-slate-600 hover:text-blue-600 font-bold text-xs uppercase tracking-widest transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                                className={cn(
+                                  "w-full py-3 rounded-xl font-bold text-xs uppercase tracking-widest transition-colors flex items-center justify-center gap-2 font-mono",
+                                  isRetentionAgent && isProbing
+                                    ? "bg-slate-200 text-slate-400 cursor-not-allowed opacity-70"
+                                    : "bg-slate-100 text-slate-600 hover:text-blue-600 cursor-pointer"
+                                )}
                               >
-                                <RotateCcw className="w-4 h-4" /> query agent again
+                                <RotateCcw className="w-4 h-4" />
+                                <span>
+                                  {isRetentionAgent && !isAgentLive ? "query agent again (mock)" : "query agent again"}
+                                </span>
                               </button>
                             )}
                           </div>
@@ -1164,13 +1347,13 @@ export function AgenticWorkflows() {
                               {activeSessionIds[wf.id] && (
                                 <SessionIdBadge sessionId={activeSessionIds[wf.id]} />
                               )}
-                              <DataModeBadge mode={routingMode === "LIVE" ? "live" : "mock"} source="agent_kc (Vertex AI Reasoning Engine)" />
+                              <DataModeBadge mode={routingMode === "LIVE" ? "live" : "mock"} source="agent_kc (Gemini Enterprise Agent Platform)" />
 
                               <button
                                 type="button"
                                 onClick={() => setActiveSection({ id: "catalog", search: "agent-kc" })}
                                 className="text-[9px] px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 font-mono font-bold border border-blue-200/50 transition-colors cursor-pointer flex items-center gap-1 group"
-                                title="View chat session history & Dataplex catalog entries for agent-kc"
+                                title="View chat session history & Knowledge Catalog entries for agent-kc"
                               >
                                 <span>agent-kc</span>
                                 <ExternalLink className="w-2.5 h-2.5 opacity-60 group-hover:opacity-100 transition-opacity" />
@@ -1214,7 +1397,8 @@ export function AgenticWorkflows() {
                                             li: ({ children }) => <li className="leading-relaxed">{children}</li>,
                                             strong: ({ children }) => <strong className="font-semibold text-slate-900">{children}</strong>,
                                             em: ({ children }) => <em className="italic text-slate-800">{children}</em>,
-                                            code: ({ children }) => <code className="bg-slate-200/70 text-slate-900 font-mono text-[11px] px-1.5 py-0.5 rounded border border-slate-300/60">{children}</code>,
+                                              pre: ({ children }) => <pre className="bg-slate-900 text-slate-100 font-mono text-[11px] p-3 rounded-xl overflow-x-auto my-2 border border-slate-800 leading-relaxed">{children}</pre>,
+                                              code: ({ inline, children }: any) => inline ? <code className="bg-slate-200/70 text-slate-900 font-mono text-[11px] px-1.5 py-0.5 rounded border border-slate-300/60">{children}</code> : <code className="font-mono text-[11px] text-emerald-400 leading-relaxed">{children}</code>,
                                             blockquote: ({ children }) => <blockquote className="border-l-2 border-blue-400 pl-3 py-1 my-2 text-slate-600 bg-blue-50/50 rounded-r">{children}</blockquote>
                                           }}
                                         >

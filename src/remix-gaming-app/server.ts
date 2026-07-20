@@ -1385,6 +1385,26 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
     }
   });
 
+const TIER_LTV_BOUNDS: Record<string, { minLtv: number; maxLtv: number }> = {
+  F2P: { minLtv: 0, maxLtv: 0 },
+  Minnow: { minLtv: 1, maxLtv: 49 },
+  Dolphin: { minLtv: 50, maxLtv: 499 },
+  Whale: { minLtv: 500, maxLtv: 9999 },
+};
+
+function generateRandomFallbackMetrics(tier: string) {
+  const bounds = TIER_LTV_BOUNDS[tier] || { minLtv: 0, maxLtv: 0 };
+  if (bounds.maxLtv === 0) {
+    return { ltv: 0, spend: 0 };
+  }
+  // 1. Generate LTV first in range [minLtv, maxLtv]
+  const ltv = Math.floor(Math.random() * (bounds.maxLtv - bounds.minLtv + 1)) + bounds.minLtv;
+  // 2. Spend is random in the range 0 to LTV
+  const spend = Math.floor(Math.random() * (ltv + 1));
+
+  return { ltv, spend };
+}
+
   // --------------------------------------------------------------------------
   // 4b. Cohort Exemplars Resolution Endpoint (/api/exemplars)
   // --------------------------------------------------------------------------
@@ -1402,13 +1422,13 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
     for (const tier of tiers) {
       let tierWhere = `payer_tier = '${tier}'`;
       if (tier === "Whale") {
-        tierWhere = `(payer_tier = 'Whale' OR total_iap_spend > 500.0)`;
+        tierWhere = `(payer_tier = 'Whale' OR total_iap_spend >= 500.0) AND total_iap_spend >= 500.0`;
       } else if (tier === "Dolphin") {
-        tierWhere = `(payer_tier = 'Dolphin' OR (total_iap_spend >= 50.0 AND total_iap_spend <= 500.0))`;
+        tierWhere = `(payer_tier = 'Dolphin' OR (total_iap_spend >= 50.0 AND total_iap_spend < 500.0)) AND total_iap_spend >= 50.0 AND total_iap_spend < 500.0`;
       } else if (tier === "Minnow") {
-        tierWhere = `(payer_tier = 'Minnow' OR (total_iap_spend > 0.0 AND total_iap_spend < 50.0))`;
+        tierWhere = `(payer_tier = 'Minnow' OR (total_iap_spend > 0.0 AND total_iap_spend < 50.0)) AND total_iap_spend > 0.0 AND total_iap_spend < 50.0`;
       } else if (tier === "F2P") {
-        tierWhere = `(payer_tier = 'F2P' OR total_iap_spend = 0.0)`;
+        tierWhere = `(payer_tier = 'F2P' OR total_iap_spend = 0.0) AND (total_iap_spend IS NULL OR total_iap_spend = 0.0)`;
       }
 
       const sql = `
@@ -1449,11 +1469,11 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
             // Predictive LTV model fallback rule
           }
 
-          if (estimatedLtv === null) {
-            if (tier === "Whale") estimatedLtv = Math.min(1500, Math.round(spend * 1.5 + 200));
-            else if (tier === "Dolphin") estimatedLtv = 500;
-            else if (tier === "Minnow") estimatedLtv = 50;
-            else estimatedLtv = 0;
+          if (estimatedLtv === null || estimatedLtv < spend) {
+            const bounds = TIER_LTV_BOUNDS[tier] || { minLtv: 0, maxLtv: 0, minSpend: 0 };
+            const minLtvVal = Math.max(Math.round(spend), bounds.minLtv);
+            const maxLtvVal = Math.max(minLtvVal, bounds.maxLtv);
+            estimatedLtv = bounds.maxLtv === 0 ? 0 : Math.floor(Math.random() * (maxLtvVal - minLtvVal + 1)) + minLtvVal;
           }
 
           results[tier] = {
@@ -1463,10 +1483,22 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
             estimated_ltv: estimatedLtv,
           };
         } else {
-          results[tier] = defaultExemplars[tier];
+          const metrics = generateRandomFallbackMetrics(tier);
+          results[tier] = {
+            player_id: defaultExemplars[tier]?.player_id || `Player_${tier}`,
+            payer_tier: tier,
+            total_iap_spend: metrics.spend,
+            estimated_ltv: metrics.ltv,
+          };
         }
       } catch (err) {
-        results[tier] = defaultExemplars[tier];
+        const metrics = generateRandomFallbackMetrics(tier);
+        results[tier] = {
+          player_id: defaultExemplars[tier]?.player_id || `Player_${tier}`,
+          payer_tier: tier,
+          total_iap_spend: metrics.spend,
+          estimated_ltv: metrics.ltv,
+        };
       }
     }
 
@@ -1541,7 +1573,7 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
       player_id: "player_hyper_pacer",
       payer_tier: "Dolphin",
       total_iap_spend: 120.00,
-      predicted_ltv: 500.00,
+      predicted_ltv: 350.00,
       days_since_last_login: 2,
       favorite_category: "Speed Run",
       consecutive_deaths: 1,
@@ -1573,9 +1605,9 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
   ];
 
   const TIER_LTV_UPPER_BOUNDS: Record<string, number> = {
-    Whale: 1500,
-    Dolphin: 500,
-    Minnow: 50,
+    Whale: 9999,
+    Dolphin: 499,
+    Minnow: 49,
     F2P: 0,
   };
 
@@ -1619,9 +1651,10 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
             session_duration_seconds,
             is_churned
           FROM \`${PROJECT_ID}.gaming_gold.gold_player_360\`
-          WHERE payer_tier = @target_tier
-             OR ( @target_tier = 'Whale' AND total_iap_spend > 500.0 )
-             OR ( @target_tier = 'F2P' AND (payer_tier IS NULL OR total_iap_spend = 0.0) )
+          WHERE ( @target_tier = 'Whale' AND (payer_tier = 'Whale' OR total_iap_spend >= 500.0) AND total_iap_spend >= 500.0 )
+             OR ( @target_tier = 'Dolphin' AND (payer_tier = 'Dolphin' OR (total_iap_spend >= 50.0 AND total_iap_spend < 500.0)) AND total_iap_spend >= 50.0 AND total_iap_spend < 500.0 )
+             OR ( @target_tier = 'Minnow' AND (payer_tier = 'Minnow' OR (total_iap_spend > 0.0 AND total_iap_spend < 50.0)) AND total_iap_spend > 0.0 AND total_iap_spend < 50.0 )
+             OR ( @target_tier = 'F2P' AND (payer_tier = 'F2P' OR total_iap_spend = 0.0) AND (total_iap_spend IS NULL OR total_iap_spend = 0.0) )
           ORDER BY RAND()
           LIMIT 1;
         `;
@@ -1630,8 +1663,9 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
 
         if (bqRows && bqRows.length > 0) {
           const row = bqRows[0];
-          const fallbackLtv = TIER_LTV_UPPER_BOUNDS[tier] ?? 0;
-          let predictedLtv = fallbackLtv;
+          const spend = Number(row.total_iap_spend || 0);
+          const bounds = TIER_LTV_BOUNDS[tier] || { minLtv: 0, maxLtv: 0, minSpend: 0 };
+          let predictedLtv: number | null = null;
 
           // Query gaming_gold.gaming_predictive_ltv_model
           try {
@@ -1668,19 +1702,38 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
               }
             }
           } catch (modelErr) {
-            console.warn(`[Exemplars API] Predictive LTV model query unavailable for ${tier}, using tier fallback $${fallbackLtv}`);
+            console.warn(`[Exemplars API] Predictive LTV model query unavailable for ${tier}`);
+          }
+
+          if (predictedLtv === null || predictedLtv < spend) {
+            const minLtvVal = Math.max(Math.round(spend), bounds.minLtv);
+            const maxLtvVal = Math.max(minLtvVal, bounds.maxLtv);
+            predictedLtv = bounds.maxLtv === 0 ? 0 : Math.floor(Math.random() * (maxLtvVal - minLtvVal + 1)) + minLtvVal;
           }
 
           liveExemplars.push({
             player_id: row.player_id,
             payer_tier: tier,
-            total_iap_spend: row.total_iap_spend || 0,
+            total_iap_spend: Math.round(spend),
             predicted_ltv: predictedLtv,
             days_since_last_login: row.days_since_last_login || 0,
             favorite_category: row.favorite_category || "General",
             consecutive_deaths: row.consecutive_deaths || 0,
             session_duration_seconds: row.session_duration_seconds || 300,
             is_churned: !!row.is_churned,
+          });
+        } else {
+          const metrics = generateRandomFallbackMetrics(tier);
+          liveExemplars.push({
+            player_id: `player_${tier.toLowerCase()}_demo`,
+            payer_tier: tier,
+            total_iap_spend: metrics.spend,
+            predicted_ltv: metrics.ltv,
+            days_since_last_login: 1,
+            favorite_category: "RPG",
+            consecutive_deaths: 2,
+            session_duration_seconds: 300,
+            is_churned: false,
           });
         }
       }
@@ -2054,6 +2107,32 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
   // 5b. Unified System Diagnostics Endpoint (/api/system/diagnostics & /api/diagnostics/gcp)
   app.get(["/api/system/diagnostics", "/api/diagnostics/gcp"], async (req: Request, res: Response) => {
     return res.redirect("/api/system/gcp-health");
+  });
+
+  // --------------------------------------------------------------------------
+  // 5b-2. LiveOps Guardrail Agent Liveness Endpoint (/api/guardrail/agent-liveness)
+  // --------------------------------------------------------------------------
+  app.get("/api/guardrail/agent-liveness", async (_req: Request, res: Response) => {
+    try {
+      const agentInfo = await getAgentEngineInfo('kc');
+      if (!agentInfo || !agentInfo.id) {
+        return res.json({ live: false, status: "OFFLINE", reason: "No agent_kc engine configured" });
+      }
+      const accessToken = await getADCAccessToken().catch(() => null);
+      if (!accessToken) {
+        return res.json({ live: false, status: "OFFLINE", reason: "ADC auth token unavailable" });
+      }
+      const agentRes = await fetch(agentInfo.endpoint, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }).catch(() => null);
+
+      if (agentRes && agentRes.ok) {
+        return res.json({ live: true, status: "LIVE", agent_id: agentInfo.id, displayName: agentInfo.displayName });
+      }
+      return res.json({ live: false, status: "OFFLINE", reason: `Endpoint status ${agentRes?.status || 'unreachable'}` });
+    } catch (err: any) {
+      return res.json({ live: false, status: "OFFLINE", reason: err?.message || String(err) });
+    }
   });
 
   // --------------------------------------------------------------------------

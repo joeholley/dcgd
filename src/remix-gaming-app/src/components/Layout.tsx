@@ -444,7 +444,7 @@ export function Layout({
             type="button"
             onClick={() => window.open("/simulator", "_blank")}
             className="flex items-center justify-center p-1.5 bg-slate-900 hover:bg-slate-950 border border-slate-700 hover:border-slate-500 text-blue-400 hover:text-blue-300 rounded-lg transition-all cursor-pointer shadow-sm ml-1"
-            title="Open Standalone Game Simulator Interface in new window"
+            title="Open Realms of Eldoria Simulator in new window"
           >
             <ExternalLink className="w-3.5 h-3.5" />
           </button>
