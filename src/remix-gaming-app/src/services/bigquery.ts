@@ -64,6 +64,7 @@ export async function executeCustomQuery<T = any>(
       query: sqlQuery,
       params,
       location: process.env.BIGQUERY_LOCATION || process.env.GCP_LOCATION || 'us-central1',
+      useQueryCache: false,
     };
     const [rows] = await bqClient.query(options);
     return (rows as T[]) || [];

@@ -475,6 +475,9 @@ if [ "$RUN_STEP_3" = true ]; then
 
     log_info "Ensuring source tables exist and are seeded before Dataform execution..."
     bq query --location="${GCP_REGION}" --use_legacy_sql=false "
+      DECLARE b INT64 DEFAULT 0;
+      DECLARE e INT64 DEFAULT 0;
+
       CREATE SCHEMA IF NOT EXISTS \`${GCP_PROJECT}.gaming_central_identity\` OPTIONS(location='${GCP_REGION}');
       CREATE SCHEMA IF NOT EXISTS \`${GCP_PROJECT}.gaming_raw\` OPTIONS(location='${GCP_REGION}');
 
@@ -491,23 +494,26 @@ if [ "$RUN_STEP_3" = true ]; then
         install_source STRING
       );
 
-      INSERT INTO \`${GCP_PROJECT}.gaming_central_identity.players\`
-      (user_id, username, email, locale, region_code, age_bracket, created_at, signup_platform, last_login_ip, install_source)
-      SELECT
-        CONCAT('PLAY-', LPAD(CAST(id AS STRING), 8, '0')) AS user_id,
-        CONCAT('Player_', LPAD(CAST(id AS STRING), 5, '0')) AS username,
-        CONCAT('player_', CAST(id AS STRING), '@omniarcade.com') AS email,
-        'en-US' AS locale,
-        CASE MOD(id, 4) WHEN 0 THEN 'US' WHEN 1 THEN 'EU' WHEN 2 THEN 'APAC' ELSE 'LATAM' END AS region_code,
-        CASE MOD(id, 3) WHEN 0 THEN 'Adult' WHEN 1 THEN 'Teen' ELSE 'Minor' END AS age_bracket,
-        TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL CAST(id AS INT64) DAY) AS created_at,
-        CASE MOD(id, 3) WHEN 0 THEN 'Steam' WHEN 1 THEN 'Mobile' ELSE 'Console' END AS signup_platform,
-        '127.0.0.1' AS last_login_ip,
-        'Organic' AS install_source
-      FROM UNNEST(GENERATE_ARRAY(1, 1000)) AS id
-      WHERE NOT EXISTS (
-        SELECT 1 FROM \`${GCP_PROJECT}.gaming_central_identity.players\` LIMIT 1
-      );
+      IF NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.gaming_central_identity.players\` LIMIT 1) THEN
+        WHILE b < 150000 DO
+          INSERT INTO \`${GCP_PROJECT}.gaming_central_identity.players\`
+          (user_id, username, email, locale, region_code, age_bracket, created_at, signup_platform, last_login_ip, install_source)
+          SELECT
+            CONCAT('PLAY-', LPAD(CAST(id AS STRING), 8, '0')) AS user_id,
+            CONCAT('Player_', LPAD(CAST(id AS STRING), 7, '0')) AS username,
+            CONCAT('player_', CAST(id AS STRING), '@omniarcade.com') AS email,
+            'en-US' AS locale,
+            CASE MOD(id, 4) WHEN 0 THEN 'US' WHEN 1 THEN 'EU' WHEN 2 THEN 'APAC' ELSE 'LATAM' END AS region_code,
+            CASE MOD(id, 3) WHEN 0 THEN 'Adult' WHEN 1 THEN 'Teen' ELSE 'Minor' END AS age_bracket,
+            TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL MOD(id, 365) DAY) AS created_at,
+            CASE MOD(id, 3) WHEN 0 THEN 'Steam' WHEN 1 THEN 'Mobile' ELSE 'Console' END AS signup_platform,
+            '127.0.0.1' AS last_login_ip,
+            'Organic' AS install_source
+          FROM UNNEST(GENERATE_ARRAY(b + 1, b + 50000)) AS id;
+
+          SET b = b + 50000;
+        END WHILE;
+      END IF;
 
       CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.gaming_raw.gcp_players\` (
         player_id STRING,
@@ -523,8 +529,18 @@ if [ "$RUN_STEP_3" = true ]; then
       (player_id, payer_tier, total_iap_spend, days_since_last_login, favorite_category, created_at, region_code)
       SELECT
         user_id AS player_id,
-        CASE WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) = 0 THEN 'Whale' WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) < 3 THEN 'Dolphin' ELSE 'F2P' END AS payer_tier,
-        CASE WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) = 0 THEN 750.00 WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) < 3 THEN 120.00 ELSE 0.00 END AS total_iap_spend,
+        CASE
+          WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) = 0 THEN 'Whale'
+          WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) IN (1, 2) THEN 'Dolphin'
+          WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) IN (3, 4, 5) THEN 'Minnow'
+          ELSE 'F2P'
+        END AS payer_tier,
+        CASE
+          WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) = 0 THEN 750.00
+          WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) IN (1, 2) THEN 120.00
+          WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) IN (3, 4, 5) THEN 15.00
+          ELSE 0.00
+        END AS total_iap_spend,
         MOD(CAST(SUBSTR(user_id, 6) AS INT64), 30) AS days_since_last_login,
         CASE MOD(CAST(SUBSTR(user_id, 6) AS INT64), 4) WHEN 0 THEN 'RPG' WHEN 1 THEN 'FPS' WHEN 2 THEN 'MOBA' ELSE 'Strategy' END AS favorite_category,
         created_at,
@@ -541,16 +557,28 @@ if [ "$RUN_STEP_3" = true ]; then
         consecutive_deaths INT64
       );
 
-      INSERT INTO \`${GCP_PROJECT}.gaming_raw.live_session_events\` (session_id, player_id, event_type, timestamp, session_duration_seconds, consecutive_deaths)
-      SELECT
-        CONCAT('EVT-', LPAD(CAST(id AS STRING), 8, '0')) AS session_id,
-        CONCAT('PLAY-', LPAD(CAST(MOD(id, 1000) + 1 AS STRING), 8, '0')) AS player_id,
-        CASE MOD(id, 3) WHEN 0 THEN 'boss_fail' WHEN 1 THEN 'level_complete' ELSE 'session_start' END AS event_type,
-        TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL CAST(id AS INT64) MINUTE) AS timestamp,
-        MOD(id, 3600) AS session_duration_seconds,
-        MOD(id, 5) AS consecutive_deaths
-      FROM UNNEST(GENERATE_ARRAY(1, 2000)) AS id
-      WHERE NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.gaming_raw.live_session_events\` LIMIT 1);
+      IF NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.gaming_raw.live_session_events\` LIMIT 1) THEN
+        WHILE e < 300000 DO
+          INSERT INTO \`${GCP_PROJECT}.gaming_raw.live_session_events\` (session_id, player_id, event_type, timestamp, session_duration_seconds, consecutive_deaths)
+          SELECT
+            CONCAT('EVT-', LPAD(CAST(id AS STRING), 8, '0')) AS session_id,
+            CONCAT('PLAY-', LPAD(CAST(MOD(id, 150000) + 1 AS STRING), 8, '0')) AS player_id,
+            CASE
+              WHEN MOD(MOD(id, 150000) + 1, 100) < 12 THEN 'boss_fail'
+              WHEN MOD(id, 3) = 1 THEN 'level_complete'
+              ELSE 'session_start'
+            END AS event_type,
+            TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL MOD(id, 43200) MINUTE) AS timestamp,
+            MOD(id, 3600) AS session_duration_seconds,
+            CASE
+              WHEN MOD(MOD(id, 150000) + 1, 100) < 12 THEN 4
+              ELSE MOD(id, 3)
+            END AS consecutive_deaths
+          FROM UNNEST(GENERATE_ARRAY(e + 1, e + 100000)) AS id;
+
+          SET e = e + 100000;
+        END WHILE;
+      END IF;
 
       CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.gaming_raw.iap_transactions\` (
         transaction_id STRING,
@@ -560,15 +588,69 @@ if [ "$RUN_STEP_3" = true ]; then
         timestamp TIMESTAMP
       );
 
-      INSERT INTO \`${GCP_PROJECT}.gaming_raw.iap_transactions\` (transaction_id, player_id, item_id, amount_usd, timestamp)
-      SELECT
-        CONCAT('TXN-', LPAD(CAST(id AS STRING), 8, '0')) AS transaction_id,
-        CONCAT('PLAY-', LPAD(CAST(MOD(id, 1000) + 1 AS STRING), 8, '0')) AS player_id,
-        CONCAT('SKU-', LPAD(CAST(MOD(id, 50) + 1 AS STRING), 4, '0')) AS item_id,
-        CAST(ROUND(0.99 + 49.0 * RAND(), 2) AS NUMERIC) AS amount_usd,
-        TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL CAST(id AS INT64) HOUR) AS timestamp
-      FROM UNNEST(GENERATE_ARRAY(1, 5000)) AS id
-      WHERE NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.gaming_raw.iap_transactions\` LIMIT 1);
+      IF NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.gaming_raw.iap_transactions\` LIMIT 1) THEN
+        INSERT INTO \`${GCP_PROJECT}.gaming_raw.iap_transactions\` (transaction_id, player_id, amount_usd, item_id, timestamp)
+        WITH paying_players AS (
+          SELECT player_id, payer_tier, total_iap_spend, created_at
+          FROM \`${GCP_PROJECT}.gaming_raw.gcp_players\`
+          WHERE payer_tier != 'F2P' AND total_iap_spend > 0
+        ),
+        candidate_tx AS (
+          SELECT
+            p.player_id,
+            p.payer_tier,
+            p.total_iap_spend,
+            p.created_at,
+            seq AS tx_seq,
+            CASE p.payer_tier
+              WHEN 'Minnow' THEN [0.99, 1.99, 2.99, 4.99][OFFSET(CAST(FLOOR(RAND() * 4) AS INT64))]
+              WHEN 'Dolphin' THEN [4.99, 9.99, 14.99, 24.99, 49.99][OFFSET(CAST(FLOOR(RAND() * 5) AS INT64))]
+              WHEN 'Whale' THEN [19.99, 49.99, 99.99, 199.99][OFFSET(CAST(FLOOR(RAND() * 4) AS INT64))]
+            END AS sku_price
+          FROM paying_players p
+          CROSS JOIN UNNEST(GENERATE_ARRAY(1, 10)) seq
+        ),
+        running_tx AS (
+          SELECT
+            player_id,
+            payer_tier,
+            total_iap_spend,
+            created_at,
+            tx_seq,
+            sku_price,
+            SUM(sku_price) OVER (PARTITION BY player_id ORDER BY tx_seq ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cum_spend,
+            COALESCE(SUM(sku_price) OVER (PARTITION BY player_id ORDER BY tx_seq ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0.0) AS prev_cum_spend
+          FROM candidate_tx
+        ),
+        reconciled_tx AS (
+          SELECT
+            player_id,
+            payer_tier,
+            created_at,
+            tx_seq,
+            ROUND(
+              CASE
+                WHEN cum_spend <= total_iap_spend THEN sku_price
+                ELSE total_iap_spend - prev_cum_spend
+              END, 2
+            ) AS amount_usd
+          FROM running_tx
+          WHERE prev_cum_spend < total_iap_spend
+            AND ROUND(
+              CASE
+                WHEN cum_spend <= total_iap_spend THEN sku_price
+                ELSE total_iap_spend - prev_cum_spend
+              END, 2
+            ) > 0.00
+        )
+        SELECT
+          CONCAT('TXN-', LPAD(CAST(ROW_NUMBER() OVER() AS STRING), 8, '0')) AS transaction_id,
+          r.player_id,
+          r.amount_usd,
+          CONCAT('SKU-', LPAD(CAST(MOD(r.tx_seq, 50) + 1 AS STRING), 4, '0')) AS item_id,
+          TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL CAST(r.tx_seq * 12 AS INT64) HOUR) AS timestamp
+        FROM reconciled_tx r;
+      END IF;
     "
 
     # Always overwrite .df-credentials.json to enforce project and location (e.g. us-central1 vs US)

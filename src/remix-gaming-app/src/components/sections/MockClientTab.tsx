@@ -13,12 +13,7 @@ import {
   Fish,
   Coins,
   Swords,
-  Scaling,
-  Maximize2,
-  Minimize2,
-  Smartphone,
-  Monitor,
-  Move
+  Scaling
 } from "lucide-react";
 import gameBgImage from "../../assets/image_1783953739614717.png";
 import { cn } from "../../lib/utils";
@@ -103,76 +98,48 @@ interface ExemplarState {
   activeOffer: OfferPayload | null;
 }
 
-const SESSION_LIVE_EXEMPLARS_KEY = "omniarcade_session_live_exemplars";
-
-const initialExemplarStates = (isLive: boolean = false): Record<PlayerCohortId, ExemplarState> => {
-  const defaults: Record<PlayerCohortId, ExemplarState> = {
-    Whale: {
-      playerId: COHORT_DEFAULTS.Whale.defaultPlayerId,
-      tier: "Whale",
-      totalSpend: COHORT_DEFAULTS.Whale.defaultSpend,
-      estimatedLtv: COHORT_DEFAULTS.Whale.defaultLtv,
-      consecutiveDeaths: 0,
-      churnEvents: 0,
-      offersAccepted: {},
-      activeOffer: null,
-    },
-    Dolphin: {
-      playerId: COHORT_DEFAULTS.Dolphin.defaultPlayerId,
-      tier: "Dolphin",
-      totalSpend: COHORT_DEFAULTS.Dolphin.defaultSpend,
-      estimatedLtv: COHORT_DEFAULTS.Dolphin.defaultLtv,
-      consecutiveDeaths: 0,
-      churnEvents: 0,
-      offersAccepted: {},
-      activeOffer: null,
-    },
-    Minnow: {
-      playerId: COHORT_DEFAULTS.Minnow.defaultPlayerId,
-      tier: "Minnow",
-      totalSpend: COHORT_DEFAULTS.Minnow.defaultSpend,
-      estimatedLtv: COHORT_DEFAULTS.Minnow.defaultLtv,
-      consecutiveDeaths: 0,
-      churnEvents: 0,
-      offersAccepted: {},
-      activeOffer: null,
-    },
-    F2P: {
-      playerId: COHORT_DEFAULTS.F2P.defaultPlayerId,
-      tier: "F2P",
-      totalSpend: COHORT_DEFAULTS.F2P.defaultSpend,
-      estimatedLtv: COHORT_DEFAULTS.F2P.defaultLtv,
-      consecutiveDeaths: 0,
-      churnEvents: 0,
-      offersAccepted: {},
-      activeOffer: null,
-    },
-  };
-
-  if (isLive && typeof sessionStorage !== "undefined") {
-    try {
-      const cached = sessionStorage.getItem(SESSION_LIVE_EXEMPLARS_KEY);
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        (Object.keys(parsed) as PlayerCohortId[]).forEach((tier) => {
-          const liveEx = parsed[tier];
-          if (liveEx && defaults[tier]) {
-            defaults[tier] = {
-              ...defaults[tier],
-              playerId: liveEx.player_id || liveEx.playerId || defaults[tier].playerId,
-              totalSpend: typeof liveEx.total_iap_spend === "number" ? liveEx.total_iap_spend : (typeof liveEx.totalSpend === "number" ? liveEx.totalSpend : defaults[tier].totalSpend),
-              estimatedLtv: typeof liveEx.estimated_ltv === "number" ? liveEx.estimated_ltv : (typeof liveEx.estimatedLtv === "number" ? liveEx.estimatedLtv : defaults[tier].estimatedLtv),
-            };
-          }
-        });
-      }
-    } catch (e) {
-      console.warn("[MockClientTab] Failed to parse session exemplars:", e);
-    }
-  }
-
-  return defaults;
-};
+const initialExemplarStates = (): Record<PlayerCohortId, ExemplarState> => ({
+  Whale: {
+    playerId: COHORT_DEFAULTS.Whale.defaultPlayerId,
+    tier: "Whale",
+    totalSpend: COHORT_DEFAULTS.Whale.defaultSpend,
+    estimatedLtv: COHORT_DEFAULTS.Whale.defaultLtv,
+    consecutiveDeaths: 0,
+    churnEvents: 0,
+    offersAccepted: {},
+    activeOffer: null,
+  },
+  Dolphin: {
+    playerId: COHORT_DEFAULTS.Dolphin.defaultPlayerId,
+    tier: "Dolphin",
+    totalSpend: COHORT_DEFAULTS.Dolphin.defaultSpend,
+    estimatedLtv: COHORT_DEFAULTS.Dolphin.defaultLtv,
+    consecutiveDeaths: 0,
+    churnEvents: 0,
+    offersAccepted: {},
+    activeOffer: null,
+  },
+  Minnow: {
+    playerId: COHORT_DEFAULTS.Minnow.defaultPlayerId,
+    tier: "Minnow",
+    totalSpend: COHORT_DEFAULTS.Minnow.defaultSpend,
+    estimatedLtv: COHORT_DEFAULTS.Minnow.defaultLtv,
+    consecutiveDeaths: 0,
+    churnEvents: 0,
+    offersAccepted: {},
+    activeOffer: null,
+  },
+  F2P: {
+    playerId: COHORT_DEFAULTS.F2P.defaultPlayerId,
+    tier: "F2P",
+    totalSpend: COHORT_DEFAULTS.F2P.defaultSpend,
+    estimatedLtv: COHORT_DEFAULTS.F2P.defaultLtv,
+    consecutiveDeaths: 0,
+    churnEvents: 0,
+    offersAccepted: {},
+    activeOffer: null,
+  },
+});
 
 interface MockClientTabProps {
   routingMode: RoutingMode;
@@ -186,9 +153,9 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
     ? simState.selectedCohort 
     : "Whale") as PlayerCohortId;
 
-  // Isolated per-exemplar client state with session-persisted live values
+  // Isolated per-exemplar client state
   const [exemplars, setExemplars] = useState<Record<PlayerCohortId, ExemplarState>>(() => 
-    initialExemplarStates(routingMode === "LIVE")
+    initialExemplarStates()
   );
 
   // UI animation & interactive flow states
@@ -209,36 +176,13 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
     return 400;
   });
 
-  const [aspectRatio, setAspectRatio] = useState<"9/16" | "16/9" | "4/3" | "free">((): "9/16" | "16/9" | "4/3" | "free" => {
-    if (typeof localStorage !== "undefined") {
-      const saved = localStorage.getItem("dcgd_mock_client_aspect");
-      if (saved && ["9/16", "16/9", "4/3", "free"].includes(saved)) {
-        return saved as "9/16" | "16/9" | "4/3" | "free";
-      }
-    }
-    return "9/16";
-  });
-
-  const [customHeight, setCustomHeight] = useState<number>(() => {
-    if (typeof localStorage !== "undefined") {
-      const saved = localStorage.getItem("dcgd_mock_client_height");
-      if (saved) {
-        const parsed = parseInt(saved, 10);
-        if (!isNaN(parsed) && parsed >= 250 && parsed <= 850) return parsed;
-      }
-    }
-    return 600;
-  });
-
   const [isResizing, setIsResizing] = useState<boolean>(false);
 
   useEffect(() => {
     if (typeof localStorage !== "undefined") {
       localStorage.setItem("dcgd_mock_client_width", clientWidth.toString());
-      localStorage.setItem("dcgd_mock_client_aspect", aspectRatio);
-      localStorage.setItem("dcgd_mock_client_height", customHeight.toString());
     }
-  }, [clientWidth, aspectRatio, customHeight]);
+  }, [clientWidth]);
 
   const handleStartResize = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -246,21 +190,12 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
     setIsResizing(true);
 
     const startX = e.clientX;
-    const startY = e.clientY;
     const startW = clientWidth;
-    const startH = customHeight;
 
     const handleMouseMove = (moveEvt: MouseEvent) => {
       const deltaX = moveEvt.clientX - startX;
-      const deltaY = moveEvt.clientY - startY;
-
       const newWidth = Math.max(240, Math.min(720, startW + deltaX));
       setClientWidth(newWidth);
-
-      if (aspectRatio === "free") {
-        const newHeight = Math.max(260, Math.min(850, startH + deltaY));
-        setCustomHeight(newHeight);
-      }
     };
 
     const handleMouseUp = () => {
@@ -271,16 +206,14 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
       document.body.style.userSelect = "";
     };
 
-    document.body.style.cursor = "nwse-resize";
+    document.body.style.cursor = "ew-resize";
     document.body.style.userSelect = "none";
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", handleMouseUp);
-  }, [clientWidth, customHeight, aspectRatio]);
+  }, [clientWidth]);
 
   const handleResetSize = () => {
     setClientWidth(400);
-    setAspectRatio("9/16");
-    setCustomHeight(600);
   };
 
   // Sync global simulator state changes
@@ -291,24 +224,15 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
     return () => unsubState();
   }, []);
 
-  // Fetch exemplars from BigQuery live GCP backend once per session when routingMode === "LIVE"
+  // Fetch exemplars from BigQuery live GCP backend when routingMode === "LIVE"
   const fetchLiveExemplars = useCallback(async () => {
     if (routingMode !== "LIVE") return;
-
-    // Check if session storage already has persisted exemplars for this browser session
-    if (typeof sessionStorage !== "undefined") {
-      const cached = sessionStorage.getItem(SESSION_LIVE_EXEMPLARS_KEY);
-      if (cached) return;
-    }
 
     try {
       const res = await fetch("/api/exemplars");
       if (!res.ok) return;
       const data = await res.json();
       if (data.success && data.exemplars) {
-        if (typeof sessionStorage !== "undefined") {
-          sessionStorage.setItem(SESSION_LIVE_EXEMPLARS_KEY, JSON.stringify(data.exemplars));
-        }
         setExemplars((prev) => {
           const next = { ...prev };
           (Object.keys(data.exemplars) as PlayerCohortId[]).forEach((tier) => {
@@ -724,7 +648,7 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
               {/* Dimensions readout & reset button */}
               <div className="flex items-center gap-1.5 text-[9px]">
                 <span className="bg-slate-900 border border-slate-800 text-amber-400 px-2 py-0.5 rounded font-bold">
-                  {clientWidth}px {aspectRatio !== "free" ? `(${aspectRatio})` : `× ${customHeight}px`}
+                  {clientWidth}px × {Math.round((clientWidth * 16) / 9)}px (9:16)
                 </span>
                 <button
                   type="button"
@@ -737,9 +661,8 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
               </div>
             </div>
 
-            {/* Quick Size Presets & Aspect Ratio Selector Bar */}
+            {/* Quick Size Presets */}
             <div className="flex items-center justify-between gap-1 text-[9px] pt-1">
-              {/* Size presets */}
               <div className="flex items-center gap-1 bg-slate-900/90 p-0.5 rounded-lg border border-slate-800">
                 <span className="text-slate-500 px-1 text-[8px] uppercase">Width:</span>
                 {[
@@ -760,26 +683,6 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
                     )}
                   >
                     {preset.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Aspect Ratios */}
-              <div className="flex items-center gap-1 bg-slate-900/90 p-0.5 rounded-lg border border-slate-800">
-                {(["9/16", "16/9", "4/3", "free"] as const).map((ratio) => (
-                  <button
-                    key={ratio}
-                    type="button"
-                    onClick={() => setAspectRatio(ratio)}
-                    className={cn(
-                      "px-1.5 py-0.5 rounded text-[9px] font-bold transition-all cursor-pointer uppercase",
-                      aspectRatio === ratio
-                        ? "bg-indigo-600 text-white shadow-sm"
-                        : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
-                    )}
-                    title={`Set aspect ratio to ${ratio}`}
-                  >
-                    {ratio === "9/16" ? "9:16" : ratio === "16/9" ? "16:9" : ratio === "4/3" ? "4:3" : "Free"}
                   </button>
                 ))}
               </div>
@@ -816,7 +719,7 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
             </div>
           </div>
 
-          {/* Aspect Ratio Game Client Window (Resizable & Scalable) */}
+          {/* Game Client Window (Locked 9:16 Aspect Ratio) */}
           <div
             className={cn(
               "relative w-full rounded-xl overflow-hidden border border-slate-800/80 shadow-2xl bg-cover bg-center bg-no-repeat flex flex-col justify-between p-3 font-mono select-none transition-all duration-200",
@@ -824,10 +727,8 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
             )}
             style={{ 
               backgroundImage: `url(${gameBgImage})`,
-              aspectRatio: aspectRatio === "free" ? undefined : aspectRatio.replace(":", "/"),
-              height: aspectRatio === "free" ? `${customHeight}px` : undefined,
+              aspectRatio: "9/16",
               minHeight: "280px",
-              maxHeight: aspectRatio === "9/16" && clientWidth <= 320 ? "460px" : undefined
             }}
           >
             {/* Background darkening overlay for high contrast */}
@@ -942,7 +843,7 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
             onMouseDown={handleStartResize}
             className={cn(
               "absolute -bottom-2.5 -right-2.5 w-7 h-7 rounded-full bg-slate-900 border-2 flex items-center justify-center cursor-nwse-resize transition-all z-40 shadow-xl group",
-              isResizing || aspectRatio === "free"
+              isResizing
                 ? "border-amber-400 text-amber-300 bg-amber-950/90 ring-4 ring-amber-500/20 scale-110"
                 : "border-slate-700 text-slate-400 hover:border-amber-500 hover:text-amber-300 hover:bg-slate-800"
             )}

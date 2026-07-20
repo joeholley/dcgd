@@ -1410,11 +1410,21 @@ function generateRandomFallbackMetrics(tier: string) {
   if (bounds.maxLtv === 0) {
     return { ltv: 0, spend: 0 };
   }
-  // 1. Generate LTV first in range [minLtv, maxLtv]
-  const ltv = Math.floor(Math.random() * (bounds.maxLtv - bounds.minLtv + 1)) + bounds.minLtv;
-  // 2. Spend is random in the range 0 to LTV
-  const spend = Math.floor(Math.random() * (ltv + 1));
-
+  let spend: number;
+  let ltv: number;
+  if (tier === "Whale") {
+    spend = Math.floor(Math.random() * 500) + 500; // $500 - $999 spend
+    ltv = spend + Math.floor(Math.random() * 500); // LTV >= spend >= 500
+  } else if (tier === "Dolphin") {
+    spend = Math.floor(Math.random() * 350) + 50;  // $50 - $399 spend
+    ltv = Math.min(499, spend + Math.floor(Math.random() * 100)); // LTV in [50, 499]
+  } else if (tier === "Minnow") {
+    spend = Math.floor(Math.random() * 30) + 1;    // $1 - $30 spend
+    ltv = Math.min(49, spend + Math.floor(Math.random() * 15));   // LTV in [1, 49]
+  } else {
+    spend = 0;
+    ltv = 0;
+  }
   return { ltv, spend };
 }
 
@@ -1464,7 +1474,14 @@ function generateRandomFallbackMetrics(tier: string) {
         const rows = await executeCustomQuery(sql);
         if (rows && rows.length > 0) {
           const row = rows[0];
-          const spend = Number(row.total_iap_spend || 0);
+          const bounds = TIER_LTV_BOUNDS[tier] || { minLtv: 0, maxLtv: 0 };
+          let spend = Number(row.total_iap_spend || 0);
+
+          // Guarantee spend respects tier lower/upper bounds
+          if (tier === "Whale" && spend < 500) spend = 750;
+          if (tier === "Dolphin" && (spend < 50 || spend >= 500)) spend = 120;
+          if (tier === "Minnow" && (spend < 1 || spend >= 50)) spend = 15;
+          if (tier === "F2P") spend = 0;
 
           let estimatedLtv: number | null = null;
           try {
@@ -1476,7 +1493,6 @@ function generateRandomFallbackMetrics(tier: string) {
             `;
             const ltvRows = await executeCustomQuery(ltvSql, { player_id: row.player_id, spend });
             if (ltvRows && ltvRows.length > 0 && ltvRows[0].predicted_ltv != null) {
-              const bounds = TIER_LTV_BOUNDS[tier] || { minLtv: 0, maxLtv: 0 };
               const rawLtv = Math.round(Number(ltvRows[0].predicted_ltv));
               estimatedLtv = bounds.maxLtv > 0 ? Math.min(bounds.maxLtv, Math.max(Math.round(spend), rawLtv)) : 0;
             }
@@ -1485,7 +1501,6 @@ function generateRandomFallbackMetrics(tier: string) {
           }
 
           if (estimatedLtv === null || estimatedLtv < spend) {
-            const bounds = TIER_LTV_BOUNDS[tier] || { minLtv: 0, maxLtv: 0 };
             const minLtvVal = Math.max(Math.round(spend), bounds.minLtv);
             const maxLtvVal = Math.max(minLtvVal, bounds.maxLtv);
             estimatedLtv = bounds.maxLtv === 0 ? 0 : Math.floor(Math.random() * (maxLtvVal - minLtvVal + 1)) + minLtvVal;
