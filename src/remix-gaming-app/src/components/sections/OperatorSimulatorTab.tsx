@@ -43,31 +43,7 @@ export function OperatorSimulatorTab({ routingMode }: OperatorSimulatorTabProps)
     };
   }, []);
 
-  // Hardcoded 1 Hz (1000ms) background telemetry publishing loop
-  useEffect(() => {
-    if (!isSimulating) return;
-    const intervalMs = 1000; // Hardcoded 1 Hz rate
-
-    const timer = setInterval(() => {
-      if (typeof document !== "undefined" && document.visibilityState !== "visible") {
-        return;
-      }
-
-      sendSimulatorEvent({
-        type: "ccu_telemetry_ping",
-        gameId: "cosmic_raider_rpg",
-        userId: "system-ccu-stream",
-        payload: {
-          currentCCU: Math.round(simState.peakCCU * (0.95 + Math.random() * 0.1)),
-          activeAnomaly: simState.activeAnomaly,
-          activeTimezones: simState.activeTimezones,
-          timestamp: Date.now(),
-        },
-      });
-    }, intervalMs);
-
-    return () => clearInterval(timer);
-  }, [isSimulating, simState.peakCCU, simState.activeAnomaly, simState.activeTimezones]);
+  // Global 1 Hz background telemetry loop is handled centrally by simulatorBridge.ts
 
   const handleCCUChange = (val: number) => {
     const clamped = Math.max(0, Math.min(1000000, val));

@@ -574,6 +574,9 @@ function runSimulationTick() {
     let sessionDuration = Math.floor(Math.random() * 1800) + 60;
     let toxicityScore = Math.round(Math.random() * 20) / 100;
 
+    let stageId: string | undefined = undefined;
+    let bossId: string | undefined = undefined;
+
     if (simulatorState.activeAnomaly === "level_2_bottleneck") {
       if (Math.random() < 0.75) {
         eventType = "level_fail";
@@ -581,9 +584,12 @@ function runSimulationTick() {
         consecutiveDeaths = Math.floor(Math.random() * 3) + 2;
       }
     } else if (simulatorState.activeAnomaly === "high_churn_boss_deaths") {
-      if (Math.random() < 0.80) {
-        eventType = Math.random() < 0.6 ? "boss_death" : "level_fail";
-        consecutiveDeaths = Math.floor(Math.random() * 4) + 3;
+      if (Math.random() < 0.85) {
+        eventType = Math.random() < 0.6 ? "boss_death" : "boss_fail";
+        level = 2;
+        stageId = "tutorial_stage_2";
+        bossId = "frost_giant_boss";
+        consecutiveDeaths = Math.floor(Math.random() * 3) + 3; // 3 to 5 deaths
         sessionDuration = Math.floor(Math.random() * 3000) + 600;
       }
     } else if (simulatorState.activeAnomaly === "toxic_chat") {
@@ -602,6 +608,8 @@ function runSimulationTick() {
       player_id: playerId,
       event_type: eventType,
       level,
+      ...(stageId ? { stage_id: stageId } : {}),
+      ...(bossId ? { boss_id: bossId } : {}),
       consecutive_deaths: consecutiveDeaths,
       session_duration_seconds: sessionDuration,
       current_ccu: simulatorState.currentCCU,
@@ -609,9 +617,14 @@ function runSimulationTick() {
       timestamp,
     };
 
-    const deathWeight = consecutiveDeaths * 0.30;
-    const eventWeight = eventType === "mission_quit" || eventType === "churn_event" ? 0.85 : 0.05;
-    const predictedChurnScore = Math.round(Math.min(0.99, Math.max(0.05, deathWeight + eventWeight)) * 100) / 100;
+    let predictedChurnScore: number;
+    if (simulatorState.activeAnomaly === "high_churn_boss_deaths" && (eventType === "boss_death" || eventType === "boss_fail")) {
+      predictedChurnScore = Math.round((0.85 + Math.random() * 0.12) * 100) / 100;
+    } else {
+      const deathWeight = consecutiveDeaths * 0.30;
+      const eventWeight = eventType === "mission_quit" || eventType === "churn_event" ? 0.85 : 0.05;
+      predictedChurnScore = Math.round(Math.min(0.99, Math.max(0.05, deathWeight + eventWeight)) * 100) / 100;
+    }
     const churnRiskLevel = predictedChurnScore >= 0.80 ? "CRITICAL" : predictedChurnScore >= 0.50 ? "HIGH" : "LOW";
 
     let pubsubMessageId = `sim_msg_${Date.now()}`;
@@ -1463,14 +1476,16 @@ function generateRandomFallbackMetrics(tier: string) {
             `;
             const ltvRows = await executeCustomQuery(ltvSql, { player_id: row.player_id, spend });
             if (ltvRows && ltvRows.length > 0 && ltvRows[0].predicted_ltv != null) {
-              estimatedLtv = Math.round(Number(ltvRows[0].predicted_ltv));
+              const bounds = TIER_LTV_BOUNDS[tier] || { minLtv: 0, maxLtv: 0 };
+              const rawLtv = Math.round(Number(ltvRows[0].predicted_ltv));
+              estimatedLtv = bounds.maxLtv > 0 ? Math.min(bounds.maxLtv, Math.max(Math.round(spend), rawLtv)) : 0;
             }
           } catch (e) {
             // Predictive LTV model fallback rule
           }
 
           if (estimatedLtv === null || estimatedLtv < spend) {
-            const bounds = TIER_LTV_BOUNDS[tier] || { minLtv: 0, maxLtv: 0, minSpend: 0 };
+            const bounds = TIER_LTV_BOUNDS[tier] || { minLtv: 0, maxLtv: 0 };
             const minLtvVal = Math.max(Math.round(spend), bounds.minLtv);
             const maxLtvVal = Math.max(minLtvVal, bounds.maxLtv);
             estimatedLtv = bounds.maxLtv === 0 ? 0 : Math.floor(Math.random() * (maxLtvVal - minLtvVal + 1)) + minLtvVal;
@@ -1664,7 +1679,7 @@ function generateRandomFallbackMetrics(tier: string) {
         if (bqRows && bqRows.length > 0) {
           const row = bqRows[0];
           const spend = Number(row.total_iap_spend || 0);
-          const bounds = TIER_LTV_BOUNDS[tier] || { minLtv: 0, maxLtv: 0, minSpend: 0 };
+          const bounds = TIER_LTV_BOUNDS[tier] || { minLtv: 0, maxLtv: 0 };
           let predictedLtv: number | null = null;
 
           // Query gaming_gold.gaming_predictive_ltv_model
@@ -1698,7 +1713,8 @@ function generateRandomFallbackMetrics(tier: string) {
             if (modelRows && modelRows.length > 0) {
               const rawVal = modelRows[0].predicted_ltv ?? modelRows[0].predicted_total_iap_spend ?? modelRows[0].predicted_label;
               if (typeof rawVal === "number" && !isNaN(rawVal) && rawVal >= 0) {
-                predictedLtv = Math.round(rawVal * 100) / 100;
+                const rawLtv = Math.round(rawVal * 100) / 100;
+                predictedLtv = bounds.maxLtv > 0 ? Math.min(bounds.maxLtv, Math.max(Math.round(spend), rawLtv)) : 0;
               }
             }
           } catch (modelErr) {

@@ -32,7 +32,7 @@ export type Section =
   | "diagnostics";
 
 export default function App() {
-  const [activeSection, setActiveSection] = useState<Section>("overview");
+  const [activeSection, setActiveSection] = useState<Section>("workflows");
   const [initialCatalogSearch, setInitialCatalogSearch] = useState("");
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [isStandaloneSimulator] = useState<boolean>(

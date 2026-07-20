@@ -19,8 +19,11 @@ import {
   clearStreamLogs, 
   onStreamLogUpdate, 
   buildGcpConsolePubSubUrl, 
-  getStreamLoggingPaused,
-  setStreamLoggingPaused,
+  getStreamLogSettings,
+  updateStreamLogSettings,
+  onStreamLogSettingsChange,
+  StreamLogSettings,
+  LogFilterMode,
   RoutingMode 
 } from "../../services/simulatorBridge";
 
@@ -30,40 +33,50 @@ interface SimulatorTelemetryLogProps {
 
 export function SimulatorTelemetryLog({ routingMode = "LIVE" }: SimulatorTelemetryLogProps) {
   const [logs, setLogs] = useState<StreamLogEntry[]>(() => getStreamLogs());
-  const [isPaused, setIsPaused] = useState<boolean>(() => getStreamLoggingPaused());
-  const [autoScroll, setAutoScroll] = useState<boolean>(true);
-  const [filter, setFilter] = useState<"ALL" | "OUTGOING" | "INCOMING">("ALL");
+  const [settings, setSettings] = useState<StreamLogSettings>(() => getStreamLogSettings());
   const [expandedLogIds, setExpandedLogIds] = useState<Record<string, boolean>>({});
   
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const unsub = onStreamLogUpdate((updatedLogs) => {
+    const unsubLogs = onStreamLogUpdate((updatedLogs) => {
       setLogs([...updatedLogs]);
     });
-    return () => unsub();
+    const unsubSettings = onStreamLogSettingsChange((updatedSettings) => {
+      setSettings({ ...updatedSettings });
+    });
+    return () => {
+      unsubLogs();
+      unsubSettings();
+    };
   }, []);
 
   // Auto-scroll to top (latest entry) when autoScroll is enabled
   useEffect(() => {
-    if (autoScroll && scrollRef.current) {
+    if (settings.autoScroll && scrollRef.current) {
       scrollRef.current.scrollTop = 0;
     }
-  }, [logs, autoScroll]);
+  }, [logs, settings.autoScroll]);
 
   const toggleExpand = (id: string) => {
     setExpandedLogIds((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
   const handleToggleStreamPause = () => {
-    const nextPaused = !isPaused;
-    setIsPaused(nextPaused);
-    setStreamLoggingPaused(nextPaused);
+    updateStreamLogSettings({ paused: !settings.paused });
+  };
+
+  const handleToggleAutoScroll = () => {
+    updateStreamLogSettings({ autoScroll: !settings.autoScroll });
+  };
+
+  const handleSetFilter = (mode: LogFilterMode) => {
+    updateStreamLogSettings({ filter: mode });
   };
 
   const filteredLogs = logs.filter((log) => {
-    if (filter === "OUTGOING") return log.direction === "OUTGOING";
-    if (filter === "INCOMING") return log.direction === "INCOMING";
+    if (settings.filter === "OUTGOING") return log.direction === "OUTGOING";
+    if (settings.filter === "INCOMING") return log.direction === "INCOMING";
     return true;
   });
 
@@ -96,27 +109,27 @@ export function SimulatorTelemetryLog({ routingMode = "LIVE" }: SimulatorTelemet
             onClick={handleToggleStreamPause}
             className={cn(
               "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer border",
-              !isPaused
+              !settings.paused
                 ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm shadow-emerald-500/20"
                 : "bg-amber-500/20 text-amber-400 border-amber-500/40"
             )}
           >
-            {!isPaused ? <Play className="w-3 h-3 fill-current" /> : <Pause className="w-3 h-3 fill-current" />}
-            <span>Stream Logging: {!isPaused ? "ON" : "OFF (Paused)"}</span>
+            {!settings.paused ? <Play className="w-3 h-3 fill-current" /> : <Pause className="w-3 h-3 fill-current" />}
+            <span>Stream Logging: {!settings.paused ? "ON" : "OFF (Paused)"}</span>
           </button>
 
           {/* Auto-Scroll Toggle and Trash Clear */}
           <div className="flex items-center gap-1.5">
             <button
               type="button"
-              onClick={() => setAutoScroll(!autoScroll)}
+              onClick={handleToggleAutoScroll}
               className={cn(
                 "p-1.5 px-2 rounded-lg border text-xs transition-all cursor-pointer flex items-center gap-1",
-                autoScroll
+                settings.autoScroll
                   ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-sm"
                   : "bg-slate-900 text-slate-500 hover:text-slate-300 border-slate-800"
               )}
-              title={autoScroll ? "Auto-Scroll: Enabled (Jumps to latest log entry)" : "Auto-Scroll: Disabled"}
+              title={settings.autoScroll ? "Auto-Scroll: Enabled (Jumps to latest log entry)" : "Auto-Scroll: Disabled"}
             >
               <ArrowUpToLine className="w-3.5 h-3.5" />
               <span className="text-[10px] font-bold hidden sm:inline">Auto-Scroll</span>
@@ -143,10 +156,10 @@ export function SimulatorTelemetryLog({ routingMode = "LIVE" }: SimulatorTelemet
             <button
               key={mode}
               type="button"
-              onClick={() => setFilter(mode)}
+              onClick={() => handleSetFilter(mode)}
               className={cn(
                 "px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer border",
-                filter === mode
+                settings.filter === mode
                   ? "bg-blue-600/30 border-blue-500 text-blue-300"
                   : "bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300"
               )}

@@ -79,6 +79,20 @@ Decision Payload:
   assert(parsedLegacy !== null, "Legacy target_players payload parsed via backward compatibility");
   assert(parsedLegacy?.target_cohorts.length === 2, "Mapped 2 target_players to 2 target_cohorts");
 
+  // TEST 2b: valid_player_tiers and offer_reason payload parsing (prevent React Error #31)
+  const validTiersResponseText = `Decision Payload:
+{
+  "sku_id": "frost_giant_shield_pack",
+  "discount_percentage": 25.0,
+  "offer_reason": "Excessive wipeouts on Frost Giant boss",
+  "valid_player_tiers": ["Minnow", "F2P"]
+}`;
+  const parsedValidTiers = parseDecisionPayload(validTiersResponseText);
+  assert(parsedValidTiers !== null, "valid_player_tiers payload parsed successfully");
+  assert(parsedValidTiers?.target_cohorts.length === 2, "Mapped valid_player_tiers array to 2 target_cohorts");
+  assert(typeof parsedValidTiers?.reasoning === "string", "reasoning is guaranteed to be a string");
+  assert(parsedValidTiers?.reasoning === "Excessive wipeouts on Frost Giant boss", "Extracted offer_reason as reasoning string");
+
   // TEST 3: Cohort ID normalization
   assert(normalizeCohortId("Minnow") === "Minnow", "normalizeCohortId('Minnow') returns 'Minnow'");
   assert(normalizeCohortId("F2P") === "F2P", "normalizeCohortId('F2P') returns 'F2P'");

@@ -124,15 +124,57 @@ const DEFAULT_STATE: SimulatorPersistentState = {
 
 const CHANNEL_NAME = "omniarcade_simulator_channel";
 
-// Stream Logging Pause Control
+// Stream Logging Settings & Control (Shared across all UI views)
+export type LogFilterMode = "ALL" | "OUTGOING" | "INCOMING";
+
+export interface StreamLogSettings {
+  paused: boolean;
+  autoScroll: boolean;
+  filter: LogFilterMode;
+}
+
 let isStreamLoggingPaused = false;
+let currentLogSettings: StreamLogSettings = {
+  paused: false,
+  autoScroll: true,
+  filter: "ALL",
+};
+
+const settingsListeners: Set<(settings: StreamLogSettings) => void> = new Set();
+
+export function getStreamLogSettings(): StreamLogSettings {
+  return currentLogSettings;
+}
+
+export function updateStreamLogSettings(updates: Partial<StreamLogSettings>): StreamLogSettings {
+  currentLogSettings = {
+    ...currentLogSettings,
+    ...updates,
+  };
+  if (typeof updates.paused === "boolean") {
+    isStreamLoggingPaused = updates.paused;
+  }
+  settingsListeners.forEach((fn) => fn(currentLogSettings));
+  if (broadcastChannel) {
+    broadcastChannel.postMessage({ type: "LOG_SETTINGS_CHANGE", settings: currentLogSettings });
+  }
+  return currentLogSettings;
+}
+
+export function onStreamLogSettingsChange(listener: (settings: StreamLogSettings) => void): () => void {
+  settingsListeners.add(listener);
+  listener(currentLogSettings);
+  return () => {
+    settingsListeners.delete(listener);
+  };
+}
 
 export function getStreamLoggingPaused(): boolean {
-  return isStreamLoggingPaused;
+  return currentLogSettings.paused;
 }
 
 export function setStreamLoggingPaused(paused: boolean): void {
-  isStreamLoggingPaused = paused;
+  updateStreamLogSettings({ paused });
 }
 
 // Load persistent state from localStorage
@@ -277,6 +319,10 @@ if (broadcastChannel) {
     } else if (type === "SIMULATOR_STATE_CHANGE" && simStatePayload) {
       lastSimStatePayload = simStatePayload;
       simStatePayloadListeners.forEach((fn) => fn(simStatePayload));
+    } else if (type === "LOG_SETTINGS_CHANGE" && msgEvent.data.settings) {
+      currentLogSettings = msgEvent.data.settings;
+      isStreamLoggingPaused = currentLogSettings.paused;
+      settingsListeners.forEach((fn) => fn(currentLogSettings));
     }
   };
 }
@@ -615,3 +661,96 @@ export async function sendSimulatorEvent(event: SimulatorTelemetryEvent): Promis
     };
   }
 }
+
+// --------------------------------------------------------------------------
+// Global Background Telemetry Publisher Loop & Live SSE Event Listener
+// --------------------------------------------------------------------------
+let globalSimulatorTimer: any = null;
+
+function startGlobalSimulatorPublisher() {
+  if (globalSimulatorTimer) clearInterval(globalSimulatorTimer);
+
+  globalSimulatorTimer = setInterval(() => {
+    if (!lastSimStatePayload.isRunning) return;
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+
+    sendSimulatorEvent({
+      type: "ccu_telemetry_ping",
+      gameId: "cosmic_raider_rpg",
+      userId: "system-ccu-stream",
+      payload: {
+        currentCCU: Math.round(currentState.peakCCU * (0.95 + Math.random() * 0.1)),
+        activeAnomaly: currentState.activeAnomaly,
+        activeTimezones: currentState.activeTimezones,
+        timestamp: Date.now(),
+      },
+    });
+
+    if (currentState.activeAnomaly === "high_churn_boss_deaths") {
+      const cohorts: PlayerCohortId[] = ["Whale", "Dolphin", "Minnow", "F2P"];
+      const affectedCohort = cohorts[Math.floor(Math.random() * cohorts.length)];
+      const playerId = `PLAY-000${Math.floor(Math.random() * 89999) + 10000}`;
+      const consecutiveDeaths = Math.floor(Math.random() * 3) + 3;
+      const churnScore = Math.round((0.85 + Math.random() * 0.12) * 100) / 100;
+
+      sendSimulatorEvent({
+        type: "boss_encounter_fail",
+        userId: playerId,
+        gameId: "cosmic_raider_rpg",
+        payload: {
+          player_id: playerId,
+          payer_tier: affectedCohort,
+          level: 2,
+          stage_id: "tutorial_stage_2",
+          boss_id: "frost_giant_boss",
+          event_type: "boss_fail",
+          consecutive_deaths: consecutiveDeaths,
+          predicted_churn_score: churnScore,
+          churn_risk_level: "CRITICAL",
+          timestamp: Date.now(),
+        },
+      });
+    }
+  }, 1000);
+}
+
+let sseEventSource: EventSource | null = null;
+
+function initGlobalSSEListener() {
+  if (typeof window === "undefined" || typeof EventSource === "undefined") return;
+  if (sseEventSource) return;
+
+  try {
+    sseEventSource = new EventSource("/api/guardrail/events");
+
+    sseEventSource.addEventListener("telemetry_update", (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(event.data);
+        addStreamLogEntry({
+          timestamp: payload.timestamp ? new Date(payload.timestamp).getTime() : Date.now(),
+          direction: "OUTGOING",
+          eventType: payload.event_type || payload.eventType || "telemetry_update",
+          transport: payload.backend_mode === "LIVE" ? "Cloud Pub/Sub HTTP Gateway" : "In-Memory Event Stream",
+          pubsubTopic: "gaming-live-telemetry",
+          gcpConsoleUrl: buildGcpConsolePubSubUrl("gaming-live-telemetry"),
+          success: true,
+          payload,
+        });
+      } catch (err) {
+        console.warn("[SimulatorBridge] SSE telemetry_update parse error:", err);
+      }
+    });
+
+    sseEventSource.onerror = (err) => {
+      console.warn("[SimulatorBridge] SSE connection warning (will retry automatically):", err);
+    };
+  } catch (err) {
+    console.warn("[SimulatorBridge] Error initializing EventSource:", err);
+  }
+}
+
+if (typeof window !== "undefined") {
+  startGlobalSimulatorPublisher();
+  initGlobalSSEListener();
+}
+

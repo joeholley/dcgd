@@ -68,21 +68,24 @@ const INITIAL_KC_RESPONSE = "I am the Knowledge Catalog (KC) Guided Agent for Om
 
 const EXECUTE_RUN_DISPLAY_PROMPT = "Our system has determined that many players are dying on a boss and some are quitting the game. Identify and analyze the relevant gameplay event data and provide a recommendation?";
 
-const EXECUTE_RUN_API_PROMPT = "Our system has determined that many players are dying on a Frost Giant boss and some are quitting the game. Identify the relevant gameplay event data and recommend that we offer the frost_giant_shield_pack SKU at an 80% discount to users with predicted churn probability of 85% or higher";
+const EXECUTE_RUN_API_PROMPT = "Our system has determined that many players are failing on the: boss on tutorial stage 2 and some are quitting the game. Identify the relevant gameplay event data and recommend that we offer the frost_giant_shield_pack SKU at an 80% discount to users with predicted churn probability of 85% or higher";
 
-function extractCleanTextPayload(input: string): string {
+function extractCleanTextPayload(input: any): string {
   if (!input) return "";
+  if (typeof input !== "string") {
+    return typeof input === "object" ? JSON.stringify(input) : String(input);
+  }
   const trimmed = input.trim();
   if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
     try {
       const parsed = JSON.parse(trimmed);
       const text =
-        parsed.content?.parts?.[0]?.text ||
-        (Array.isArray(parsed.content?.parts) ? parsed.content.parts.map((p: any) => p.text).filter(Boolean).join("\n") : null) ||
-        parsed.parts?.[0]?.text ||
-        parsed.text ||
-        (typeof parsed.output === "string" ? parsed.output : parsed.output?.text) ||
-        (typeof parsed.response === "string" ? parsed.response : parsed.response?.text);
+        (typeof parsed.content?.parts?.[0]?.text === "string" ? parsed.content.parts[0].text : null) ||
+        (Array.isArray(parsed.content?.parts) ? parsed.content.parts.map((p: any) => typeof p === "string" ? p : p?.text).filter(Boolean).join("\n") : null) ||
+        (typeof parsed.parts?.[0]?.text === "string" ? parsed.parts[0].text : null) ||
+        (typeof parsed.text === "string" ? parsed.text : null) ||
+        (typeof parsed.output === "string" ? parsed.output : (parsed.output ? JSON.stringify(parsed.output) : null)) ||
+        (typeof parsed.response === "string" ? parsed.response : (parsed.response ? JSON.stringify(parsed.response) : null));
 
       if (text && typeof text === "string") return text;
     } catch (e) {
@@ -168,21 +171,30 @@ export function parseDecisionPayload(input: string): DecisionPayload | null {
       const parsed = JSON.parse(rawJson);
       
       // Standardize cohort payload schema
-      if (parsed.target_cohorts || parsed.target_players || parsed.sku_id || parsed.intervention_type) {
+      if (
+        parsed.target_cohorts ||
+        parsed.target_players ||
+        parsed.valid_player_tiers ||
+        parsed.sku_id ||
+        parsed.sku ||
+        parsed.intervention_type ||
+        parsed.offer_reason ||
+        parsed.reasoning
+      ) {
         let cohortsList: TargetCohortPayload[] = [];
 
         if (Array.isArray(parsed.target_cohorts)) {
           cohortsList = parsed.target_cohorts.map((tc: any) => ({
-            cohort_id: tc.cohort_id || tc.payer_tier || tc.tier || "Minnow",
+            cohort_id: typeof tc.cohort_id === "string" ? tc.cohort_id : (typeof tc.payer_tier === "string" ? tc.payer_tier : (typeof tc.tier === "string" ? tc.tier : "Minnow")),
             churn_threshold: typeof tc.churn_threshold === "number" ? tc.churn_threshold : (typeof tc.churn_probability === "number" ? tc.churn_probability : 0.85),
             discount_percentage: typeof tc.discount_percentage === "number" ? tc.discount_percentage : undefined,
-            offer_details: tc.offer_details || tc.details || "",
+            offer_details: typeof tc.offer_details === "string" ? tc.offer_details : (typeof tc.details === "string" ? tc.details : (tc.offer_details ? JSON.stringify(tc.offer_details) : "")),
           }));
         } else if (Array.isArray(parsed.target_players)) {
           // Backward compatibility map for legacy target_players format
           const map = new Map<string, number>();
           parsed.target_players.forEach((tp: any) => {
-            const tier = tp.payer_tier || tp.tier || "Minnow";
+            const tier = typeof tp.payer_tier === "string" ? tp.payer_tier : (typeof tp.tier === "string" ? tp.tier : "Minnow");
             const churn = typeof tp.churn_probability === "number" ? tp.churn_probability : 0.85;
             if (!map.has(tier) || churn < map.get(tier)!) {
               map.set(tier, churn);
@@ -192,36 +204,74 @@ export function parseDecisionPayload(input: string): DecisionPayload | null {
             cohortsList.push({
               cohort_id: tier,
               churn_threshold: churn,
-              discount_percentage: parsed.discount_percentage || 25,
+              discount_percentage: typeof parsed.discount_percentage === "number" ? parsed.discount_percentage : 25,
               offer_details: `Compliant discount of ${parsed.discount_percentage || 25}% applied to ${tier} cohort.`,
+            });
+          });
+        } else if (Array.isArray(parsed.valid_player_tiers)) {
+          const discount = typeof parsed.discount_percentage === "number" ? parsed.discount_percentage : 25;
+          parsed.valid_player_tiers.forEach((tierObj: any) => {
+            const tier = typeof tierObj === "string" ? tierObj : (typeof tierObj.cohort_id === "string" ? tierObj.cohort_id : (typeof tierObj.tier === "string" ? tierObj.tier : "Minnow"));
+            const churn = typeof tierObj.churn_threshold === "number" ? tierObj.churn_threshold : 0.85;
+            cohortsList.push({
+              cohort_id: tier,
+              churn_threshold: churn,
+              discount_percentage: discount,
+              offer_details: `Compliant discount of ${discount}% applied to ${tier} cohort.`,
             });
           });
         }
 
+        const skuId = typeof parsed.sku_id === "string" ? parsed.sku_id : (typeof parsed.sku === "string" ? parsed.sku : "frost_giant_shield_pack");
+        const discountPercentage = typeof parsed.discount_percentage === "number" ? parsed.discount_percentage : (typeof parsed.discount === "number" ? parsed.discount : 25);
+        
+        let reasoningStr = "Targeting cohorts with high churn probability based on boss wipeouts.";
+        if (typeof parsed.reasoning === "string" && parsed.reasoning.trim()) {
+          reasoningStr = parsed.reasoning;
+        } else if (typeof parsed.offer_reason === "string" && parsed.offer_reason.trim()) {
+          reasoningStr = parsed.offer_reason;
+        } else if (typeof parsed.offer_details === "string" && parsed.offer_details.trim()) {
+          reasoningStr = parsed.offer_details;
+        } else if (parsed.reasoning && typeof parsed.reasoning === "object") {
+          reasoningStr = JSON.stringify(parsed.reasoning);
+        } else if (parsed.offer_reason && typeof parsed.offer_reason === "object") {
+          reasoningStr = JSON.stringify(parsed.offer_reason);
+        }
+
         return {
-          intervention_type: parsed.intervention_type || "proactive_churn_offer",
-          sku_id: parsed.sku_id || parsed.sku || "frost_giant_shield_pack",
-          discount_percentage: typeof parsed.discount_percentage === "number" ? parsed.discount_percentage : (parsed.discount || 25),
+          intervention_type: typeof parsed.intervention_type === "string" ? parsed.intervention_type : "proactive_churn_offer",
+          sku_id: skuId,
+          discount_percentage: discountPercentage,
           target_cohorts: cohortsList,
-          reasoning: parsed.reasoning || parsed.offer_details || "Targeting cohorts with high churn probability based on boss wipeouts.",
+          reasoning: reasoningStr,
         };
       }
 
       // Single player / cohort legacy schema fallback
       if (parsed.offer_payload || parsed.churn_score) {
+        const skuId = typeof parsed.offer_payload?.sku === "string" ? parsed.offer_payload.sku : (typeof parsed.sku_id === "string" ? parsed.sku_id : "frost_giant_shield_pack");
+        let reasoningStr = `Targeting cohort ${parsed.payer_tier || 'Minnow'} with high churn risk.`;
+        if (typeof parsed.reasoning === "string" && parsed.reasoning.trim()) {
+          reasoningStr = parsed.reasoning;
+        } else if (typeof parsed.offer_reason === "string" && parsed.offer_reason.trim()) {
+          reasoningStr = parsed.offer_reason;
+        } else if (parsed.reasoning && typeof parsed.reasoning === "object") {
+          reasoningStr = JSON.stringify(parsed.reasoning);
+        }
+
         return {
           intervention_type: "proactive_churn_offer",
-          sku_id: parsed.offer_payload?.sku || parsed.sku_id || "frost_giant_shield_pack",
+          sku_id: skuId,
           discount_percentage: typeof parsed.discount_percentage === "number" ? parsed.discount_percentage : 25,
           target_cohorts: [
             {
-              cohort_id: parsed.payer_tier || "Minnow",
+              cohort_id: typeof parsed.payer_tier === "string" ? parsed.payer_tier : "Minnow",
               churn_threshold: typeof parsed.churn_score === "number" ? parsed.churn_score : 0.87,
               discount_percentage: 25,
-              offer_details: parsed.offer_payload?.title || "Compliant discount applied.",
+              offer_details: typeof parsed.offer_payload?.title === "string" ? parsed.offer_payload.title : "Compliant discount applied.",
             }
           ],
-          reasoning: parsed.reasoning || `Targeting cohort ${parsed.payer_tier || 'Minnow'} with high churn risk.`,
+          reasoning: reasoningStr,
         };
       }
     } catch (e) {
@@ -509,7 +559,11 @@ export function AgenticWorkflows() {
   const [approvedActions, setApprovedActions] = useState<Record<string, boolean>>({});
   const [rejectedActions, setRejectedActions] = useState<Record<string, boolean>>({});
   const [traceError, setTraceError] = useState<Record<string, string | null>>({});
-  const [activeSessionIds, setActiveSessionIds] = useState<Record<string, string | null>>({});
+  const [activeSessionIds, setActiveSessionIds] = useState<Record<string, string | null>>({
+    "Automated Player Retention Promo": "sess_kc_8f92a104",
+    "Fraud & Cheat Detection Agent": "sess_cheat_3a19b882",
+    "Dynamic Matchmaking Balance": "sess_mm_7c41e905",
+  });
   const [followUpResponse, setFollowUpResponse] = useState<Record<string, string | null>>({});
   const traceContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -582,6 +636,12 @@ export function AgenticWorkflows() {
 
           if (traceRes.ok) {
             const traceData = await traceRes.json();
+            if (traceData.session_id) {
+              setActiveSessionIds((prev) => ({
+                ...prev,
+                "Automated Player Retention Promo": traceData.session_id,
+              }));
+            }
             if (traceData.response_text && !traceData.response_text.startsWith("[agent-kc Analysis]")) {
               const cleanText = extractCleanTextPayload(traceData.response_text);
               if (isMounted) {
@@ -1152,11 +1212,11 @@ export function AgenticWorkflows() {
                               {parsedDecision && (
                                 <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-100 text-[11px] text-slate-700">
                                   <span className="font-bold text-blue-900 block mb-1">Targeted Cohorts & Policy Rationale:</span>
-                                  <p className="text-[10px] text-slate-600 italic mb-2">{parsedDecision.reasoning}</p>
+                                  <p className="text-[10px] text-slate-600 italic mb-2">{typeof parsedDecision.reasoning === "string" ? parsedDecision.reasoning : JSON.stringify(parsedDecision.reasoning)}</p>
                                   <div className="flex flex-wrap gap-1.5">
                                     {parsedDecision.target_cohorts.map((tc, idx) => (
                                       <span key={idx} className="px-2 py-0.5 rounded bg-white border border-blue-200 text-[9px] text-slate-800">
-                                        <strong className="text-blue-700">{tc.cohort_id} Cohort</strong>: {(tc.churn_threshold * 100).toFixed(0)}% churn threshold — {tc.offer_details || "Compliant 25% discount"}
+                                        <strong className="text-blue-700">{typeof tc.cohort_id === "string" ? tc.cohort_id : String(tc.cohort_id)} Cohort</strong>: {((tc.churn_threshold || 0.85) * 100).toFixed(0)}% churn threshold — {typeof tc.offer_details === "string" ? tc.offer_details : JSON.stringify(tc.offer_details || "Compliant discount")}
                                       </span>
                                     ))}
                                   </div>
@@ -1199,7 +1259,7 @@ export function AgenticWorkflows() {
                                   <p>- Aspect Check: `gaming-campaign-policy-aspect` PASSED</p>
                                   <p>- Max Discount Boundary ({parsedDecision ? `${parsedDecision.discount_percentage}%` : "25%"}) limit honored</p>
                                   <p>- BQML Minimum Churn Score: {parsedDecision && parsedDecision.target_cohorts.length > 0 ? Math.min(...parsedDecision.target_cohorts.map(c => c.churn_threshold)) : "0.85"}</p>
-                                  <p>- Target Segments: {parsedDecision ? parsedDecision.target_cohorts.map(c => c.cohort_id).join(", ") : "Minnow, F2P"}</p>
+                                  <p>- Target Segments: {parsedDecision && parsedDecision.target_cohorts.length > 0 ? parsedDecision.target_cohorts.map(c => c.cohort_id).join(", ") : "Minnow, F2P"}</p>
                                 </div>
                               </div>
                             ) : (
