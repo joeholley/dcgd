@@ -30,7 +30,7 @@ function runAudit() {
   // TEST 1: Decision Payload Parser with Reworked Cohort Payload
   const cohortResponseText = `[agent-kc Analysis] Analyzing player telemetry stream for boss death anomalies:
 - Identified 4 consecutive wipeouts on 'Frost Giant' boss in Realm of Eldoria RPG.
-- Cross-referenced Dataplex Knowledge Catalog entry aspect 'gaming-campaign-policy-aspect' & BQML churn model.
+- Cross-referenced Dataplex Knowledge Catalog entry aspect 'liveops_campaign_policy_aspect' & BQML churn model.
 
 Decision Payload:
 

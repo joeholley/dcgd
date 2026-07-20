@@ -68,9 +68,9 @@ export function KnowledgeCatalog({ initialSearch = "" }: { initialSearch?: strin
     {
       rule_id: "rule_discovered_default_01",
       input_text: "Whales in Japan get max 80% discount on Frost Giant Shield Pack",
-      dataplex_aspect_type: "gaming-campaign-policy-aspect",
+      dataplex_aspect_type: "liveops_campaign_policy_aspect",
       generated_aspect_schema: {
-        name: "projects/gaming-demo/locations/us-central1/aspectTypes/gaming-campaign-policy-aspect",
+        name: "projects/gaming-demo/locations/us-central1/aspectTypes/liveops_campaign_policy_aspect",
         fields: {
           player_tier: "Whale",
           max_discount_pct: 80,
@@ -181,9 +181,9 @@ export function KnowledgeCatalog({ initialSearch = "" }: { initialSearch?: strin
       const fallbackRule: DiscoveredRule = {
         rule_id: `rule_discovered_${Date.now()}`,
         input_text: plainRuleText,
-        dataplex_aspect_type: "gaming-campaign-policy-aspect",
+        dataplex_aspect_type: "liveops_campaign_policy_aspect",
         generated_aspect_schema: {
-          name: "projects/gaming-demo/locations/us-central1/aspectTypes/gaming-campaign-policy-aspect",
+          name: "projects/gaming-demo/locations/us-central1/aspectTypes/liveops_campaign_policy_aspect",
           fields: {
             player_tier: isWhale ? "Whale" : "All",
             max_discount_pct: is80 ? 80 : 50,

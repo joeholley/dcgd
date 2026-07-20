@@ -52,7 +52,7 @@ export function SimulatorDiagnostics({ routingMode }: SimulatorDiagnosticsProps)
             pubsub: { status: "ACTIVE", latency: "14ms", message: "Topic 'gaming-live-telemetry' receiving stream" },
             bigquery: { status: "ACTIVE", latency: "42ms", message: "Table 'gaming_gold.gold_player_360' active (1.4M rows)" },
             bqml: { status: "ACTIVE", latency: "88ms", message: "Model 'gaming_raw.player_churn_model' (BQML XGBoost 94.2% ROC-AUC)" },
-            dataplex: { status: "ACTIVE", latency: "24ms", message: "Governance Aspect 'gaming-campaign-policy-aspect' verified" },
+            dataplex: { status: "ACTIVE", latency: "24ms", message: "Governance Aspect 'liveops_campaign_policy_aspect' verified" },
             vertex: { status: "ACTIVE", latency: "120ms", message: "Gemini Enterprise Agent Runtime 'omniarcade-guardrail-agent'" }
           });
         }

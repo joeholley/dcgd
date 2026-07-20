@@ -284,7 +284,7 @@ export function parseDecisionPayload(input: string): DecisionPayload | null {
 
 const DEFAULT_RETENTION_FALLBACK_RESPONSE = `[agent-kc Analysis] Analyzing player telemetry stream for boss death anomalies:
 - Identified excessive consecutive wipeouts on 'Frost Giant' boss in Realm of Eldoria RPG.
-- Cross-referenced Knowledge Catalog entry aspect 'gaming-campaign-policy-aspect' & BQML churn model.
+- Cross-referenced Knowledge Catalog entry aspect 'liveops_campaign_policy_aspect' & BQML churn model.
 
 Decision Payload:
 
@@ -796,13 +796,13 @@ export function AgenticWorkflows() {
     "Automated Player Retention Promo": {
       thinking: [
         "[1/4] Constructing Gemini Enterprise prompt buffer with player telemetry stream...",
-        "[2/4] Querying Knowledge Catalog for governance aspect 'gaming-campaign-policy-aspect'...",
+        "[2/4] Querying Knowledge Catalog for governance aspect 'liveops_campaign_policy_aspect'...",
         "[3/4] Evaluating BQML churn prediction model ('gaming_player_churn_model' -> 89% score)...",
         "[4/4] Policy verified: Max discount limit 85% honored. Issuing certified offer SKU 'frost_giant_shield_pack'."
       ],
       finding: "Critical level decline detected for 'Realm of Eldoria RPG' veteran whale cohort after 4 consecutive Frost Giant wipeouts.",
       impact: "Potential $85K user lifetime value (LTV) churn exposure over current season.",
-      recommendation: "Inject dynamic $0.99 Frost Giant Shield & Resurrect Crate (80% discount). Policy Aspect ID: gaming-campaign-policy-aspect.",
+      recommendation: "Inject dynamic $0.99 Frost Giant Shield & Resurrect Crate (80% discount). Policy Aspect ID: liveops_campaign_policy_aspect.",
       nextSteps: ["Send In-Game Gift", "Auto-Notify Team", "Update Segment Tag"]
     },
     "Fraud & Cheat Detection Agent": {
@@ -1191,7 +1191,7 @@ export function AgenticWorkflows() {
                                 </div>
                                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                                   <span className="text-[10px] text-slate-400 font-bold uppercase block">Knowledge Catalog Aspect ID:</span>
-                                  <span className="font-bold text-slate-700">gaming-campaign-policy-aspect</span>
+                                  <span className="font-bold text-slate-700">liveops_campaign_policy_aspect</span>
                                 </div>
                                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                                   <span className="text-[10px] text-slate-400 font-bold uppercase block">Max Discount Boundary:</span>
@@ -1256,7 +1256,7 @@ export function AgenticWorkflows() {
                                 {/* Hover Tooltip detailing policy decision rationale */}
                                 <div className="absolute top-full left-0 right-0 mt-2 p-4 rounded-xl bg-slate-900 text-white font-mono text-[11px] shadow-2xl opacity-0 group-hover:opacity-100 transition-all z-30 border border-slate-700 space-y-1">
                                     <p className="font-bold text-emerald-400">[KNOWLEDGE CATALOG POLICY COMPLIANCE VERIFIED]</p>
-                                  <p>- Aspect Check: `gaming-campaign-policy-aspect` PASSED</p>
+                                  <p>- Aspect Check: `liveops_campaign_policy_aspect` PASSED</p>
                                   <p>- Max Discount Boundary ({parsedDecision ? `${parsedDecision.discount_percentage}%` : "25%"}) limit honored</p>
                                   <p>- BQML Minimum Churn Score: {parsedDecision && parsedDecision.target_cohorts.length > 0 ? Math.min(...parsedDecision.target_cohorts.map(c => c.churn_threshold)) : "0.85"}</p>
                                   <p>- Target Segments: {parsedDecision && parsedDecision.target_cohorts.length > 0 ? parsedDecision.target_cohorts.map(c => c.cohort_id).join(", ") : "Minnow, F2P"}</p>

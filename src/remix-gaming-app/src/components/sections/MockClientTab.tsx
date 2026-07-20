@@ -473,6 +473,8 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
       gameId: "cosmic_raider_rpg",
       userId: activeExemplar.playerId,
       payload: {
+        source: "mock_game_client",
+        isMockClientAction: true,
         cohortId: selectedTier,
         userId: activeExemplar.playerId,
         consecutiveDeaths: nextDeaths,
@@ -534,6 +536,8 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
       gameId: "cosmic_raider_rpg",
       userId: activeExemplar.playerId,
       payload: {
+        source: "mock_game_client",
+        isMockClientAction: true,
         cohortId: selectedTier,
         userId: activeExemplar.playerId,
         consecutiveDeaths: activeExemplar.consecutiveDeaths,
@@ -584,6 +588,8 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
       gameId: "cosmic_raider_rpg",
       userId: activeExemplar.playerId,
       payload: {
+        source: "mock_game_client",
+        isMockClientAction: true,
         cohortId: selectedTier,
         userId: activeExemplar.playerId,
         acceptedOfferId,

@@ -125,7 +125,7 @@ const DEFAULT_STATE: SimulatorPersistentState = {
 const CHANNEL_NAME = "omniarcade_simulator_channel";
 
 // Stream Logging Settings & Control (Shared across all UI views)
-export type LogFilterMode = "ALL" | "OUTGOING" | "INCOMING";
+export type LogFilterMode = "ALL" | "OUTGOING" | "INCOMING" | "MOCK_CLIENT";
 
 export interface StreamLogSettings {
   paused: boolean;

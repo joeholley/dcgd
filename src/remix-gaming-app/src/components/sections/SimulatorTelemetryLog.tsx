@@ -10,7 +10,8 @@ import {
   Filter, 
   Play, 
   Pause,
-  ArrowUpToLine
+  ArrowUpToLine,
+  Gamepad2
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { 
@@ -75,6 +76,13 @@ export function SimulatorTelemetryLog({ routingMode = "LIVE" }: SimulatorTelemet
   };
 
   const filteredLogs = logs.filter((log) => {
+    const isMockClient = Boolean(
+      log.payload?.source === "mock_game_client" || 
+      log.payload?.isMockClientAction ||
+      (["boss_fail", "mission_quit", "offer_accepted"].includes(log.eventType) && log.payload?.cohortId)
+    );
+
+    if (settings.filter === "MOCK_CLIENT") return isMockClient;
     if (settings.filter === "OUTGOING") return log.direction === "OUTGOING";
     if (settings.filter === "INCOMING") return log.direction === "INCOMING";
     return true;
@@ -149,22 +157,25 @@ export function SimulatorTelemetryLog({ routingMode = "LIVE" }: SimulatorTelemet
 
       {/* Filter Chips Bar */}
       <div className="px-4 py-2 bg-slate-950/60 border-b border-slate-800/80 flex items-center justify-between text-[11px] shrink-0">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Filter className="w-3 h-3 text-slate-500" />
           <span className="text-slate-400 text-[10px]">Filter:</span>
-          {(["ALL", "OUTGOING", "INCOMING"] as const).map((mode) => (
+          {(["ALL", "MOCK_CLIENT", "OUTGOING", "INCOMING"] as const).map((mode) => (
             <button
               key={mode}
               type="button"
               onClick={() => handleSetFilter(mode)}
               className={cn(
-                "px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer border",
+                "px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer border flex items-center gap-1",
                 settings.filter === mode
-                  ? "bg-blue-600/30 border-blue-500 text-blue-300"
+                  ? mode === "MOCK_CLIENT"
+                    ? "bg-amber-500/30 border-amber-400 text-amber-300 shadow-sm shadow-amber-500/20"
+                    : "bg-blue-600/30 border-blue-500 text-blue-300 shadow-sm"
                   : "bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300"
               )}
             >
-              {mode}
+              {mode === "MOCK_CLIENT" && <Gamepad2 className="w-3 h-3 text-amber-400" />}
+              <span>{mode === "MOCK_CLIENT" ? "MOCK CLIENT" : mode}</span>
             </button>
           ))}
         </div>
@@ -189,19 +200,26 @@ export function SimulatorTelemetryLog({ routingMode = "LIVE" }: SimulatorTelemet
             const consoleUrl = log.gcpConsoleUrl || buildGcpConsolePubSubUrl(log.pubsubTopic || "gaming-live-telemetry");
             const entryMode = log.backend_mode || routingMode;
             const isInMemory = entryMode === "MOCKED" || log.transport.includes("In-Memory");
+            const isMockClient = Boolean(
+              log.payload?.source === "mock_game_client" || 
+              log.payload?.isMockClientAction ||
+              (["boss_fail", "mission_quit", "offer_accepted"].includes(log.eventType) && log.payload?.cohortId)
+            );
 
             return (
               <div
                 key={log.id}
                 className={cn(
                   "p-3 rounded-xl border transition-all text-xs space-y-2",
-                  isOutgoing
+                  isMockClient
+                    ? "bg-gradient-to-r from-amber-950/30 via-slate-950/90 to-slate-950/90 border-l-4 border-l-amber-400 border-amber-500/50 hover:border-amber-400 shadow-sm shadow-amber-500/10"
+                    : isOutgoing
                     ? "bg-slate-950/80 border-slate-800 hover:border-slate-700"
                     : "bg-purple-950/20 border-purple-800/40 hover:border-purple-700/60"
                 )}
               >
                 <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     {/* Status Mark: Green ✓ / Red ✗ */}
                     {log.success ? (
                       <span title="Success"><CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" /></span>
@@ -229,6 +247,15 @@ export function SimulatorTelemetryLog({ routingMode = "LIVE" }: SimulatorTelemet
                           : "[LIVE] OUTGOING -> Cloud Pub/Sub"
                         : `[${entryMode}] INCOMING <- Agent Event`}
                     </span>
+
+                    {/* Colored Indicator Badge for Actions taken in Mock Game Client Card */}
+                    {isMockClient && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm flex items-center gap-1">
+                        <Gamepad2 className="w-3 h-3 text-amber-400 animate-pulse" />
+                        <span>Mock Game Client Action</span>
+                        {log.payload?.cohortId && <span className="opacity-90 font-mono">({log.payload.cohortId})</span>}
+                      </span>
+                    )}
 
                     <span className="text-white font-bold text-[11px]">{log.eventType}</span>
                   </div>

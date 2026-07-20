@@ -491,7 +491,7 @@ async function verifyDataplexPolicyAndPrecache(
   try {
     const token = await getADCAccessToken();
     
-    // Certified Offer SKU verified against Dataplex aspect tags (gaming-campaign-policy-aspect)
+    // Certified Offer SKU verified against Dataplex aspect tags (liveops_campaign_policy_aspect)
     const certifiedOffer = {
       offer_id: `offer_frost_giant_${Date.now()}`,
       sku: "frost_giant_shield_pack",
@@ -501,7 +501,7 @@ async function verifyDataplexPolicyAndPrecache(
       original_price: 4.99,
       discount_pct: 80,
       certified_by: "dataplex_policy_aspect",
-      policy_aspect_id: "gaming-campaign-policy-aspect",
+      policy_aspect_id: "liveops_campaign_policy_aspect",
       policy_status: "APPROVED",
       max_allowed_discount: 0.85,
       player_tier: playerTier,
@@ -803,7 +803,7 @@ async function startServer() {
       original_price: 4.99,
       discount_pct: 80,
       certified_by: "dataplex_policy_aspect",
-      policy_aspect_id: "gaming-campaign-policy-aspect",
+      policy_aspect_id: "liveops_campaign_policy_aspect",
       policy_status: "APPROVED",
       max_allowed_discount: 0.85,
       player_tier: "Whale",
@@ -821,7 +821,7 @@ async function startServer() {
       original_price: 5.99,
       discount_pct: 66,
       certified_by: "dataplex_policy_aspect",
-      policy_aspect_id: "gaming-campaign-policy-aspect",
+      policy_aspect_id: "liveops_campaign_policy_aspect",
       policy_status: "APPROVED",
       max_allowed_discount: 0.70,
       player_tier: "Dolphin",
@@ -839,7 +839,7 @@ async function startServer() {
       original_price: 9.99,
       discount_pct: 70,
       certified_by: "dataplex_policy_aspect",
-      policy_aspect_id: "gaming-campaign-policy-aspect",
+      policy_aspect_id: "liveops_campaign_policy_aspect",
       policy_status: "APPROVED",
       max_allowed_discount: 0.75,
       player_tier: "Minnow",
@@ -1228,11 +1228,11 @@ async function startServer() {
     // Fallback Dataplex Search Catalog Response
     const catalogEntries = [
       {
-        id: "dataplex_aspect_liveops_policy",
+        id: "liveops_campaign_policy_aspect",
         title: "Dataplex Aspect: LiveOps Campaign Discount Policy",
         category: "Governance Aspect",
         source: "Dataplex Knowledge Catalog",
-        aspect_type: "projects/gaming-demo/locations/us-central1/aspectTypes/gaming-campaign-policy-aspect",
+        aspect_type: "projects/gaming-demo/locations/us-central1/aspectTypes/liveops_campaign_policy_aspect",
         rules: [
           { tier: "Whale", max_discount: 0.85, required_sku: "frost_giant_shield_pack" },
           { tier: "Dolphin", max_discount: 0.50, required_sku: "starter_pack_gold" },
@@ -1241,11 +1241,11 @@ async function startServer() {
         description: "Enforces max allowable promotional discount aspect boundaries for high-value player churn retention.",
       },
       {
-        id: "dataplex_aspect_certified_sku",
+        id: "certified_reward_sku_aspect",
         title: "Dataplex Aspect: Certified Reward SKU Catalog",
         category: "Compliance Aspect",
         source: "Dataplex Knowledge Catalog",
-        aspect_type: "projects/gaming-demo/locations/us-central1/aspectTypes/gaming-certified-reward-sku-aspect",
+        aspect_type: "projects/gaming-demo/locations/us-central1/aspectTypes/certified_reward_sku_aspect",
         certified_skus: ["frost_giant_shield_pack", "starter_pack_gold"],
         updatedAt: new Date().toISOString(),
         description: "Dataplex aspect registry validating certified in-game reward SKUs for automated guardrail execution.",
@@ -1287,9 +1287,9 @@ async function startServer() {
       const discoveredRule = {
         rule_id: `rule_discovered_${Date.now()}`,
         input_text: rule_text,
-        dataplex_aspect_type: "gaming-campaign-policy-aspect",
+        dataplex_aspect_type: "liveops_campaign_policy_aspect",
         generated_aspect_schema: {
-          name: "projects/gaming-demo/locations/us-central1/aspectTypes/gaming-campaign-policy-aspect",
+          name: "projects/gaming-demo/locations/us-central1/aspectTypes/liveops_campaign_policy_aspect",
           fields: {
             player_tier: rule_text.toLowerCase().includes("whale") ? "Whale" : "All",
             max_discount_pct: rule_text.includes("80%") ? 80 : 50,
@@ -1329,7 +1329,7 @@ Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
 
 **Unified Lakehouse Data Insights:**
 - **BigQuery Gold Feature Table**: \`gold_player_360\` tracks real-time player LTV and churn risk scores.
-- **Dataplex Knowledge Catalog**: Business glossary term **Whale Spend** (LTV > $500) and aspect tag **gaming-campaign-policy-aspect** are verified and active.
+- **Dataplex Knowledge Catalog**: Business glossary term **Whale Spend** (LTV > $500) and aspect tag **liveops_campaign_policy_aspect** are verified and active.
 - **Real-Time Guardrail Action**: When player churn risk hits 50%, Dataplex pre-caches certified reward SKU \`$0.99 Frost Giant Shield Pack\`. At 85% churn score, the pop-up offer is executed via SSE in <300ms.
 
 *Data unified via Google Cloud Lakehouse (BigQuery, Pub/Sub, Dataplex, Vertex AI).*`;
@@ -2191,7 +2191,7 @@ function generateRandomFallbackMetrics(tier: string) {
 
       const responseText = liveAgentOutput || `[agent-kc Analysis] Analyzing player telemetry stream for boss death anomalies:
 - Identified 4 consecutive wipeouts on 'Frost Giant' boss in Realm of Eldoria RPG.
-- Cross-referenced Dataplex Knowledge Catalog entry aspect 'gaming-campaign-policy-aspect' & BQML churn model (89% churn score for Veteran Whale cohort).
+- Cross-referenced Dataplex Knowledge Catalog entry aspect 'liveops_campaign_policy_aspect' & BQML churn model (89% churn score for Veteran Whale cohort).
 - Formulated policy-compliant retention campaign: 80% discount on SKU 'frost_giant_shield_pack' ($0.99), within authorized 85% discount boundary.`;
 
       const traceSteps = [
@@ -2206,7 +2206,7 @@ function generateRandomFallbackMetrics(tier: string) {
           step: 2,
           name: "Dataplex Knowledge Catalog Policy Aspect Audit",
           status: "APPROVED",
-          details: `Dataplex aspect 'gaming-campaign-policy-aspect' verified. Policy Rule: Max Whale Discount <= 85%. SKU '${precachedOffer.sku}' compliant.`,
+          details: `Dataplex aspect 'liveops_campaign_policy_aspect' verified. Policy Rule: Max Whale Discount <= 85%. SKU '${precachedOffer.sku}' compliant.`,
           timestamp: new Date(startTime + 15).toISOString(),
         },
         {
@@ -2245,7 +2245,7 @@ function generateRandomFallbackMetrics(tier: string) {
           model: BQML_MODEL_NAME,
         },
         dataplex_aspect: {
-          aspect_type: "gaming-campaign-policy-aspect",
+          aspect_type: "liveops_campaign_policy_aspect",
           status: "APPROVED",
           max_allowed_discount: 0.85,
         },
@@ -2293,7 +2293,7 @@ function generateRandomFallbackMetrics(tier: string) {
           model: BQML_MODEL_NAME,
         },
         dataplex_aspect: {
-          aspect_type: "gaming-campaign-policy-aspect",
+          aspect_type: "liveops_campaign_policy_aspect",
           status: "APPROVED",
           max_allowed_discount: 0.85,
         },

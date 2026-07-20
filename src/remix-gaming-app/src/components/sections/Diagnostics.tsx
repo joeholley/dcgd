@@ -132,7 +132,7 @@ export function Diagnostics() {
         { name: 'Telemetry Event Stream (/api/telemetry/stream)', connected: true, source: 'Cloud Pub/Sub Topic', mode: 'live', latencyMs: 16 },
         { name: 'BigQuery Direct Subscription Ingestion', connected: true, source: 'gaming_raw.live_session_events', mode: 'live', latencyMs: 28 },
         { name: 'BQML Churn Probability (ML.PREDICT)', connected: true, source: 'gaming_player_churn_model', mode: 'live', latencyMs: 36 },
-        { name: 'Dataplex Policy Verification', connected: true, source: 'gaming-campaign-policy-aspect', mode: 'live', latencyMs: 32 },
+        { name: 'Dataplex Policy Verification', connected: true, source: 'liveops_campaign_policy_aspect', mode: 'live', latencyMs: 32 },
         { name: 'SSE Certified Offer Push (/api/guardrail/events)', connected: true, source: 'Express SSE Hub', mode: 'live', latencyMs: 10 }
       ]
     },
