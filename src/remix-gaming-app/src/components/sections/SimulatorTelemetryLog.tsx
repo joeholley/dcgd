@@ -103,7 +103,7 @@ export function SimulatorTelemetryLog({ routingMode = "LIVE" }: SimulatorTelemet
       <div className="p-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
           <Radio className="w-4 h-4 text-cyan-400 animate-pulse" />
-          <h3 className="font-bold text-white text-xs tracking-wide">Behind-the-Scenes Telemetry Log</h3>
+          <h3 className="font-bold text-white text-xs tracking-wide">Client event log</h3>
           <span className="text-[10px] text-slate-400 bg-slate-800 px-2 py-0.5 rounded-full border border-slate-700">
             {logs.length} events
           </span>

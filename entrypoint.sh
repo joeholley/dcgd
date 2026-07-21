@@ -23,9 +23,9 @@ trap cleanup SIGTERM SIGINT EXIT
 
 echo "=== Starting Internal Python Service (gamingdatademo) on 127.0.0.1:${PYTHON_PORT} ==="
 if [ -d "/app/gamingdatademo/website-live" ]; then
-  cd /app/gamingdatademo
+  cd /app/gamingdatademo/website-live
   export PYTHONPATH="/app/gamingdatademo:${PYTHONPATH}"
-  python3 website-live/app.py --host=127.0.0.1 --port="${PYTHON_PORT}" &
+  gunicorn --bind "127.0.0.1:${PYTHON_PORT}" --workers 1 --threads 8 --worker-class gthread --timeout 300 app:app &
   PY_PID=$!
 
   # TCP readiness probe for Python Flask service

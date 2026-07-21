@@ -3,6 +3,7 @@ import {
   broadcastIncomingAgentEvent, 
   getSimulatorState, 
   resetCohortPromos, 
+  clearStreamLogs,
   normalizeCohortId 
 } from "../services/simulatorBridge";
 
@@ -138,6 +139,50 @@ Decision Payload:
   
   assert(currentChurnProb === 0.60, "Calculated exemplar churn probability equals 0.60 (60%)");
   assert(ratioReadout === "60% / 85%", "Ratio readout formats as '60% / 85%'");
+
+  // TEST 6: Multi-Cohort Decision Payload with Varying Per-Cohort Discounts
+  resetCohortPromos();
+  const multiCohortPayload = {
+    agentId: "Automated Player Retention Promo",
+    intervention_type: "proactive_churn_offer",
+    sku_id: "frost_giant_shield_pack",
+    title: "Frost Giant Shield & Resurrect Crate",
+    target_cohorts: ["Whale", "Dolphin", "Minnow", "F2P"],
+    target_cohort_details: [
+      { cohort_id: "Whale", churn_threshold: 0.85, discount_percentage: 80.0, offer_details: "80% discount for Whale" },
+      { cohort_id: "Dolphin", churn_threshold: 0.85, discount_percentage: 50.0, offer_details: "50% discount for Dolphin" },
+      { cohort_id: "Minnow", churn_threshold: 0.85, discount_percentage: 25.0, offer_details: "25% discount for Minnow" },
+      { cohort_id: "F2P", churn_threshold: 0.85, discount_percentage: 25.0, offer_details: "25% discount for F2P" }
+    ],
+    reasoning: "Tiered retention promotion",
+    timestamp: Date.now()
+  };
+
+  broadcastIncomingAgentEvent({
+    eventType: "in_game_retention_offer_injected",
+    payload: multiCohortPayload
+  });
+
+  const stateMulti = getSimulatorState();
+  assert(stateMulti.cohortPromos.Whale.active === true, "Whale promo active");
+  assert(stateMulti.cohortPromos.Whale.discountPercentage === 80, "Whale discount percentage set to 80%");
+  assert(stateMulti.cohortPromos.Whale.price === "$0.99", "Whale cohort price calculated as $0.99 (80% OFF)");
+  assert(stateMulti.cohortPromos.Whale.skuId === "frost_giant_shield_pack", "Whale SKU set to frost_giant_shield_pack");
+  assert(stateMulti.cohortPromos.Dolphin.discountPercentage === 50, "Dolphin discount percentage set to 50%");
+  assert(stateMulti.cohortPromos.Dolphin.price === "$2.49", "Dolphin cohort price calculated as $2.49 (50% OFF)");
+  assert(stateMulti.cohortPromos.Minnow.discountPercentage === 25, "Minnow discount percentage set to 25%");
+  assert(stateMulti.cohortPromos.Minnow.price === "$3.74", "Minnow cohort price calculated as $3.74 (25% OFF)");
+  assert(stateMulti.cohortPromos.F2P.discountPercentage === 25, "F2P discount percentage set to 25%");
+  assert(stateMulti.cohortPromos.F2P.price === "$3.74", "F2P cohort price calculated as $3.74 (25% OFF)");
+
+  // TEST 7: Zero-Discount Default & Telemetry Log Clear Reset
+  clearStreamLogs();
+  const stateCleared = getSimulatorState();
+  assert(stateCleared.cohortPromos.Whale.active === false, "Whale promo active resets to false after clearStreamLogs()");
+  assert(stateCleared.cohortPromos.Whale.discountPercentage === 0, "Whale discount percentage resets to 0% after clearStreamLogs()");
+  assert(stateCleared.cohortPromos.Dolphin.discountPercentage === 0, "Dolphin discount percentage resets to 0% after clearStreamLogs()");
+  assert(stateCleared.cohortPromos.Minnow.discountPercentage === 0, "Minnow discount percentage resets to 0% after clearStreamLogs()");
+  assert(stateCleared.cohortPromos.F2P.discountPercentage === 0, "F2P discount percentage resets to 0% after clearStreamLogs()");
 
   console.log(`\n=== AUDIT COMPLETE: ${passed} PASSED, ${failed} FAILED ===`);
   if (failed > 0) {

@@ -969,7 +969,7 @@ if [ "$RUN_STEP_8" = true ]; then
     --service-account="${RUNNER_SA}" \
     --allow-unauthenticated \
     --ingress=all \
-    --set-env-vars="GOOGLE_CLOUD_PROJECT=${GCP_PROJECT},GCP_LOCATION=${GCP_REGION},BIGQUERY_LOCATION=${GCP_REGION},PROJECT_NUMBER=${GCP_PROJECT_NUMBER},KC_AGENT_ID=${KC_AGENT_ID:-},NODE_ENV=production" \
+    --set-env-vars="GOOGLE_CLOUD_PROJECT=${GCP_PROJECT},GCP_LOCATION=${GCP_REGION},BIGQUERY_LOCATION=${GCP_REGION},PROJECT_NUMBER=${GCP_PROJECT_NUMBER},PYTHON_PORT=5000,KC_AGENT_ID=${KC_AGENT_ID:-},NODE_ENV=production" \
     --port=8080 \
     --quiet
 

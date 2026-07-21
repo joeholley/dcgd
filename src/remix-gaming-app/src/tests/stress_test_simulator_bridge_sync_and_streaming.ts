@@ -362,7 +362,7 @@ export async function runBridgeAndStreamingStressTests() {
   }
 
   // Test 2.4: Telemetry Log Streaming Events Verification
-  console.log("\n[Test 2.4] Verifying behind-the-scenes stream telemetry log updates...");
+  console.log("\n[Test 2.4] Verifying client event log updates...");
   clearStreamLogs();
   let streamLogUpdateCount = 0;
   let latestLogsCaptured: StreamLogEntry[] = [];

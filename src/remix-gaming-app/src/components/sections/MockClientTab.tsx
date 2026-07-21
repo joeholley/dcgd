@@ -61,7 +61,7 @@ const COHORT_DEFAULTS: Record<PlayerCohortId, CohortMeta> = {
     defaultPlayerId: "Player_0512",
     defaultSpend: 15,
     defaultLtv: 35,
-    defaultSku: "impulse_gem_bundle",
+    defaultSku: "frost_giant_shield_pack",
     badgeColor: "bg-purple-500/20 text-purple-300 border-purple-500/40",
   },
   F2P: {
@@ -277,6 +277,41 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
     }
   }, [routingMode, fetchLiveExemplars]);
 
+  const getOfferForCohort = useCallback(
+    (tier: PlayerCohortId, injectedPayload?: any): OfferPayload => {
+      const promoState = simState.cohortPromos?.[tier];
+      const isPromoActive = Boolean(promoState?.active || injectedPayload);
+
+      const discountPct = isPromoActive
+        ? (promoState?.discountPercentage ?? (typeof injectedPayload?.discount_percentage === "number" ? injectedPayload.discount_percentage : 25))
+        : 0;
+
+      const offerId =
+        (isPromoActive && (promoState?.skuId || injectedPayload?.sku_id || injectedPayload?.sku)) ||
+        COHORT_DEFAULTS[tier]?.defaultSku ||
+        "frost_giant_shield_pack";
+
+      const title =
+        (isPromoActive && (promoState?.title || injectedPayload?.title)) ||
+        "Frost Giant Shield & Resurrect Crate";
+
+      let price = (isPromoActive && (promoState?.price || injectedPayload?.price)) || undefined;
+      if (!price) {
+        const basePrice = 4.99;
+        const discountedPrice = Math.floor(basePrice * (1 - discountPct / 100) * 100) / 100;
+        price = `$${discountedPrice.toFixed(2)}`;
+      }
+
+      return {
+        id: offerId,
+        title,
+        price,
+        discount: `${discountPct}% OFF`,
+      };
+    },
+    [simState]
+  );
+
   // Track received INCOMING offer injection events from live backend/operator actions
   const [injectedOfferReceivedMap, setInjectedOfferReceivedMap] = useState<Record<string, boolean>>({});
 
@@ -288,37 +323,53 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
           l.direction === "INCOMING" &&
           (l.eventType === "in_game_retention_offer_injected" ||
             l.payload?.eventType === "in_game_retention_offer_injected" ||
-            l.payload?.sku === "frost_giant_shield_pack")
+            l.payload?.sku === "frost_giant_shield_pack" ||
+            l.payload?.sku_id === "frost_giant_shield_pack")
       );
 
       if (injectedLog) {
-        const offerId = injectedLog.payload?.sku || COHORT_DEFAULTS[selectedTier].defaultSku;
+        const offerId =
+          injectedLog.payload?.sku_id ||
+          injectedLog.payload?.sku ||
+          simState.cohortPromos?.[selectedTier]?.skuId ||
+          COHORT_DEFAULTS[selectedTier].defaultSku;
         setInjectedOfferReceivedMap((prev) => ({ ...prev, [offerId]: true, injected: true }));
 
         setExemplars((prev) => {
           const activeEx = prev[selectedTier];
           const churnProb = calculateChurnProbability(activeEx);
+          const promoState = simState.cohortPromos?.[selectedTier];
+          const threshold = promoState?.churnThreshold || 0.85;
 
-          if (churnProb >= 0.85 && !activeEx.offersAccepted[offerId] && !activeEx.activeOffer) {
+          if (churnProb >= threshold && !activeEx.offersAccepted[offerId] && !activeEx.activeOffer) {
             return {
               ...prev,
               [selectedTier]: {
                 ...activeEx,
-                activeOffer: {
-                  id: offerId,
-                  title: injectedLog.payload?.title || "Frost Giant Shield & Resurrect Crate",
-                  price: injectedLog.payload?.price || "$0.99",
-                  discount: injectedLog.payload?.discount || "80% OFF",
-                },
+                activeOffer: getOfferForCohort(selectedTier, injectedLog.payload),
               },
             };
           }
           return prev;
         });
+      } else {
+        setInjectedOfferReceivedMap({});
+        setExemplars((prev) => {
+          const next = { ...prev };
+          (Object.keys(next) as PlayerCohortId[]).forEach((t) => {
+            if (next[t].activeOffer) {
+              next[t] = {
+                ...next[t],
+                activeOffer: getOfferForCohort(t),
+              };
+            }
+          });
+          return next;
+        });
       }
     });
     return () => unsubLogs();
-  }, [selectedTier]);
+  }, [selectedTier, simState, getOfferForCohort]);
 
   const activeExemplar = exemplars[selectedTier];
 
@@ -355,28 +406,20 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
     setIsHitAnimating(true);
 
     const nextDeaths = activeExemplar.consecutiveDeaths + 1;
-    const offerSku = COHORT_DEFAULTS[selectedTier].defaultSku;
+    const promoState = simState.cohortPromos?.[selectedTier];
+    const offerSku = promoState?.skuId || COHORT_DEFAULTS[selectedTier].defaultSku;
     const isOfferAlreadyAccepted = !!activeExemplar.offersAccepted[offerSku];
     const updatedExemplar = { ...activeExemplar, consecutiveDeaths: nextDeaths };
     const churnProb = calculateChurnProbability(updatedExemplar);
-    const isOfferInjected = Boolean(injectedOfferReceivedMap["injected"] || injectedOfferReceivedMap[offerSku]);
+    const isOfferInjected = Boolean(
+      promoState?.active || injectedOfferReceivedMap["injected"] || injectedOfferReceivedMap[offerSku]
+    );
+    const threshold = promoState?.churnThreshold || 0.85;
 
-    // Provide retention offer ONLY IF offer injected event has been received in log, churn probability >= 85%, and not yet accepted
+    // Provide retention offer ONLY IF offer injected event has been received in log / promo active, churn probability >= threshold, and not yet accepted
     let nextActiveOffer = activeExemplar.activeOffer;
-    if (isOfferInjected && churnProb >= 0.85 && !isOfferAlreadyAccepted && !activeExemplar.activeOffer) {
-      nextActiveOffer = {
-        id: offerSku,
-        title:
-          selectedTier === "Whale"
-            ? "Frost Giant Shield & Resurrect Crate"
-            : selectedTier === "Dolphin"
-            ? "Starter Battlepass Catch-Up Crate"
-            : selectedTier === "Minnow"
-            ? "Impulse Gem Starter Bundle"
-            : "Welcome Gems Starter Bundle",
-        price: selectedTier === "Whale" ? "$0.99" : "$1.99",
-        discount: "80% OFF",
-      };
+    if (isOfferInjected && churnProb >= threshold && !isOfferAlreadyAccepted && !activeExemplar.activeOffer) {
+      nextActiveOffer = getOfferForCohort(selectedTier);
     }
 
     setExemplars((prev) => ({
@@ -422,28 +465,20 @@ export function MockClientTab({ routingMode }: MockClientTabProps) {
     setShowQuitModal(false);
 
     const nextQuits = activeExemplar.churnEvents + 1;
-    const offerSku = COHORT_DEFAULTS[selectedTier].defaultSku;
+    const promoState = simState.cohortPromos?.[selectedTier];
+    const offerSku = promoState?.skuId || COHORT_DEFAULTS[selectedTier].defaultSku;
     const isOfferAlreadyAccepted = !!activeExemplar.offersAccepted[offerSku];
     const updatedExemplar = { ...activeExemplar, churnEvents: nextQuits };
     const churnProb = calculateChurnProbability(updatedExemplar);
-    const isOfferInjected = Boolean(injectedOfferReceivedMap["injected"] || injectedOfferReceivedMap[offerSku]);
+    const isOfferInjected = Boolean(
+      promoState?.active || injectedOfferReceivedMap["injected"] || injectedOfferReceivedMap[offerSku]
+    );
+    const threshold = promoState?.churnThreshold || 0.85;
 
-    // Provide retention offer ONLY IF offer injected event has been received in log, churn probability >= 85%, and not yet accepted
+    // Provide retention offer ONLY IF offer injected event has been received in log / promo active, churn probability >= threshold, and not yet accepted
     let nextActiveOffer = activeExemplar.activeOffer;
-    if (isOfferInjected && churnProb >= 0.85 && !isOfferAlreadyAccepted && !activeExemplar.activeOffer) {
-      nextActiveOffer = {
-        id: offerSku,
-        title:
-          selectedTier === "Whale"
-            ? "Frost Giant Shield & Resurrect Crate"
-            : selectedTier === "Dolphin"
-            ? "Starter Battlepass Catch-Up Crate"
-            : selectedTier === "Minnow"
-            ? "Impulse Gem Starter Bundle"
-            : "Welcome Gems Starter Bundle",
-        price: selectedTier === "Whale" ? "$0.99" : "$1.99",
-        discount: "80% OFF",
-      };
+    if (isOfferInjected && churnProb >= threshold && !isOfferAlreadyAccepted && !activeExemplar.activeOffer) {
+      nextActiveOffer = getOfferForCohort(selectedTier);
     }
 
     setExemplars((prev) => ({

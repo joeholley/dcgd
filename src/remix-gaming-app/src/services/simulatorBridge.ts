@@ -22,6 +22,9 @@ export interface CohortPromoState {
   churnThreshold: number; // e.g. 0.85
   skuId: string;
   interventionType?: string;
+  title?: string;
+  price?: string;
+  offerDetails?: string;
 }
 
 export type CohortPromosMap = Record<PlayerCohortId, CohortPromoState>;
@@ -102,10 +105,10 @@ const DEFAULT_COHORT_STATS: CohortStatsMap = {
 };
 
 const DEFAULT_COHORT_PROMOS: CohortPromosMap = {
-  Whale: { active: false, discountPercentage: 0, churnThreshold: 0.85, skuId: "" },
-  Dolphin: { active: false, discountPercentage: 0, churnThreshold: 0.85, skuId: "" },
-  Minnow: { active: false, discountPercentage: 0, churnThreshold: 0.85, skuId: "" },
-  F2P: { active: false, discountPercentage: 0, churnThreshold: 0.85, skuId: "" },
+  Whale: { active: false, discountPercentage: 0, churnThreshold: 0.85, skuId: "frost_giant_shield_pack" },
+  Dolphin: { active: false, discountPercentage: 0, churnThreshold: 0.85, skuId: "frost_giant_shield_pack" },
+  Minnow: { active: false, discountPercentage: 0, churnThreshold: 0.85, skuId: "frost_giant_shield_pack" },
+  F2P: { active: false, discountPercentage: 0, churnThreshold: 0.85, skuId: "frost_giant_shield_pack" },
 };
 
 const DEFAULT_STATE: SimulatorPersistentState = {
@@ -415,12 +418,7 @@ export function updateCohortStats(
 
 export function resetCohortPromos(): void {
   updateSimulatorState({
-    cohortPromos: {
-      Whale: { active: false, discountPercentage: 0, churnThreshold: 0.85, skuId: "" },
-      Dolphin: { active: false, discountPercentage: 0, churnThreshold: 0.85, skuId: "" },
-      Minnow: { active: false, discountPercentage: 0, churnThreshold: 0.85, skuId: "" },
-      F2P: { active: false, discountPercentage: 0, churnThreshold: 0.85, skuId: "" },
-    },
+    cohortPromos: { ...DEFAULT_COHORT_PROMOS },
   });
 }
 
@@ -493,6 +491,7 @@ export function addStreamLogEntry(entry: Omit<StreamLogEntry, "id" | "backend_mo
 
 export function clearStreamLogs(): void {
   currentLogs = [];
+  resetCohortPromos();
   notifyLogListeners();
   if (broadcastChannel) {
     broadcastChannel.postMessage({ type: "LOGS_UPDATE", logs: currentLogs });
@@ -523,8 +522,27 @@ export function broadcastIncomingAgentEvent(event: { eventType: string; payload:
     const payload = event.payload || {};
     let targetCohorts: PlayerCohortId[] = [];
 
+    const cohortDetailsMap = new Map<PlayerCohortId, any>();
+    if (Array.isArray(payload.target_cohort_details)) {
+      payload.target_cohort_details.forEach((item: any) => {
+        const cohortId = normalizeCohortId(item.cohort_id || item.payer_tier || item.tier);
+        if (cohortId) {
+          cohortDetailsMap.set(cohortId, item);
+        }
+      });
+    } else if (Array.isArray(payload.target_cohorts) && typeof payload.target_cohorts[0] === "object") {
+      payload.target_cohorts.forEach((item: any) => {
+        const cohortId = normalizeCohortId(item.cohort_id || item.payer_tier || item.tier);
+        if (cohortId) {
+          cohortDetailsMap.set(cohortId, item);
+        }
+      });
+    }
+
     if (Array.isArray(payload.target_cohorts)) {
-      targetCohorts = payload.target_cohorts.map((c: string) => normalizeCohortId(c)).filter(Boolean) as PlayerCohortId[];
+      targetCohorts = payload.target_cohorts
+        .map((c: any) => normalizeCohortId(typeof c === "string" ? c : (c?.cohort_id || c?.tier)))
+        .filter(Boolean) as PlayerCohortId[];
     } else if (Array.isArray(payload.target_players)) {
       targetCohorts = Array.from(new Set(payload.target_players.map((p: any) => normalizeCohortId(p.payer_tier)).filter(Boolean))) as PlayerCohortId[];
     } else if (payload.cohortId) {
@@ -533,27 +551,43 @@ export function broadcastIncomingAgentEvent(event: { eventType: string; payload:
     }
 
     if (targetCohorts.length === 0) {
-      targetCohorts = ["Minnow", "F2P"];
+      targetCohorts = ["Whale", "Dolphin", "Minnow", "F2P"];
     }
 
-    const discountPercentage = typeof payload.discount_percentage === "number"
+    const defaultDiscount = typeof payload.discount_percentage === "number"
       ? payload.discount_percentage
       : (typeof payload.discount === "string" ? parseFloat(payload.discount) : 25);
 
-    const churnThreshold = typeof payload.churn_threshold === "number"
+    const defaultThreshold = typeof payload.churn_threshold === "number"
       ? payload.churn_threshold
       : 0.85;
 
     const skuId = payload.sku_id || payload.sku || "frost_giant_shield_pack";
+    const globalTitle = payload.title || "Frost Giant Shield & Resurrect Crate";
 
     const updatedPromos = { ...currentState.cohortPromos };
     targetCohorts.forEach((cohort) => {
+      const detail = cohortDetailsMap.get(cohort);
+      const cohortDiscount = detail && typeof detail.discount_percentage === "number" ? detail.discount_percentage : defaultDiscount;
+      const cohortThreshold = detail && typeof detail.churn_threshold === "number" ? detail.churn_threshold : defaultThreshold;
+      const cohortOfferDetails = detail && typeof detail.offer_details === "string" ? detail.offer_details : payload.reasoning || "";
+
+      let cohortPrice = detail?.price;
+      if (!cohortPrice) {
+        const basePrice = 4.99;
+        const discountedPrice = Math.floor(basePrice * (1 - cohortDiscount / 100) * 100) / 100;
+        cohortPrice = `$${discountedPrice.toFixed(2)}`;
+      }
+
       updatedPromos[cohort] = {
         active: true,
-        discountPercentage,
-        churnThreshold,
+        discountPercentage: cohortDiscount,
+        churnThreshold: cohortThreshold,
         skuId,
         interventionType: payload.intervention_type || "proactive_churn_offer",
+        title: globalTitle,
+        price: cohortPrice,
+        offerDetails: cohortOfferDetails,
       };
     });
 
@@ -675,7 +709,7 @@ function startGlobalSimulatorPublisher() {
     if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
 
     sendSimulatorEvent({
-      type: "ccu_telemetry_ping",
+      type: "health check heartbeat",
       gameId: "cosmic_raider_rpg",
       userId: "system-ccu-stream",
       payload: {

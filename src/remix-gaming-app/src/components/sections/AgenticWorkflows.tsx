@@ -744,6 +744,43 @@ export function AgenticWorkflows() {
     }
   }, [agentHistory]);
 
+  const injectRetentionOffer = (wfId: string, decision: DecisionPayload | null) => {
+    const isRetentionAgent = wfId === "Automated Player Retention Promo";
+    const targetTiers = isRetentionAgent && decision && decision.target_cohorts.length > 0
+      ? decision.target_cohorts.map(c => c.cohort_id)
+      : ["Minnow", "F2P"];
+
+    const minChurn = isRetentionAgent && decision && decision.target_cohorts.length > 0
+      ? Math.min(...decision.target_cohorts.map(c => c.churn_threshold))
+      : 0.85;
+
+    broadcastIncomingAgentEvent({
+      eventType: "in_game_retention_offer_injected",
+      payload: {
+        agentId: wfId,
+        intervention_type: decision?.intervention_type || "proactive_churn_offer",
+        target_cohorts: targetTiers,
+        sku_id: decision?.sku_id || "frost_giant_shield_pack",
+        discount_percentage: decision?.discount_percentage ?? 25.0,
+        churn_threshold: minChurn,
+        target_cohort_details: decision?.target_cohorts || [],
+        reasoning: decision?.reasoning || "",
+        title: "Frost Giant Shield & Resurrect Crate",
+        dataplexAspectVerified: true,
+        timestamp: Date.now()
+      }
+    });
+  };
+
+  // In Autonomous mode, automatically approve & inject offer when evaluation results are ready
+  useEffect(() => {
+    const wfId = "Automated Player Retention Promo";
+    if (agentAutonomous[wfId] && results[wfId] && !approvedActions[wfId] && !rejectedActions[wfId]) {
+      setApprovedActions((prev) => ({ ...prev, [wfId]: true }));
+      injectRetentionOffer(wfId, parsedDecision);
+    }
+  }, [agentAutonomous, results, approvedActions, rejectedActions, parsedDecision]);
+
   const resetWfState = (wfId: string) => {
     setApprovedActions((prev) => {
       const next = { ...prev };
@@ -765,7 +802,6 @@ export function AgenticWorkflows() {
 
   // Coupling logic handlers
   const handleToggleActive = (id: string) => {
-    resetWfState(id);
     setAgentActive((prev) => {
       const nextActive = !prev[id];
       // If turning Active OFF, force Autonomous OFF
@@ -777,12 +813,15 @@ export function AgenticWorkflows() {
   };
 
   const handleToggleAutonomous = (wfId: string) => {
-    resetWfState(wfId);
     setAgentAutonomous((prev) => {
       const nextAutonomous = !prev[wfId];
       // If turning Autonomous ON, force Active ON
       if (nextAutonomous) {
         setAgentActive((actPrev) => ({ ...actPrev, [wfId]: true }));
+        // Trigger single run execution ONLY if idle (no existing results and not currently executing)
+        if (!results[wfId] && executingId !== wfId) {
+          setTimeout(() => handleExecute(wfId), 50);
+        }
       }
       return { ...prev, [wfId]: nextAutonomous };
     });
@@ -1279,32 +1318,7 @@ export function AgenticWorkflows() {
                                       onClick={() => {
                                         setApprovedActions(prev => ({ ...prev, [wf.id]: true }));
                                         setRejectedActions(prev => ({ ...prev, [wf.id]: false }));
-
-                                        const targetTiers = isRetentionAgent && parsedDecision && parsedDecision.target_cohorts.length > 0
-                                          ? parsedDecision.target_cohorts.map(c => c.cohort_id)
-                                          : ["Minnow", "F2P"];
-
-                                        const minChurn = isRetentionAgent && parsedDecision && parsedDecision.target_cohorts.length > 0
-                                          ? Math.min(...parsedDecision.target_cohorts.map(c => c.churn_threshold))
-                                          : 0.85;
-
-                                        broadcastIncomingAgentEvent({
-                                          eventType: "in_game_retention_offer_injected",
-                                          payload: {
-                                            agentId: wf.id,
-                                            intervention_type: parsedDecision?.intervention_type || "proactive_churn_offer",
-                                            target_cohorts: targetTiers,
-                                            sku_id: parsedDecision?.sku_id || "frost_giant_shield_pack",
-                                            discount_percentage: parsedDecision?.discount_percentage ?? 25.0,
-                                            churn_threshold: minChurn,
-                                            target_cohort_details: parsedDecision?.target_cohorts || [],
-                                            reasoning: parsedDecision?.reasoning || "",
-                                            title: "Frost Giant Shield & Resurrect Crate",
-                                            price: "$0.99",
-                                            dataplexAspectVerified: true,
-                                            timestamp: Date.now()
-                                          }
-                                        });
+                                        injectRetentionOffer(wf.id, parsedDecision);
                                       }}
                                       className="py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-blue-600/20"
                                     >

@@ -91,7 +91,8 @@ export function DiurnalSineWaveGraph({
 }: DiurnalSineWaveGraphProps) {
   // Live city clock states & local machine time readout
   const [cityTimes, setCityTimes] = useState<Record<string, string>>({});
-  const [localMachineTime, setLocalMachineTime] = useState<string>("");
+  const [localTime, setLocalTime] = useState<string>("");
+  const [localTz, setLocalTz] = useState<string>("");
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
@@ -105,8 +106,9 @@ export function DiurnalSineWaveGraph({
         minute: "2-digit",
         second: "2-digit",
       });
-      const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      setLocalMachineTime(`${localTimeStr} (${localTz})`);
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      setLocalTime(localTimeStr);
+      setLocalTz(tz);
 
       const newTimes: Record<string, string> = {};
       REGIONS.forEach((r) => {
@@ -258,51 +260,53 @@ export function DiurnalSineWaveGraph({
         </div>
 
         {/* Upper-Right Control Header: Timezone Toggle Chips & Local Machine Time Clock */}
-        <div className="flex items-center justify-end flex-wrap gap-3 text-xs ml-auto">
-          <div className="flex items-center justify-end flex-wrap gap-2 ml-auto">
-            {REGIONS.map((r) => {
-              const isActive = activeTimezones[r.id];
-              const regionalCCUVal = currentCCUMetrics.regionalCCU[r.id] || 0;
-              return (
-                <button
-                  key={r.id}
-                  type="button"
-                  onClick={() => onTimezoneToggle(r.id)}
-                  className={cn(
-                    "px-3 py-1 rounded-xl border flex items-center gap-2 transition-all cursor-pointer",
-                    isActive
-                      ? `${r.bgBadge} ${r.borderBadge} font-bold shadow-sm`
-                      : "bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300"
-                  )}
-                >
-                  <span
-                    className="w-2.5 h-2.5 rounded-full shrink-0"
-                    style={{ backgroundColor: isActive ? r.color : "#475569" }}
-                  />
-                  <span>{r.name} ({r.city})</span>
-                  <span className={cn(
-                    "px-1.5 py-0.5 rounded text-[10px] font-bold border",
-                    isActive ? "bg-slate-950/80 border-slate-700/60 text-white" : "bg-slate-950/40 border-slate-800/40 text-slate-500"
-                  )}>
-                    {regionalCCUVal.toLocaleString()} CCU
-                  </span>
-                  <span className="flex items-center gap-1 opacity-80 text-[10px] bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">
-                    <Clock className="w-3 h-3" />
-                    {cityTimes[r.id] || "--:--"}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+        <div className="flex items-center justify-end flex-wrap gap-2 text-xs ml-auto">
+          {REGIONS.map((r) => {
+            const isActive = activeTimezones[r.id];
+            const regionalCCUVal = currentCCUMetrics.regionalCCU[r.id] || 0;
+            return (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => onTimezoneToggle(r.id)}
+                className={cn(
+                  "px-3 py-1 rounded-xl border flex items-center gap-2 transition-all cursor-pointer",
+                  isActive
+                    ? `${r.bgBadge} ${r.borderBadge} font-bold shadow-sm`
+                    : "bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300"
+                )}
+              >
+                <span
+                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                  style={{ backgroundColor: isActive ? r.color : "#475569" }}
+                />
+                <span>{r.name} ({r.city})</span>
+                <span className={cn(
+                  "px-1.5 py-0.5 rounded text-[10px] font-bold border",
+                  isActive ? "bg-slate-950/80 border-slate-700/60 text-white" : "bg-slate-950/40 border-slate-800/40 text-slate-500"
+                )}>
+                  {regionalCCUVal.toLocaleString()} CCU
+                </span>
+                <span className="flex items-center gap-1 opacity-80 text-[10px] bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">
+                  <Clock className="w-3 h-3" />
+                  {cityTimes[r.id] || "--:--"}
+                </span>
+              </button>
+            );
+          })}
 
-          {/* Local Machine Time Relocated to Upper-Right Header with Total CCU */}
-          <span className="flex items-center gap-2 text-[10px] text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-500/30 font-bold shrink-0 shadow-sm ml-auto font-mono">
-            <Clock className="w-3 h-3 text-emerald-400 animate-pulse" />
-            <span>Local: {localMachineTime || "--:--:--"}</span>
-            <span className="bg-emerald-950/90 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-500/40 text-[10px] tabular-nums min-w-[95px] inline-block text-center">
+          {/* Local Machine Time Clock Chip formatted matching timezone chips */}
+          <div className="px-3 py-1 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 flex items-center gap-2 font-bold shadow-sm shrink-0">
+            <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-emerald-400" />
+            <span>Local Machine ({localTz || "Local"})</span>
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold border bg-slate-950/80 border-emerald-500/60 text-emerald-300">
               {currentCCUMetrics.totalCCU.toLocaleString()} Total CCU
             </span>
-          </span>
+            <span className="flex items-center gap-1 opacity-80 text-[10px] bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">
+              <Clock className="w-3 h-3 text-emerald-400" />
+              {localTime || "--:--:--"}
+            </span>
+          </div>
         </div>
       </div>
 
