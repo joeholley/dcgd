@@ -35,7 +35,7 @@ export const REGIONS: RegionConfig[] = [
     color: "#a855f7", // Purple
     bgBadge: "bg-purple-500/10 text-purple-300",
     borderBadge: "border-purple-500/30",
-    weight: 0.45,
+    weight: 0.35, // 17.5M / 50.0M Players (gold_regional_kpis)
     peakHourUtc: 23,
   },
   {
@@ -46,7 +46,7 @@ export const REGIONS: RegionConfig[] = [
     color: "#06b6d4", // Cyan
     bgBadge: "bg-cyan-500/10 text-cyan-300",
     borderBadge: "border-cyan-500/30",
-    weight: 0.35,
+    weight: 0.30, // 15.0M / 50.0M Players (gold_regional_kpis)
     peakHourUtc: 19,
   },
   {
@@ -57,7 +57,7 @@ export const REGIONS: RegionConfig[] = [
     color: "#ec4899", // Neon Pink
     bgBadge: "bg-pink-500/10 text-pink-300",
     borderBadge: "border-pink-500/30",
-    weight: 0.20,
+    weight: 0.25, // 12.5M / 50.0M Players (gold_regional_kpis)
     peakHourUtc: 12,
   },
 ];

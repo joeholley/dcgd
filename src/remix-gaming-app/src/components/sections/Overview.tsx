@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Country, LanguageSetting } from "./CampaignEngine";
 import { DataModeBadge } from "../DataModeBadge";
@@ -22,7 +22,11 @@ import {
   TrendingUp,
   Radio,
   X,
-  Megaphone
+  Megaphone,
+  DollarSign,
+  Building2,
+  Globe2,
+  CreditCard
 } from "lucide-react";
 
 interface Connector {
@@ -123,6 +127,80 @@ export function Overview({
 }) {
   const [selectedConnector, setSelectedConnector] = useState<Connector | null>(null);
 
+  const [financialData, setFinancialData] = useState<{
+    grossRevenue: number;
+    netPayout: number;
+    storefrontFees: number;
+    chargebacks: number;
+    settlementsCount: number;
+    isLive: boolean;
+  }>({
+    grossRevenue: 7157765,
+    netPayout: 4983435,
+    storefrontFees: 2147329,
+    chargebacks: 27000,
+    settlementsCount: 120,
+    isLive: false,
+  });
+
+  const [regionalSummary, setRegionalSummary] = useState<{
+    totalPlayers: number;
+    dau: number;
+    regions: Array<{ region: string; revenue: number; players: number }>;
+    isLive: boolean;
+  }>({
+    totalPlayers: 50000000,
+    dau: 1250000,
+    regions: [
+      { region: "US", revenue: 2837033, players: 17500000 },
+      { region: "EMEA", revenue: 2500361, players: 15000000 },
+      { region: "APAC", revenue: 1820371, players: 12500000 },
+      { region: "LATAM", revenue: 642000, players: 5000000 },
+    ],
+    isLive: false,
+  });
+
+  useEffect(() => {
+    // Fetch live financial performance from gold_studio_financial_performance
+    fetch("/api/analytics/financial?limit=30")
+      .then((res) => res.json())
+      .then((res) => {
+        if (res.success && Array.isArray(res.data) && res.data.length > 0) {
+          const totals = res.data.reduce(
+            (acc: any, row: any) => ({
+              grossRevenue: acc.grossRevenue + (Number(row.gross_revenue_usd) || 0),
+              netPayout: acc.netPayout + (Number(row.cleared_payout_usd || row.net_revenue_usd) || 0),
+              storefrontFees: acc.storefrontFees + (Number(row.storefront_fees_usd) || 0),
+              chargebacks: acc.chargebacks + (Number(row.chargeback_volume_usd) || 0),
+              settlementsCount: acc.settlementsCount + (Number(row.total_transactions) || 1),
+            }),
+            { grossRevenue: 0, netPayout: 0, storefrontFees: 0, chargebacks: 0, settlementsCount: 0 }
+          );
+          setFinancialData({ ...totals, isLive: true });
+        }
+      })
+      .catch(() => {});
+
+    // Fetch live regional KPIs from gold_regional_kpis
+    fetch("/api/analytics/regional?limit=10")
+      .then((res) => res.json())
+      .then((res) => {
+        if (res.success && Array.isArray(res.data) && res.data.length > 0) {
+          setRegionalSummary({
+            totalPlayers: 50000000,
+            dau: res.data.reduce((acc: number, r: any) => acc + (Number(r.dau) || 0), 0) || 1250000,
+            regions: res.data.map((r: any) => ({
+              region: r.region,
+              revenue: Number(r.total_revenue_dollars) || 0,
+              players: r.region === "US" ? 17500000 : r.region === "EMEA" ? 15000000 : r.region === "APAC" ? 12500000 : 5000000,
+            })),
+            isLive: true,
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const t = (text: string): string => {
     if (languageSetting === "en" || !text) return text;
     if (OVERVIEW_TRANSLATIONS[text] && OVERVIEW_TRANSLATIONS[text][country]) {
@@ -151,9 +229,74 @@ export function Overview({
           {t("Intelligent Player Analytics for")} <br />
           <span className="text-blue-600">{t("Jingle Games.")}</span>
         </h2>
-        <p className="text-xl text-slate-500 max-w-3xl leading-relaxed font-light mb-10">
+        <p className="text-xl text-slate-500 max-w-3xl leading-relaxed font-light mb-8">
           {t("Unifying AWS S3 cold logs, Snowflake player economic data, and AlloyDB live session concurrency into a singular cognitive interface for game developers and analytics directors.")}
         </p>
+
+        {/* Live Executive Studio Financials & Lakehouse Metrics */}
+        <div className="mb-12 p-8 rounded-[2.5rem] bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white shadow-xl relative overflow-hidden">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 border-b border-white/10 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-blue-500/20 text-blue-400">
+                <Building2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold tracking-wide">Multi-Store Studio Financial Performance</h3>
+                <p className="text-xs text-slate-400">Reconciled against payment gateway settlements in BigQuery Gold layer</p>
+              </div>
+            </div>
+            <DataModeBadge 
+              mode={financialData.isLive ? "live" : "mock"} 
+              source={financialData.isLive ? "gold_studio_financial_performance" : "In-Memory Simulation"} 
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="p-5 rounded-2xl bg-white/5 border border-white/10">
+              <div className="flex items-center justify-between text-slate-400 mb-2">
+                <span className="text-[10px] uppercase font-bold tracking-wider">Gross In-App Spend</span>
+                <DollarSign className="w-4 h-4 text-emerald-400" />
+              </div>
+              <p className="text-2xl font-bold text-white tracking-tight">
+                ${financialData.grossRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </p>
+              <p className="text-[10px] text-emerald-400 mt-1">From Apple, Google, & Web Stores</p>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-white/5 border border-white/10">
+              <div className="flex items-center justify-between text-slate-400 mb-2">
+                <span className="text-[10px] uppercase font-bold tracking-wider">Net Realized Cash</span>
+                <CreditCard className="w-4 h-4 text-cyan-400" />
+              </div>
+              <p className="text-2xl font-bold text-cyan-300 tracking-tight">
+                ${financialData.netPayout.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </p>
+              <p className="text-[10px] text-cyan-400 mt-1">Disbursed via Clearing Payouts</p>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-white/5 border border-white/10">
+              <div className="flex items-center justify-between text-slate-400 mb-2">
+                <span className="text-[10px] uppercase font-bold tracking-wider">Storefront Fees (30%)</span>
+                <Building2 className="w-4 h-4 text-amber-400" />
+              </div>
+              <p className="text-2xl font-bold text-amber-300 tracking-tight">
+                -${financialData.storefrontFees.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </p>
+              <p className="text-[10px] text-amber-400 mt-1">Platform Commission Deductions</p>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-white/5 border border-white/10">
+              <div className="flex items-center justify-between text-slate-400 mb-2">
+                <span className="text-[10px] uppercase font-bold tracking-wider">Conformed Global Players</span>
+                <Globe2 className="w-4 h-4 text-indigo-400" />
+              </div>
+              <p className="text-2xl font-bold text-indigo-300 tracking-tight">
+                {(regionalSummary.totalPlayers / 1000000).toFixed(1)}M Players
+              </p>
+              <p className="text-[10px] text-indigo-300 mt-1">US, EMEA, APAC, LATAM DNA</p>
+            </div>
+          </div>
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-20">
           {CONNECTORS.map((conn) => (

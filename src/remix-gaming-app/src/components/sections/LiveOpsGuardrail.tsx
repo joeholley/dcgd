@@ -71,6 +71,7 @@ interface CertifiedOffer {
 
 export function LiveOpsGuardrail() {
   const [simState, setSimState] = useState<SimulatorPersistentState>(() => getSimulatorState());
+  const [cohortProfiles, setCohortProfiles] = useState(COHORT_PROFILES);
 
   useEffect(() => {
     const unsub = onSimulatorStateUpdate((state) => {
@@ -79,7 +80,30 @@ export function LiveOpsGuardrail() {
     return () => unsub();
   }, []);
 
-  const currentProfile = COHORT_PROFILES[simState.selectedCohort] || COHORT_PROFILES.Whale;
+  useEffect(() => {
+    fetch("/api/exemplars")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.exemplars) {
+          setCohortProfiles((prev) => {
+            const next = { ...prev };
+            Object.keys(data.exemplars).forEach((tier) => {
+              const ex = data.exemplars[tier];
+              if (ex && (tier in next)) {
+                next[tier as PlayerCohortId] = {
+                  playerId: ex.player_id || next[tier as PlayerCohortId].playerId,
+                  tierName: tier,
+                };
+              }
+            });
+            return next;
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const currentProfile = cohortProfiles[simState.selectedCohort] || cohortProfiles.Whale;
 
   // Telemetry & State
   const [consecutiveDeaths, setConsecutiveDeaths] = useState(0);

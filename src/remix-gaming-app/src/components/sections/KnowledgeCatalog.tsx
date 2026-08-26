@@ -68,9 +68,9 @@ export function KnowledgeCatalog({ initialSearch = "" }: { initialSearch?: strin
     {
       rule_id: "rule_discovered_default_01",
       input_text: "Whales in Japan get max 80% discount on Frost Giant Shield Pack",
-      dataplex_aspect_type: "liveops_campaign_policy_aspect",
+      dataplex_aspect_type: "liveops-campaign-policy-aspect",
       generated_aspect_schema: {
-        name: "projects/gaming-demo/locations/us-central1/aspectTypes/liveops_campaign_policy_aspect",
+        name: "projects/gaming-demo/locations/us-central1/aspectTypes/liveops-campaign-policy-aspect",
         fields: {
           player_tier: "Whale",
           max_discount_pct: 80,
@@ -78,7 +78,7 @@ export function KnowledgeCatalog({ initialSearch = "" }: { initialSearch?: strin
           guardrail_boundary_status: "ACTIVE_VERIFIED",
         },
       },
-      generated_bigquery_policy_sql: `CREATE OR REPLACE ROW ACCESS POLICY liveops_churn_guardrail_policy\nON \`gaming-demo.gaming_gold.gold_player_360\`\nGRANT TO ("group:liveops-managers@google.com")\nFILTER USING (spend_tier = 'Whale' AND churn_risk_score >= 0.50);`,
+      generated_bigquery_policy_sql: `CREATE OR REPLACE ROW ACCESS POLICY liveops_churn_guardrail_policy\nON \`gaming_gold.gold_player_360\`\nGRANT TO ("group:liveops-managers@google.com")\nFILTER USING (payer_tier = 'Whale' AND churn_risk_score >= 0.50);`,
       status: "DISCOVERED_AND_COMPILED",
       created_at: new Date().toISOString(),
     }
@@ -86,14 +86,19 @@ export function KnowledgeCatalog({ initialSearch = "" }: { initialSearch?: strin
 
   useEffect(() => {
     async function fetchAssets() {
+      const defaultCatalogAssets: Asset[] = [
+        { id: 'gold-player-360', title: 'Medallion Gold: OmniArcade Conformed Player 360', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Analytics', updatedAt: '2026-08-25T12:00:00Z', source: 'BigQuery Gold', description: 'Conformed 50M player feature store with spend tiers (Whale, Dolphin, Minnow, F2P), behavioral churn scores, and GDPR masking.' },
+        { id: 'gold-studio-financial', title: 'Medallion Gold: Studio Multi-Store Financials & Settlements', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Finance', updatedAt: '2026-08-25T12:00:00Z', source: 'BigQuery Gold', description: 'Consolidated gross storefront revenues (Apple, Google, Steam, Direct) reconciled against clearing payout disbursements.' },
+        { id: 'silver-conformance-lakehouse', title: 'Medallion Silver: CloudEvents 1.0 Real-Time Conformance Views', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Architecture', updatedAt: '2026-08-25T12:00:00Z', source: 'BigQuery Silver', description: 'JSON envelope schema conformance for microtransactions, match sessions, client SRE metrics, and marketing attribution.' },
+        { id: 'dataplex-dq-sentinels', title: 'Dataplex Data Quality Scan & Anomaly Sentinel Findings', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Governance', updatedAt: '2026-08-25T12:00:00Z', source: 'Dataplex Catalog', description: 'Automated DQ scans detecting telemetry anomalies, dirty sentinels (P_dirty = 0.005), and compliance validation.' },
+        { id: 'gdpr-privacy', title: 'European GDPR Player Privacy Sandbox Directive', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Compliance', updatedAt: '2026-05-18T12:00:00Z', source: 'Corporate Governance', description: 'Mandatory standard for player PII masking across direct Jingle play files and active multiplayer lobbies.' },
+        { id: 'ops-scorecard', title: 'Q2 Game Operations Network Performance Scorecard', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Operations', updatedAt: '2026-05-18T10:00:00Z', source: 'AlloyDB', description: 'Real-time performance latency, active server tick ratios, and matchmaking queue performance derived from live server pools.' },
+        { id: 'revenue-strategy', title: 'Strategic In-Game Monetization & Storefront Strategy', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Finance', updatedAt: '2026-05-19T08:00:00Z', source: 'Finance', description: 'LTV cohort growth targets, store category parameters, and in-app purchase price elasticities.' },
+        { id: 's3-telemetry', title: 'AWS S3 Play Telemetry Archives & Audits', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Logistics', updatedAt: '2026-05-17T15:00:00Z', source: 'AWS S3', description: 'Legacy historical play logs, old build game resources, and cold storage matchmaking records.' },
+      ];
+
       if (isUsingFirebaseMock) {
-        setAssets([
-          { id: 'gdpr-privacy', title: 'European GDPR Player Privacy Sandbox Directive', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Compliance', updatedAt: '2026-05-18T12:00:00Z', source: 'Corporate Governance', description: 'Mandatory standard for player PII masking across direct Jingle play files and active multiplayer lobbies.' },
-          { id: 'ops-scorecard', title: 'Q2 Game Operations Network Performance Scorecard', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Operations', updatedAt: '2026-05-18T10:00:00Z', source: 'AlloyDB', description: 'Real-time performance latency, active server tick ratios, and matchmaking queue performance derived from live server pools.' },
-          { id: 'revenue-strategy', title: 'Snowflake Strategic In-Game Monetization Strategy', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Finance', updatedAt: '2026-05-19T08:00:00Z', source: 'Snowflake', description: 'LTV cohort growth targets, store category parameters, and in-app purchase price elasticities.' },
-          { id: 's3-telemetry', title: 'AWS S3 Play Telemetry Archives & Audits', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Logistics', updatedAt: '2026-05-17T15:00:00Z', source: 'AWS S3', description: 'Legacy historical play logs, old build game resources, and cold storage matchmaking records.' },
-          { id: 'looker-dashboards', title: 'Semantic Looker Cohort Model Definitions', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Governance', updatedAt: '2026-05-18T09:00:00Z', source: 'Looker', description: 'Standard metric dimensions (DAU, ARPU, LTV) definitions and schema mappings for Jingle executive reporting.' }
-        ]);
+        setAssets(defaultCatalogAssets);
         setLoading(false);
         return;
       }
@@ -107,25 +112,13 @@ export function KnowledgeCatalog({ initialSearch = "" }: { initialSearch?: strin
         });
         
         if (fetched.length === 0) {
-          setAssets([
-            { id: 'gdpr-privacy', title: 'European GDPR Player Privacy Sandbox Directive', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Compliance', updatedAt: '2026-05-18T12:00:00Z', source: 'Corporate Governance', description: 'Mandatory standard for player PII masking across direct Jingle play files and active multiplayer lobbies.' },
-            { id: 'ops-scorecard', title: 'Q2 Game Operations Network Performance Scorecard', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Operations', updatedAt: '2026-05-18T10:00:00Z', source: 'AlloyDB', description: 'Real-time performance latency, active server tick ratios, and matchmaking queue performance derived from live server pools.' },
-            { id: 'revenue-strategy', title: 'Snowflake Strategic In-Game Monetization Strategy', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Finance', updatedAt: '2026-05-19T08:00:00Z', source: 'Snowflake', description: 'LTV cohort growth targets, store category parameters, and in-app purchase price elasticities.' },
-            { id: 's3-telemetry', title: 'AWS S3 Play Telemetry Archives & Audits', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Logistics', updatedAt: '2026-05-17T15:00:00Z', source: 'AWS S3', description: 'Legacy historical play logs, old build game resources, and cold storage matchmaking records.' },
-            { id: 'looker-dashboards', title: 'Semantic Looker Cohort Model Definitions', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Governance', updatedAt: '2026-05-18T09:00:00Z', source: 'Looker', description: 'Standard metric dimensions (DAU, ARPU, LTV) definitions and schema mappings for Jingle executive reporting.' }
-          ]);
+          setAssets(defaultCatalogAssets);
         } else {
           setAssets(fetched);
         }
       } catch (error) {
         console.error("Error fetching documents:", error);
-        setAssets([
-          { id: 'gdpr-privacy', title: 'European GDPR Player Privacy Sandbox Directive', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Compliance', updatedAt: '2026-05-18T12:00:00Z', source: 'Corporate Governance', description: 'Mandatory standard for player PII masking across direct Jingle play files and active multiplayer lobbies.' },
-          { id: 'ops-scorecard', title: 'Q2 Game Operations Network Performance Scorecard', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Operations', updatedAt: '2026-05-18T10:00:00Z', source: 'AlloyDB', description: 'Real-time performance latency, active server tick ratios, and matchmaking queue performance derived from live server pools.' },
-          { id: 'revenue-strategy', title: 'Snowflake Strategic In-Game Monetization Strategy', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Finance', updatedAt: '2026-05-19T08:00:00Z', source: 'Snowflake', description: 'LTV cohort growth targets, store category parameters, and in-app purchase price elasticities.' },
-          { id: 's3-telemetry', title: 'AWS S3 Play Telemetry Archives & Audits', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Logistics', updatedAt: '2026-05-17T15:00:00Z', source: 'AWS S3', description: 'Legacy historical play logs, old build game resources, and cold storage matchmaking records.' },
-          { id: 'looker-dashboards', title: 'Semantic Looker Cohort Model Definitions', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Governance', updatedAt: '2026-05-18T09:00:00Z', source: 'Looker', description: 'Standard metric dimensions (DAU, ARPU, LTV) definitions and schema mappings for Jingle executive reporting.' }
-        ]);
+        setAssets(defaultCatalogAssets);
       } finally {
         setLoading(false);
       }

@@ -130,6 +130,10 @@ RUN_STEP_7=true
 RUN_STEP_8=true
 AGENT_TARGET="kc"
 FORCE_AGENT_BUILD=false
+SOURCE_PLAYER_DNA_TABLE="${SOURCE_PLAYER_DNA_TABLE:-gaming_player_data.player_dna}"
+SOURCE_RAW_EVENTS_TABLE="${SOURCE_RAW_EVENTS_TABLE:-gaming_raw.raw_events}"
+SOURCE_PAYMENT_SETTLEMENTS_TABLE="${SOURCE_PAYMENT_SETTLEMENTS_TABLE:-gaming_raw.payment_gateway_settlements}"
+ENABLE_LEGACY_DATA_GEN="${ENABLE_LEGACY_DATA_GEN:-false}"
 
 # Helper to enable/disable all steps
 set_all_steps() {
@@ -244,6 +248,46 @@ while [[ $# -gt 0 ]]; do
       ;;
     --force-agent-build)
       FORCE_AGENT_BUILD=true
+      shift
+      ;;
+    --player-dna-table=*)
+      SOURCE_PLAYER_DNA_TABLE="${1#*=}"
+      shift
+      ;;
+    --player-dna-table)
+      if [ -z "${2:-}" ]; then
+        log_error "--player-dna-table requires a table name (e.g. gaming_player_data.player_dna)"
+        exit 1
+      fi
+      SOURCE_PLAYER_DNA_TABLE="$2"
+      shift 2
+      ;;
+    --raw-events-table=*)
+      SOURCE_RAW_EVENTS_TABLE="${1#*=}"
+      shift
+      ;;
+    --raw-events-table)
+      if [ -z "${2:-}" ]; then
+        log_error "--raw-events-table requires a table name (e.g. gaming_raw.raw_events)"
+        exit 1
+      fi
+      SOURCE_RAW_EVENTS_TABLE="$2"
+      shift 2
+      ;;
+    --settlements-table=*)
+      SOURCE_PAYMENT_SETTLEMENTS_TABLE="${1#*=}"
+      shift
+      ;;
+    --settlements-table)
+      if [ -z "${2:-}" ]; then
+        log_error "--settlements-table requires a table name (e.g. gaming_raw.payment_gateway_settlements)"
+        exit 1
+      fi
+      SOURCE_PAYMENT_SETTLEMENTS_TABLE="$2"
+      shift 2
+      ;;
+    --enable-legacy-data-gen)
+      ENABLE_LEGACY_DATA_GEN=true
       shift
       ;;
     -h|--help)
@@ -398,13 +442,18 @@ if [ "$RUN_STEP_1" = true ]; then
 
     # Pre-import existing BigQuery datasets into Terraform state if they already exist in GCP
     log_info "Pre-importing existing BigQuery datasets into Terraform state to prevent 409 duplicate creation errors..."
-    for pair in \
-      "gaming_retail:google_bigquery_dataset.retail-dataset" \
-      "gaming_retail_synthetic:google_bigquery_dataset.retail-synthetic-dataset" \
-      "gaming_raw:module.games[0].google_bigquery_dataset.gaming_raw" \
-      "gaming_synthetic:module.games[0].google_bigquery_dataset.gaming_synthetic" \
-      "gaming_silver:module.games[0].google_bigquery_dataset.gaming_silver" \
-      "gaming_gold:module.games[0].google_bigquery_dataset.gaming_gold"; do
+    TF_DATASETS=(
+      "gaming_retail:google_bigquery_dataset.retail-dataset"
+      "gaming_retail_synthetic:google_bigquery_dataset.retail-synthetic-dataset"
+      "gaming_raw:module.games[0].google_bigquery_dataset.gaming_raw"
+      "gaming_silver:module.games[0].google_bigquery_dataset.gaming_silver"
+      "gaming_gold:module.games[0].google_bigquery_dataset.gaming_gold"
+    )
+    if [ "$ENABLE_LEGACY_DATA_GEN" = true ]; then
+      TF_DATASETS+=("gaming_synthetic:module.games[0].google_bigquery_dataset.gaming_synthetic[0]")
+    fi
+
+    for pair in "${TF_DATASETS[@]}"; do
         ds="${pair%%:*}"
         tf_target="${pair#*:}"
         log_info "  Checking/importing dataset '${ds}' (${tf_target})..."
@@ -412,11 +461,19 @@ if [ "$RUN_STEP_1" = true ]; then
           -var="project_id=${GCP_PROJECT}" \
           -var="industry_target=games" \
           -var="bigquery_dataset_location=${GCP_REGION}" \
+          -var="source_player_dna_table=${SOURCE_PLAYER_DNA_TABLE}" \
+          -var="source_raw_events_table=${SOURCE_RAW_EVENTS_TABLE}" \
+          -var="source_payment_settlements_table=${SOURCE_PAYMENT_SETTLEMENTS_TABLE}" \
+          -var="enable_legacy_data_gen=${ENABLE_LEGACY_DATA_GEN}" \
           "${tf_target}" "projects/${GCP_PROJECT}/datasets/${ds}" 2>&1 | grep -E "Import successful|Resource created|Imported" || \
         terraform -chdir="${TF_DIR}" import \
           -var="project_id=${GCP_PROJECT}" \
           -var="industry_target=games" \
           -var="bigquery_dataset_location=${GCP_REGION}" \
+          -var="source_player_dna_table=${SOURCE_PLAYER_DNA_TABLE}" \
+          -var="source_raw_events_table=${SOURCE_RAW_EVENTS_TABLE}" \
+          -var="source_payment_settlements_table=${SOURCE_PAYMENT_SETTLEMENTS_TABLE}" \
+          -var="enable_legacy_data_gen=${ENABLE_LEGACY_DATA_GEN}" \
           "${tf_target}" "${GCP_PROJECT}:${ds}" 2>&1 | grep -E "Import successful|Resource created|Imported" || true
     done
 
@@ -425,7 +482,12 @@ if [ "$RUN_STEP_1" = true ]; then
     if ! terraform -chdir="${TF_DIR}" apply -auto-approve \
       -var="project_id=${GCP_PROJECT}" \
       -var="industry_target=games" \
-      -var="bigquery_dataset_location=${GCP_REGION}"; then
+      -var="bigquery_dataset_location=${GCP_REGION}" \
+      -var="games_dataset_location=US" \
+      -var="source_player_dna_table=${SOURCE_PLAYER_DNA_TABLE}" \
+      -var="source_raw_events_table=${SOURCE_RAW_EVENTS_TABLE}" \
+      -var="source_payment_settlements_table=${SOURCE_PAYMENT_SETTLEMENTS_TABLE}" \
+      -var="enable_legacy_data_gen=${ENABLE_LEGACY_DATA_GEN}"; then
       tf_exit=1
     fi
 
@@ -969,7 +1031,7 @@ if [ "$RUN_STEP_8" = true ]; then
     --service-account="${RUNNER_SA}" \
     --allow-unauthenticated \
     --ingress=all \
-    --set-env-vars="GOOGLE_CLOUD_PROJECT=${GCP_PROJECT},GCP_LOCATION=${GCP_REGION},BIGQUERY_LOCATION=${GCP_REGION},PROJECT_NUMBER=${GCP_PROJECT_NUMBER},PYTHON_PORT=5000,KC_AGENT_ID=${KC_AGENT_ID:-},NODE_ENV=production" \
+    --set-env-vars="GOOGLE_CLOUD_PROJECT=${GCP_PROJECT},GCP_LOCATION=${GCP_REGION},BIGQUERY_LOCATION=${BIGQUERY_LOCATION:-US},PROJECT_NUMBER=${GCP_PROJECT_NUMBER},PYTHON_PORT=5000,KC_AGENT_ID=${KC_AGENT_ID:-},NODE_ENV=production,SOURCE_PLAYER_DNA_TABLE=${SOURCE_PLAYER_DNA_TABLE},SOURCE_RAW_EVENTS_TABLE=${SOURCE_RAW_EVENTS_TABLE},SOURCE_PAYMENT_SETTLEMENTS_TABLE=${SOURCE_PAYMENT_SETTLEMENTS_TABLE},BIGQUERY_DATASET_SILVER=gaming_silver,BIGQUERY_DATASET_GOLD=gaming_gold" \
     --port=8080 \
     --quiet
 

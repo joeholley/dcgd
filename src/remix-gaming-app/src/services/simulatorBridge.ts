@@ -744,6 +744,39 @@ function startGlobalSimulatorPublisher() {
           timestamp: Date.now(),
         },
       });
+    } else if (currentState.activeAnomaly === "level_2_bottleneck") {
+      const playerId = `PLAY-000${Math.floor(Math.random() * 89999) + 10000}`;
+      sendSimulatorEvent({
+        type: "level_failure_bottleneck",
+        userId: playerId,
+        gameId: "frost_giant_citadel",
+        payload: {
+          player_id: playerId,
+          level_number: 2,
+          stage_id: "frost_giant_citadel_lvl2",
+          moves_exhausted: 15,
+          failure_rate: 0.88,
+          predicted_churn_score: 0.78,
+          churn_risk_level: "HIGH",
+          timestamp: Date.now(),
+        },
+      });
+    } else if (currentState.activeAnomaly === "toxic_chat") {
+      const playerId = `PLAY-000${Math.floor(Math.random() * 89999) + 10000}`;
+      sendSimulatorEvent({
+        type: "toxic_chat_flag",
+        userId: playerId,
+        gameId: "global_lobby",
+        payload: {
+          player_id: playerId,
+          channel_id: "global_lobby_chat",
+          flag_type: "harassment",
+          toxicity_confidence: 0.94,
+          severity: "ALERT",
+          moderator_action: "AUTO_MUTE",
+          timestamp: Date.now(),
+        },
+      });
     }
   }, 1000);
 }

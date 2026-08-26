@@ -939,7 +939,27 @@ export function CampaignEngine({
   const [agentStep, setAgentStep] = useState(0);
   const [agentLog, setAgentLog] = useState<string[]>([]);
 
-  const selectedCohort = PRESET_COHORTS[selectedCohortIndex];
+  const [cohorts, setCohorts] = useState(PRESET_COHORTS);
+
+  useEffect(() => {
+    fetch("/api/analytics/campaigns?limit=6")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+          const liveCohorts = data.data.map((c: any) => ({
+            name: `${c.campaign_name || c.campaign_id} (${c.target_segment || "Global"})`,
+            game: "Realm of Eldoria RPG",
+            propensity: Math.round((c.conversion_rate || 0.4) * 100),
+            sampleInterest: `Attributed Installs: ${(c.impressions || 1000).toLocaleString()} • Revenue: $${(c.incremental_revenue_dollars || 500).toLocaleString()}`,
+            defaultMessage: `Special offer for ${c.target_segment || "our valued players"}! Exclusive items await in Realm of Eldoria RPG.`,
+          }));
+          setCohorts(liveCohorts);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const selectedCohort = cohorts[selectedCohortIndex] || cohorts[0] || PRESET_COHORTS[0];
 
   // Translation helpers inside React scope
   const t = (text: string): string => {
@@ -1499,7 +1519,7 @@ export function CampaignEngine({
               <div className="text-left">
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">{t("Select Target Player Cohort")}</label>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {PRESET_COHORTS.map((cohort, index) => {
+                  {cohorts.map((cohort, index) => {
                     const isSelected = selectedCohortIndex === index;
                     return (
                       <button

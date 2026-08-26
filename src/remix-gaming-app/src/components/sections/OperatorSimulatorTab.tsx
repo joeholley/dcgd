@@ -66,8 +66,8 @@ export function OperatorSimulatorTab({ routingMode }: OperatorSimulatorTabProps)
   const ANOMALY_OPTIONS: Array<{ id: AnomalyType; label: string; desc: string; disabled?: boolean }> = [
     { id: "none", label: "Normal Play (No Anomaly)", desc: "Baseline player progression & steady telemetry" },
     { id: "high_churn_boss_deaths", label: "💀 High-Churn Boss Death", desc: "Repeated Frost Giant wipeouts & churn risk" },
-    { id: "level_2_bottleneck", label: "⚡ Level 2 Bottleneck", desc: "Excessive move exhaustion & difficulty drop", disabled: true },
-    { id: "toxic_chat", label: "☣️ Toxic Chat Outbreak", desc: "High-frequency chat flags & GIRA alert trigger", disabled: true },
+    { id: "level_2_bottleneck", label: "⚡ Level 2 Bottleneck", desc: "Excessive move exhaustion & difficulty drop" },
+    { id: "toxic_chat", label: "☣️ Toxic Chat Outbreak", desc: "High-frequency chat flags & GIRA alert trigger" },
   ];
 
   return (

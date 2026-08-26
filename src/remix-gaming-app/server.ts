@@ -30,9 +30,13 @@ import {
   queryPlayer360, 
   queryRegionalKPIs, 
   queryCampaignAnalytics, 
+  queryStudioFinancial,
+  queryChurnRootCause,
+  queryCheatAnalytics,
   executeCustomQuery,
   checkBigQueryHealth 
 } from "./src/services/bigquery";
+import { getTableMapping } from "./src/services/dataSourceConfig";
 
 dotenv.config();
 
@@ -1478,7 +1482,7 @@ function generateRandomFallbackMetrics(tier: string) {
           consecutive_deaths,
           session_duration_seconds,
           is_churned
-        FROM \`${PROJECT_ID}.gaming_gold.gold_player_360\`
+        FROM \`${getTableMapping().goldPlayer360}\`
         WHERE ${tierWhere}
         ORDER BY RAND()
         LIMIT 1
@@ -1597,6 +1601,48 @@ function generateRandomFallbackMetrics(tier: string) {
     }
   });
 
+  app.get("/api/analytics/financial", async (req: Request, res: Response) => {
+    try {
+      const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string) || 30));
+      const records = await queryStudioFinancial(limit).catch((err) => {
+        console.warn("[Analytics API] queryStudioFinancial fallback triggered:", err.message);
+        return [];
+      });
+      res.json({ success: true, count: records.length, data: records });
+    } catch (err: any) {
+      console.error("[Analytics API Error - Financial]:", err);
+      res.status(500).json({ error: err?.message || "Financial performance query failed" });
+    }
+  });
+
+  app.get("/api/analytics/churn-root-cause", async (req: Request, res: Response) => {
+    try {
+      const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string) || 50));
+      const records = await queryChurnRootCause(limit).catch((err) => {
+        console.warn("[Analytics API] queryChurnRootCause fallback triggered:", err.message);
+        return [];
+      });
+      res.json({ success: true, count: records.length, data: records });
+    } catch (err: any) {
+      console.error("[Analytics API Error - Churn Root Cause]:", err);
+      res.status(500).json({ error: err?.message || "Churn root cause query failed" });
+    }
+  });
+
+  app.get("/api/analytics/cheat-analytics", async (req: Request, res: Response) => {
+    try {
+      const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string) || 50));
+      const records = await queryCheatAnalytics(limit).catch((err) => {
+        console.warn("[Analytics API] queryCheatAnalytics fallback triggered:", err.message);
+        return [];
+      });
+      res.json({ success: true, count: records.length, data: records });
+    } catch (err: any) {
+      console.error("[Analytics API Error - Cheat Analytics]:", err);
+      res.status(500).json({ error: err?.message || "Cheat analytics query failed" });
+    }
+  });
+
   // In-memory cache for cohort exemplars
   let cachedExemplars: any[] | null = null;
   let cachedExemplarsMode: "LIVE" | "MOCK" = "MOCK";
@@ -1694,7 +1740,7 @@ function generateRandomFallbackMetrics(tier: string) {
             consecutive_deaths,
             session_duration_seconds,
             is_churned
-          FROM \`${PROJECT_ID}.gaming_gold.gold_player_360\`
+          FROM \`${getTableMapping().goldPlayer360}\`
           WHERE ( @target_tier = 'Whale' AND (payer_tier = 'Whale' OR total_iap_spend >= 500.0) AND total_iap_spend >= 500.0 )
              OR ( @target_tier = 'Dolphin' AND (payer_tier = 'Dolphin' OR (total_iap_spend >= 50.0 AND total_iap_spend < 500.0)) AND total_iap_spend >= 50.0 AND total_iap_spend < 500.0 )
              OR ( @target_tier = 'Minnow' AND (payer_tier = 'Minnow' OR (total_iap_spend > 0.0 AND total_iap_spend < 50.0)) AND total_iap_spend > 0.0 AND total_iap_spend < 50.0 )
