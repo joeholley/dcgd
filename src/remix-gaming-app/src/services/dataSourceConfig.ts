@@ -31,6 +31,11 @@ export interface TableMapping {
   goldMarketingRoas: string;
   goldRegionalKpis: string;
   goldCheatAnalytics: string;
+  goldLevelDifficultyFunnel: string;
+
+  // Reference Configuration & Releases
+  refLevelConfigs: string;
+  refClientReleases: string;
 }
 
 export function getGcpProjectId(): string {
@@ -58,6 +63,10 @@ export function getGoldDataset(): string {
   return process.env.BIGQUERY_DATASET_GOLD || process.env.BIGQUERY_GOLD_DATASET || "gaming_gold";
 }
 
+export function getReferenceDataset(): string {
+  return process.env.BIGQUERY_DATASET_REFERENCE || "gaming_reference_data";
+}
+
 export function getSourceRawEventsTable(): string {
   return (
     process.env.SOURCE_RAW_EVENTS_TABLE ||
@@ -83,6 +92,7 @@ export function getTableMapping(): TableMapping {
   const projectId = getGcpProjectId();
   const silverDs = getSilverDataset();
   const goldDs = getGoldDataset();
+  const refDs = getReferenceDataset();
 
   return {
     sourcePlayerDna: getSourcePlayerDnaTable(),
@@ -102,5 +112,9 @@ export function getTableMapping(): TableMapping {
     goldMarketingRoas: `${projectId}.${goldDs}.gold_marketing_roas_cohorts`,
     goldRegionalKpis: `${projectId}.${goldDs}.gold_regional_kpis`,
     goldCheatAnalytics: `${projectId}.${goldDs}.gold_cheat_analytics`,
+    goldLevelDifficultyFunnel: `${projectId}.${goldDs}.gold_level_difficulty_funnel`,
+
+    refLevelConfigs: `${projectId}.${refDs}.ref_level_configs`,
+    refClientReleases: `${projectId}.${refDs}.ref_client_releases`,
   };
 }

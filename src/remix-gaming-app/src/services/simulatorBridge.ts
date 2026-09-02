@@ -7,7 +7,7 @@
 
 export type RoutingMode = "LIVE" | "MOCKED";
 export type PlayerCohortId = "Whale" | "Dolphin" | "Minnow" | "F2P";
-export type AnomalyType = "none" | "high_churn_boss_deaths" | "level_2_bottleneck" | "toxic_chat";
+export type AnomalyType = "none" | "high_churn_boss_deaths" | "level_2_bottleneck" | "toxic_chat" | "currency_duplication";
 
 export interface CohortStats {
   playerDeaths: number;
@@ -193,7 +193,7 @@ function loadInitialState(): SimulatorPersistentState {
           ? parsed.selectedCohort
           : "Whale",
         peakCCU: typeof parsed.peakCCU === "number" ? parsed.peakCCU : 250000,
-        activeAnomaly: ["none", "high_churn_boss_deaths", "level_2_bottleneck", "toxic_chat"].includes(parsed.activeAnomaly)
+        activeAnomaly: ["none", "high_churn_boss_deaths", "level_2_bottleneck", "toxic_chat", "currency_duplication"].includes(parsed.activeAnomaly)
           ? parsed.activeAnomaly
           : "high_churn_boss_deaths",
         activeTimezones: {
@@ -774,6 +774,24 @@ function startGlobalSimulatorPublisher() {
           toxicity_confidence: 0.94,
           severity: "ALERT",
           moderator_action: "AUTO_MUTE",
+          timestamp: Date.now(),
+        },
+      });
+    } else if (currentState.activeAnomaly === "currency_duplication") {
+      const playerId = `PLAY-000${Math.floor(Math.random() * 89999) + 10000}`;
+      sendSimulatorEvent({
+        type: "currency_duplication_spike",
+        userId: playerId,
+        gameId: "moba_realm",
+        payload: {
+          player_id: playerId,
+          server_id: "game_server_cluster",
+          anomaly_type: "gold_inflation_spike",
+          spike_magnitude: "5.2x",
+          flagged_accounts: 14,
+          estimated_exposure_usd: 120000,
+          aspect_policy: "security_quarantine_policy_aspect",
+          status: "ALERT",
           timestamp: Date.now(),
         },
       });

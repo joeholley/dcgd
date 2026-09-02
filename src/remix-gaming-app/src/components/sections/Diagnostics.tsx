@@ -58,26 +58,30 @@ export function Diagnostics() {
 
   const [gcpServices, setGcpServices] = useState<GCPServiceProbe[]>([
     { id: 'simulator', name: 'Live Game Telemetry Simulator Engine', description: 'Real-time player session telemetry generator (CCU curve, event ticks & anomaly injection)', status: 'ONLINE', mode: 'live', latencyMs: 1, details: 'Simulator running; publishing conformed CloudEvents telemetry' },
-    { id: 'auth', name: 'Google Cloud OAuth / ADC', description: 'Google Cloud OAuth & IAM Authentication', status: 'LIVE', mode: 'live', latencyMs: 14, details: 'Authenticated via ADC for project datacloudgamesdemo006' },
-    { id: 'bq_p360', name: 'BigQuery Table: gaming_gold.gold_player_360', description: 'Conformed Player 360 Feature Store & LTV', status: 'LIVE', mode: 'live', latencyMs: 24, details: 'Conformed 50M player feature store with spend tiers & churn scores' },
-    { id: 'bq_financial', name: 'BigQuery Table: gaming_gold.gold_studio_financial_performance', description: 'Studio Multi-Store Financials & Gateway Settlements', status: 'LIVE', mode: 'live', latencyMs: 22, details: 'Gross revenue vs net payout reconciled against payment gateway settlements' },
-    { id: 'bq_regional', name: 'BigQuery Table: gaming_gold.gold_regional_kpis', description: 'Regional Demographics & Revenue (US, EMEA, APAC, LATAM)', status: 'LIVE', mode: 'live', latencyMs: 19, details: '50M player regional breakdown across 4 global regions' },
-    { id: 'bq_churn_mart', name: 'BigQuery Table: gaming_gold.gold_churn_root_cause_mart', description: 'LiveOps Churn Root Cause Mart', status: 'LIVE', mode: 'live', latencyMs: 26, details: 'Correlates match losses, ping, and FPS to player churn' },
-    { id: 'bq_marketing_roas', name: 'BigQuery Table: gaming_gold.gold_marketing_roas_cohorts', description: 'Marketing ROAS & Multi-Touch Attribution Cohorts', status: 'LIVE', mode: 'live', latencyMs: 20, details: 'Ad network attribution and cohort ROAS tracking' },
-    { id: 'bq_silver_sre', name: 'BigQuery View: gaming_silver.silver_client_sre_metrics', description: 'Client SRE Telemetry & CloudEvents Ingestion', status: 'LIVE', mode: 'live', latencyMs: 16, details: 'Parses CloudEvents 1.0 JSON payloads from raw_events' },
-    { id: 'bq_silver_matches', name: 'BigQuery View: gaming_silver.silver_match_sessions', description: 'Match Sessions & Concurrency Telemetry', status: 'LIVE', mode: 'live', latencyMs: 15, details: 'Hourly queue and match outcome tracking' },
-    { id: 'bq_silver_txns', name: 'BigQuery View: gaming_silver.silver_microtransactions', description: 'Real-Time In-App Purchase Conformance', status: 'LIVE', mode: 'live', latencyMs: 14, details: 'Conformed purchase events from CloudEvents stream' },
+    { id: 'auth', name: 'Google Cloud OAuth / ADC', description: 'Google Cloud OAuth & IAM Authentication', status: 'LIVE', mode: 'live', latencyMs: 14, details: 'Authenticated via ADC for configured GCP project' },
+    { id: 'firestore', name: 'Cloud Firestore Operational Datastore', description: 'Campaigns, Certified Offers & Action Collections', status: 'LIVE', mode: 'live', latencyMs: 8, details: 'Firestore operational datastore active' },
+    { id: 'bq_source_player_dna', name: 'BigQuery Table: Source Player DNA', description: 'Source Player Profile & Persona DNA (SOURCE_PLAYER_DNA_TABLE)', status: 'LIVE', mode: 'live', latencyMs: 22, details: 'Resolved from SOURCE_PLAYER_DNA_TABLE' },
+    { id: 'bq_source_raw_events', name: 'BigQuery Table: Source Raw Events', description: 'Raw Telemetry Event Stream (SOURCE_RAW_EVENTS_TABLE)', status: 'LIVE', mode: 'live', latencyMs: 25, details: 'Resolved from SOURCE_RAW_EVENTS_TABLE' },
+    { id: 'bq_source_payment_settlements', name: 'BigQuery Table: Source Settlements', description: 'Payment Gateway Settlements (SOURCE_PAYMENT_SETTLEMENTS_TABLE)', status: 'LIVE', mode: 'live', latencyMs: 20, details: 'Resolved from SOURCE_PAYMENT_SETTLEMENTS_TABLE' },
+    { id: 'bq_gold_player_360', name: 'BigQuery Table: Gold Player 360', description: 'Conformed Player 360 Feature Store & LTV (BIGQUERY_DATASET_GOLD)', status: 'LIVE', mode: 'live', latencyMs: 24, details: 'Conformed player feature store with spend tiers & churn scores' },
+    { id: 'bq_gold_regional_kpis', name: 'BigQuery Table: Gold Regional KPIs', description: 'Regional Demographics & Revenue (BIGQUERY_DATASET_GOLD)', status: 'LIVE', mode: 'live', latencyMs: 19, details: 'Global regional breakdown across Americas, EMEA, and APAC' },
+    { id: 'bq_gold_studio_financial', name: 'BigQuery Table: Gold Studio Financials', description: 'Studio Multi-Store Financials & Payouts (BIGQUERY_DATASET_GOLD)', status: 'LIVE', mode: 'live', latencyMs: 22, details: 'Gross revenue vs net payout reconciled against settlements' },
+    { id: 'bq_gold_difficulty_funnel', name: 'BigQuery Table: Gold Difficulty Funnel', description: 'Level Completion & Friction Funnel (BIGQUERY_DATASET_GOLD)', status: 'LIVE', mode: 'live', latencyMs: 21, details: 'Per-level telemetry completion and reset metrics' },
+    { id: 'bq_silver_client_sre_metrics', name: 'BigQuery View: Silver SRE Metrics', description: 'Client SRE Telemetry & Latency (BIGQUERY_DATASET_SILVER)', status: 'LIVE', mode: 'live', latencyMs: 16, details: 'Conformed CloudEvents telemetry metrics' },
+    { id: 'bq_silver_match_sessions', name: 'BigQuery View: Silver Match Sessions', description: 'Match Sessions & Concurrency Telemetry (BIGQUERY_DATASET_SILVER)', status: 'LIVE', mode: 'live', latencyMs: 15, details: 'Hourly queue and match outcome tracking' },
+    { id: 'bq_silver_microtransactions', name: 'BigQuery View: Silver Microtransactions', description: 'Real-Time In-App Purchase Conformance (BIGQUERY_DATASET_SILVER)', status: 'LIVE', mode: 'live', latencyMs: 14, details: 'Conformed purchase events from CloudEvents stream' },
+    { id: 'bq_ref_client_releases', name: 'BigQuery Table: Ref Client Releases', description: 'Client Release Configuration & Gateway Incidents (BIGQUERY_DATASET_REFERENCE)', status: 'LIVE', mode: 'live', latencyMs: 18, details: 'Configured client version releases and incident notes' },
     { id: 'pubsub', name: 'Cloud Pub/Sub Streaming Ingest', description: 'gaming-live-telemetry & BQ Direct Sub', status: 'LIVE', mode: 'live', latencyMs: 16, details: 'Pub/Sub topic gaming-live-telemetry active' },
-    { id: 'firestore', name: 'Cloud Firestore Operational Datastore', description: 'Campaigns & Certified Offers Collection Store', status: 'LIVE', mode: 'live', latencyMs: 8, details: 'Firestore campaigns & offers collections active' },
+    { id: 'bqml', name: 'BigQuery ML (ML.PREDICT)', description: 'In-warehouse ML.PREDICT logistic regression model', status: 'LIVE', mode: 'live', latencyMs: 25, details: 'ML.PREDICT churn prediction model online' },
     { id: 'dataplex', name: 'Dataplex Knowledge Catalog API', description: 'Aspect Types, Business Glossaries & Lineage', status: 'LIVE', mode: 'live', latencyMs: 32, details: 'Dataplex REST API aspect registry active' },
     { 
       id: 'vertex_agent_kc', 
       name: 'agent_kc (Knowledge Catalog Analytics Agent)', 
-      description: 'Liveness health check for dynamic Vertex AI Reasoning Engine (auto-detected at startup)', 
+      description: 'Liveness health check for dynamic Vertex AI Reasoning Engine', 
       status: 'LIVE', 
       mode: 'live', 
       latencyMs: 38, 
-      details: 'ADC Authenticated | Dynamic Reasoning Engine endpoint auto-detected at startup' 
+      details: 'ADC Authenticated | Dynamic Reasoning Engine endpoint' 
     },
   ]);
 
@@ -90,8 +94,8 @@ export function Diagnostics() {
       route: '/',
       overallMode: 'hybrid',
       subFeatures: [
-        { name: 'Player 360 Feature Store (gold_player_360)', connected: true, source: 'BigQuery Gold Table', mode: 'live', latencyMs: 28 },
-        { name: 'Regional Revenue & MAU (gold_regional_kpis)', connected: false, source: 'Synthetic Dev Fallback', mode: 'mock', latencyMs: 6 },
+        { name: 'Player 360 Feature Store (gold_player_360)', connected: true, source: 'gaming_gold.gold_player_360', mode: 'live', latencyMs: 28 },
+        { name: 'Regional Revenue & MAU (gold_regional_kpis)', connected: true, source: 'gaming_gold.gold_regional_kpis', mode: 'live', latencyMs: 22 },
         { name: 'Cross-Cloud Lineage Cards', connected: true, source: 'Dataplex Lineage API', mode: 'live', latencyMs: 32 }
       ]
     },
@@ -103,8 +107,8 @@ export function Diagnostics() {
       route: '/operations',
       overallMode: 'hybrid',
       subFeatures: [
-        { name: 'Real-Time CCU & Latency Graphs', connected: false, source: 'Recharts Dev Stream', mode: 'mock', latencyMs: 4 },
-        { name: 'Server Regional Capacity (server_latency)', connected: false, source: 'Synthetic Dev Fallback', mode: 'mock', latencyMs: 5 },
+        { name: 'Real-Time CCU & Latency Graphs', connected: false, source: 'Pub/Sub Live Telemetry', mode: 'live', latencyMs: 14 },
+        { name: 'Server Regional Capacity (silver_client_sre_metrics)', connected: true, source: 'gaming_silver.silver_client_sre_metrics', mode: 'live', latencyMs: 16 },
         { name: 'Game Failure Spike Simulator Proxy', connected: true, source: 'Flask /api/difficulty-stats', mode: 'live', latencyMs: 14 }
       ]
     },
@@ -116,7 +120,7 @@ export function Diagnostics() {
       route: '/executive.html',
       overallMode: 'live',
       subFeatures: [
-        { name: 'Portfolio Level Revenue Diagnostics', connected: true, source: 'Flask /api/executive/portfolio-metrics', mode: 'live', latencyMs: 18 },
+        { name: 'Portfolio Financial Performance (gold_studio_financial_performance)', connected: true, source: 'gaming_gold.gold_studio_financial_performance', mode: 'live', latencyMs: 18 },
         { name: 'Executive Incident Simulator', connected: true, source: 'Flask /api/executive/simulate-diagnostics', mode: 'live', latencyMs: 22 }
       ]
     },
@@ -128,9 +132,9 @@ export function Diagnostics() {
       route: '/guardrail',
       overallMode: 'live',
       subFeatures: [
-        { name: 'Telemetry Event Stream (/api/telemetry/stream)', connected: true, source: 'Cloud Pub/Sub Topic', mode: 'live', latencyMs: 16 },
-        { name: 'BigQuery Direct Subscription Ingestion', connected: true, source: 'gaming_raw.live_session_events', mode: 'live', latencyMs: 28 },
-        { name: 'BQML Churn Probability (ML.PREDICT)', connected: true, source: 'gaming_player_churn_model', mode: 'live', latencyMs: 36 },
+        { name: 'Telemetry Event Stream (/api/telemetry/stream)', connected: true, source: 'Cloud Pub/Sub (gaming-live-telemetry)', mode: 'live', latencyMs: 16 },
+        { name: 'BigQuery Conformed Ingestion', connected: true, source: 'gaming_raw.raw_events', mode: 'live', latencyMs: 28 },
+        { name: 'BQML Churn Probability (ML.PREDICT)', connected: true, source: 'gaming_raw.player_churn_model', mode: 'live', latencyMs: 36 },
         { name: 'Dataplex Policy Verification', connected: true, source: 'liveops_campaign_policy_aspect', mode: 'live', latencyMs: 32 },
         { name: 'SSE Certified Offer Push (/api/guardrail/events)', connected: true, source: 'Express SSE Hub', mode: 'live', latencyMs: 10 }
       ]
@@ -143,8 +147,8 @@ export function Diagnostics() {
       route: '/campaigns',
       overallMode: 'mock',
       subFeatures: [
-        { name: 'Campaign Analytics (gold_campaign_analytics)', connected: false, source: 'Dev Fallback Data', mode: 'mock', latencyMs: 6 },
-        { name: 'Campaign CRUD State Store', connected: false, source: 'Firestore In-Memory Mock', mode: 'mock', latencyMs: 4 },
+        { name: 'Marketing ROAS Cohorts (gold_marketing_roas_cohorts)', connected: true, source: 'gaming_gold.gold_marketing_roas_cohorts', mode: 'live', latencyMs: 22 },
+        { name: 'Campaign CRUD State Store', connected: false, source: 'Cloud Firestore (campaigns)', mode: 'mock', latencyMs: 4 },
         { name: 'Marketing Swarm Anomaly Simulator', connected: true, source: 'Flask /api/marketing/simulate-cluster', mode: 'live', latencyMs: 18 }
       ]
     },
@@ -156,7 +160,8 @@ export function Diagnostics() {
       route: '/difficulty.html',
       overallMode: 'live',
       subFeatures: [
-        { name: 'Level 2 Completion Funnel', connected: true, source: 'Flask /api/difficulty-stats', mode: 'live', latencyMs: 14 },
+        { name: 'Level 2 Completion Funnel (gold_level_difficulty_funnel)', connected: true, source: 'gaming_gold.gold_level_difficulty_funnel', mode: 'live', latencyMs: 14 },
+        { name: 'Level Config Registry (ref_level_configs)', connected: true, source: 'gaming_reference_data.ref_level_configs', mode: 'live', latencyMs: 18 },
         { name: 'Autonomous Playtest Solver Simulation', connected: true, source: 'Flask /api/simulate/difficulty-spike', mode: 'live', latencyMs: 45 }
       ]
     },
@@ -168,7 +173,7 @@ export function Diagnostics() {
       route: '/marketing_swarm_visualizer.html',
       overallMode: 'live',
       subFeatures: [
-        { name: 'Cohort Cluster Telemetry', connected: true, source: 'Flask /api/marketing/cohort-telemetry', mode: 'live', latencyMs: 16 },
+        { name: 'Cohort Cluster Telemetry (gold_marketing_roas_cohorts)', connected: true, source: 'gaming_gold.gold_marketing_roas_cohorts', mode: 'live', latencyMs: 16 },
         { name: 'ROAS Recovery Multi-Agent Planner', connected: true, source: 'Flask /api/marketing/simulate-cluster', mode: 'live', latencyMs: 52 }
       ]
     },
@@ -180,8 +185,8 @@ export function Diagnostics() {
       route: '/workflows',
       overallMode: 'hybrid',
       subFeatures: [
-        { name: 'Retention & Gift Card Promo Pipeline', connected: true, source: 'LiveOps Guardrail Engine', mode: 'live', latencyMs: 48 },
-        { name: 'Anti-Cheat Memory Tampering Detector', connected: false, source: 'Synthetic Trace Generator', mode: 'mock', latencyMs: 8 }
+        { name: 'Retention & Churn Root Cause Mart (gold_churn_root_cause_mart)', connected: true, source: 'gaming_gold.gold_churn_root_cause_mart', mode: 'live', latencyMs: 48 },
+        { name: 'Anti-Cheat Analytics (gold_cheat_analytics)', connected: true, source: 'gaming_gold.gold_cheat_analytics', mode: 'live', latencyMs: 24 }
       ]
     },
     {
@@ -239,7 +244,8 @@ export function Diagnostics() {
       route: '/toxicity.html',
       overallMode: 'live',
       subFeatures: [
-        { name: 'Toxic Chat Stream & GIRA Assessment', connected: true, source: 'Flask /api/simulate/toxicity-incident', mode: 'live', latencyMs: 42 }
+        { name: 'Toxic Chat Stream & GIRA Assessment', connected: true, source: 'Flask /api/simulate/toxicity-incident', mode: 'live', latencyMs: 42 },
+        { name: 'Moderation Alerts (silver_moderation_alerts)', connected: true, source: 'gaming_silver.silver_moderation_alerts', mode: 'live', latencyMs: 18 }
       ]
     },
     {
@@ -368,6 +374,123 @@ export function Diagnostics() {
             });
             return updated;
           });
+        }
+        if (data.table_mapping) {
+          const tm = data.table_mapping;
+          setSections(prev => prev.map(sec => {
+            if (sec.id === 'guardrail') {
+              return {
+                ...sec,
+                subFeatures: sec.subFeatures.map(sf => {
+                  if (sf.name.includes('Conformed Ingestion') || sf.name.includes('Subscription Ingestion')) {
+                    return { ...sf, source: tm.sourceRawEvents || sf.source };
+                  }
+                  if (sf.name.includes('BQML Churn Probability')) {
+                    return { ...sf, source: data.configured_resources?.bqml_model || 'gaming_raw.player_churn_model' };
+                  }
+                  return sf;
+                })
+              };
+            }
+            if (sec.id === 'overview') {
+              return {
+                ...sec,
+                subFeatures: sec.subFeatures.map(sf => {
+                  if (sf.name.includes('Player 360')) {
+                    return { ...sf, source: tm.goldPlayer360 || sf.source };
+                  }
+                  if (sf.name.includes('Regional Revenue')) {
+                    return { ...sf, source: tm.goldRegionalKpis || sf.source };
+                  }
+                  return sf;
+                })
+              };
+            }
+            if (sec.id === 'operations') {
+              return {
+                ...sec,
+                subFeatures: sec.subFeatures.map(sf => {
+                  if (sf.name.includes('Server Regional Capacity')) {
+                    return { ...sf, source: tm.silverClientSreMetrics || sf.source };
+                  }
+                  return sf;
+                })
+              };
+            }
+            if (sec.id === 'campaigns') {
+              return {
+                ...sec,
+                subFeatures: sec.subFeatures.map(sf => {
+                  if (sf.name.includes('Marketing ROAS Cohorts') || sf.name.includes('Campaign Analytics')) {
+                    return { ...sf, source: tm.goldMarketingRoas || sf.source };
+                  }
+                  return sf;
+                })
+              };
+            }
+            if (sec.id === 'difficulty-balancer') {
+              return {
+                ...sec,
+                subFeatures: sec.subFeatures.map(sf => {
+                  if (sf.name.includes('Completion Funnel') || sf.name.includes('Difficulty')) {
+                    return { ...sf, source: tm.goldLevelDifficultyFunnel || sf.source };
+                  }
+                  if (sf.name.includes('Configuration') || sf.name.includes('Level Config')) {
+                    return { ...sf, source: tm.refLevelConfigs || sf.source };
+                  }
+                  return sf;
+                })
+              };
+            }
+            if (sec.id === 'executive-portfolio') {
+              return {
+                ...sec,
+                subFeatures: sec.subFeatures.map(sf => {
+                  if (sf.name.includes('Financial Performance') || sf.name.includes('Revenue Diagnostics')) {
+                    return { ...sf, source: tm.goldStudioFinancial || sf.source };
+                  }
+                  return sf;
+                })
+              };
+            }
+            if (sec.id === 'marketing-swarm') {
+              return {
+                ...sec,
+                subFeatures: sec.subFeatures.map(sf => {
+                  if (sf.name.includes('Cohort Cluster') || sf.name.includes('ROAS')) {
+                    return { ...sf, source: tm.goldMarketingRoas || sf.source };
+                  }
+                  return sf;
+                })
+              };
+            }
+            if (sec.id === 'toxicity') {
+              return {
+                ...sec,
+                subFeatures: sec.subFeatures.map(sf => {
+                  if (sf.name.includes('Moderation Alerts')) {
+                    return { ...sf, source: tm.silverModerationAlerts || sf.source };
+                  }
+                  return sf;
+                })
+              };
+            }
+            if (sec.id === 'workflows') {
+              return {
+                ...sec,
+                subFeatures: sec.subFeatures.map(sf => {
+                  if (sf.name.includes('Retention') || sf.name.includes('Churn Root Cause')) {
+                    return { ...sf, source: tm.goldChurnRootCause || sf.source };
+                  }
+                  if (sf.name.includes('Anti-Cheat')) {
+                    return { ...sf, source: tm.goldCheatAnalytics || sf.source };
+                  }
+                  return sf;
+                })
+              };
+            }
+            return sec;
+          }));
         }
       }
     } catch (err) {

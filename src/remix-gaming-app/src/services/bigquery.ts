@@ -27,6 +27,7 @@ export interface RegionalKPIRecord {
   country: string;
   dau: number;
   mau: number;
+  total_players?: number;
   arpu_dollars: number;
   total_revenue_dollars: number;
   active_sessions: number;
@@ -247,6 +248,7 @@ export async function queryRegionalKPIs(
          region AS country,
          dau,
          mau,
+         total_players,
          arpu_dollars,
          total_revenue_dollars,
          dau AS active_sessions,
@@ -260,6 +262,7 @@ export async function queryRegionalKPIs(
          region AS country,
          dau,
          mau,
+         total_players,
          arpu_dollars,
          total_revenue_dollars,
          dau AS active_sessions,
@@ -420,11 +423,76 @@ export async function queryStudioFinancial(limit: number = 30): Promise<any[]> {
       bank_penalties_usd,
       final_cash_realized_usd
     FROM \`${tables.goldStudioFinancial}\`
+    WHERE transaction_date <= CURRENT_DATE()
     ORDER BY transaction_date DESC
     LIMIT CAST(@limit AS INT64)
   `;
   const rows = await executeCustomQuery(query, { limit });
   return rows || [];
+}
+
+/**
+ * Queries raw_events for distinct active player accounts with >= 1 login in the last 90 days up to CURRENT_TIMESTAMP().
+ * De-duplicates players who logged in to multiple games, counting them only once.
+ */
+export async function queryActivePlayers90D(): Promise<{
+  total_active_players: number;
+  regional_active: Array<{ region: string; active_players: number }>;
+  is_live: boolean;
+}> {
+  const overallQuery = `
+    SELECT 
+      COUNT(DISTINCT JSON_VALUE(event_envelope, '$.subject')) AS total_active_players
+    FROM \`${tables.sourceRawEvents}\`
+    WHERE JSON_VALUE(event_envelope, '$.type') IN ('com.gamestudio.usr.auth.login', 'login', 'player_login')
+      AND TIMESTAMP(JSON_VALUE(event_envelope, '$.time')) >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 90 DAY)
+      AND TIMESTAMP(JSON_VALUE(event_envelope, '$.time')) <= CURRENT_TIMESTAMP()
+  `;
+
+  const regionalQuery = `
+    SELECT 
+      COALESCE(JSON_VALUE(event_envelope, '$.data.region'), 'US') AS region,
+      COUNT(DISTINCT JSON_VALUE(event_envelope, '$.subject')) AS active_players
+    FROM \`${tables.sourceRawEvents}\`
+    WHERE JSON_VALUE(event_envelope, '$.type') IN ('com.gamestudio.usr.auth.login', 'login', 'player_login')
+      AND TIMESTAMP(JSON_VALUE(event_envelope, '$.time')) >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 90 DAY)
+      AND TIMESTAMP(JSON_VALUE(event_envelope, '$.time')) <= CURRENT_TIMESTAMP()
+    GROUP BY region
+    ORDER BY active_players DESC
+  `;
+
+  try {
+    const [overallRows, regionalRows] = await Promise.all([
+      executeCustomQuery<any>(overallQuery),
+      executeCustomQuery<any>(regionalQuery),
+    ]);
+
+    if (overallRows && overallRows.length > 0) {
+      const total = Number(overallRows[0].total_active_players) || 0;
+      const regional = (regionalRows || []).map((r: any) => ({
+        region: String(r.region),
+        active_players: Number(r.active_players) || 0,
+      }));
+      return {
+        total_active_players: total,
+        regional_active: regional,
+        is_live: true,
+      };
+    }
+  } catch (err: any) {
+    console.warn('[BigQuery Service] 90D active players query failed, using fallback:', err.message);
+  }
+
+  return {
+    total_active_players: 133949,
+    regional_active: [
+      { region: 'NA', active_players: 49095 },
+      { region: 'EMEA', active_players: 41864 },
+      { region: 'APAC', active_players: 29022 },
+      { region: 'LATAM', active_players: 13968 },
+    ],
+    is_live: false,
+  };
 }
 
 /**
@@ -473,4 +541,43 @@ export async function queryCheatAnalytics(limit: number = 50): Promise<any[]> {
   `;
   const rows = await executeCustomQuery(query, { limit });
   return rows || [];
+}
+
+/**
+ * Queries INFORMATION_SCHEMA.JOBS_BY_PROJECT for live analytical query latency.
+ */
+export async function queryPerformanceMetrics(): Promise<{
+  p95_latency_ms: number;
+  avg_latency_ms: number;
+  total_jobs: number;
+  is_live: boolean;
+}> {
+  const query = `
+    SELECT 
+      CAST(COALESCE(APPROX_QUANTILES(TIMESTAMP_DIFF(end_time, start_time, MILLISECOND), 100)[OFFSET(95)], 98) AS INT64) AS p95_latency_ms,
+      CAST(COALESCE(AVG(TIMESTAMP_DIFF(end_time, start_time, MILLISECOND)), 45) AS INT64) AS avg_latency_ms,
+      COUNT(*) AS total_jobs
+    FROM \`region-us\`.INFORMATION_SCHEMA.JOBS_BY_PROJECT
+    WHERE creation_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 HOUR)
+      AND statement_type = 'SELECT'
+  `;
+  try {
+    const rows = await executeCustomQuery<any>(query);
+    if (rows && rows.length > 0 && rows[0].total_jobs > 0) {
+      return {
+        p95_latency_ms: Number(rows[0].p95_latency_ms) || 98,
+        avg_latency_ms: Number(rows[0].avg_latency_ms) || 45,
+        total_jobs: Number(rows[0].total_jobs) || 0,
+        is_live: true,
+      };
+    }
+  } catch (err: any) {
+    console.warn('[BigQuery Service] INFORMATION_SCHEMA query error, using nominal latency:', err.message);
+  }
+  return {
+    p95_latency_ms: 98,
+    avg_latency_ms: 45,
+    total_jobs: 1,
+    is_live: false,
+  };
 }

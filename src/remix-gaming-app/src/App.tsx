@@ -13,6 +13,8 @@ import { GCPHealth } from "./components/sections/GCPHealth";
 import { Diagnostics } from "./components/sections/Diagnostics";
 import { FlaskSection } from "./components/sections/FlaskSection";
 import { DemoEventProvider } from "./context/DemoEventContext";
+import { PublisherProvider } from "./context/PublisherContext";
+import { TimeFilterProvider } from "./context/TimeFilterContext";
 
 export type Section = 
   | "overview" 
@@ -60,16 +62,18 @@ export default function App() {
   }
 
   return (
-    <DemoEventProvider activeSection={activeSection} setActiveSection={handleSectionChange}>
-      <div className="relative h-screen bg-[#F8FAFC] overflow-hidden">
-        <Layout 
-          activeSection={activeSection} 
-          onSectionChange={handleSectionChange}
-          country={country}
-          setCountry={setCountry}
-          languageSetting={languageSetting}
-          setLanguageSetting={setLanguageSetting}
-        >
+    <PublisherProvider>
+      <DemoEventProvider activeSection={activeSection} setActiveSection={handleSectionChange}>
+        <TimeFilterProvider>
+          <div className="relative h-screen bg-[#F8FAFC] overflow-hidden">
+          <Layout 
+            activeSection={activeSection} 
+            onSectionChange={handleSectionChange}
+            country={country}
+            setCountry={setCountry}
+            languageSetting={languageSetting}
+            setLanguageSetting={setLanguageSetting}
+          >
           {/* Executive & Analytics */}
           {activeSection === "overview" && (
             <Overview 
@@ -164,6 +168,8 @@ export default function App() {
         {/* Persistent PineCore AI Assistant */}
         <GamingAssistant isOpen={assistantOpen} onToggle={() => setAssistantOpen(!assistantOpen)} />
       </div>
+      </TimeFilterProvider>
     </DemoEventProvider>
+    </PublisherProvider>
   );
 }

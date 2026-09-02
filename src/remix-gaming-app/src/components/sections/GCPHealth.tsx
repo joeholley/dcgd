@@ -13,7 +13,8 @@ import {
   AlertTriangle, 
   HelpCircle,
   Clock,
-  Server
+  Server,
+  ShieldAlert
 } from "lucide-react";
 
 interface ServiceHealth {
@@ -28,14 +29,19 @@ interface GCPHealthResponse {
   region: string;
   overall_status: "ALL_LIVE" | "HEALTHY_WITH_FALLBACKS" | "OFFLINE_MOCK";
   total_latency_ms: number;
-  services: {
-    auth: ServiceHealth;
-    bigquery: ServiceHealth;
-    pubsub: ServiceHealth;
-    bqml: ServiceHealth;
-    dataplex: ServiceHealth;
-    vertex_agent: ServiceHealth;
-  };
+  services: Record<string, ServiceHealth>;
+  table_mapping?: Record<string, string>;
+  configured_resources?: Record<string, string>;
+  gcp_services?: Array<{
+    id: string;
+    name: string;
+    category: string;
+    status: string;
+    mode: 'live' | 'mock';
+    details: string;
+    latency_ms: number;
+    env_var?: string;
+  }>;
 }
 
 export function GCPHealth() {
@@ -81,9 +87,15 @@ export function GCPHealth() {
       icon: Key,
     },
     {
+      key: "firestore" as const,
+      name: "Cloud Firestore Operational Datastore",
+      description: "Live collections for campaigns, offers, and moderation actions",
+      icon: Database,
+    },
+    {
       key: "bigquery" as const,
-      name: "BigQuery Gold Tables",
-      description: "Analytical lakehouse feature tables (gaming_gold)",
+      name: "BigQuery Lakehouse Marts",
+      description: "Conformed Player 360 feature store & analytics marts",
       icon: Database,
     },
     {
@@ -109,6 +121,12 @@ export function GCPHealth() {
       name: "Knowledge Catalog Agent (agent_kc)",
       description: "Vertex AI Reasoning Engine health check & live endpoint",
       icon: Server,
+    },
+    {
+      key: "vertex_agent_anomaly" as const,
+      name: "Cheat & Anomaly Agent (agent_anomaly)",
+      description: "Vertex AI Reasoning Engine multi-agent anomaly council",
+      icon: ShieldAlert,
     },
   ];
 
@@ -235,7 +253,7 @@ export function GCPHealth() {
                         </span>
                       </div>
 
-                      {config.key === "vertex_agent" && (serviceHealth as any)?.endpoint && (
+                      {(config.key === "vertex_agent" || config.key === "vertex_agent_anomaly") && (serviceHealth as any)?.endpoint && (
                         <div className="flex items-center justify-between text-xs pt-1.5 border-t border-slate-800/60">
                           <span className="text-slate-400 font-medium">Resource Endpoint</span>
                           <span className="font-mono text-blue-400 text-[10px] truncate max-w-[200px]" title={(serviceHealth as any).endpoint}>
@@ -253,6 +271,74 @@ export function GCPHealth() {
               );
             })}
           </div>
+
+          {/* Configured Lakehouse Tables & Data Source Bindings */}
+          {healthData.configured_resources && (
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm space-y-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-purple-400">
+                    <Database className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-100">Configured Lakehouse Tables & Dynamic Source Bindings</h3>
+                    <p className="text-xs text-slate-400">
+                      Resolved backend resources dynamically mapped from container environment variables
+                    </p>
+                  </div>
+                </div>
+                <div className="text-xs font-mono px-3 py-1 rounded-full bg-slate-800 text-slate-300 border border-slate-700 self-start md:self-auto">
+                  Gold: <span className="text-amber-400">{healthData.configured_resources.bigquery_dataset_gold}</span> | Silver: <span className="text-cyan-400">{healthData.configured_resources.bigquery_dataset_silver}</span>
+                </div>
+              </div>
+
+              {/* Table Probes Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {healthData.gcp_services
+                  ?.filter((s) => s.category?.includes("BigQuery"))
+                  .map((tbl) => {
+                    const isLive = tbl.status === "LIVE";
+                    return (
+                      <div
+                        key={tbl.id}
+                        className="p-4 bg-slate-950 rounded-xl border border-slate-800/80 flex flex-col justify-between space-y-2 hover:border-slate-700 transition-all"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-semibold">
+                              {tbl.category}
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
+                                isLive
+                                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                                  : "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                              }`}
+                            >
+                              {isLive ? "ONLINE" : "FALLBACK"}
+                            </span>
+                          </div>
+                          <p className="text-xs font-mono font-semibold text-slate-200 break-all">
+                            {tbl.name.replace("BigQuery Table: ", "").replace("BigQuery View: ", "")}
+                          </p>
+                        </div>
+
+                        <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400">
+                          {tbl.env_var && (
+                            <span className="font-mono text-[10px] text-blue-400 truncate max-w-[170px]" title={tbl.env_var}>
+                              env: {tbl.env_var}
+                            </span>
+                          )}
+                          <span className="font-mono text-slate-400 ml-auto">
+                            {tbl.latency_ms}ms
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
 
           {/* Raw JSON Toggle */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">

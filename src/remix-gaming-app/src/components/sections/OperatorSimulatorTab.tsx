@@ -68,6 +68,7 @@ export function OperatorSimulatorTab({ routingMode }: OperatorSimulatorTabProps)
     { id: "high_churn_boss_deaths", label: "💀 High-Churn Boss Death", desc: "Repeated Frost Giant wipeouts & churn risk" },
     { id: "level_2_bottleneck", label: "⚡ Level 2 Bottleneck", desc: "Excessive move exhaustion & difficulty drop" },
     { id: "toxic_chat", label: "☣️ Toxic Chat Outbreak", desc: "High-frequency chat flags & GIRA alert trigger" },
+    { id: "currency_duplication", label: "💰 Currency Duplication Spike", desc: "520% inflation & item exploit anomaly in transaction stream" },
   ];
 
   return (

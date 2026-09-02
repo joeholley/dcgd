@@ -20,6 +20,7 @@ import {
 import { cn } from "../../lib/utils";
 import { DataModeBadge } from "../DataModeBadge";
 import { useDemoEvent } from "../../context/DemoEventContext";
+import { usePublisher } from "../../context/PublisherContext";
 import { 
   BarChart, 
   Bar, 
@@ -89,6 +90,7 @@ const PLAYER_SEGMENTS = {
 };
 
 export function Operations() {
+  const { publisherName } = usePublisher();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [timeRange, setTimeRange] = useState("24h");
   const [activeTab, setActiveTab] = useState<"performance" | "segmentation" | "monetization">("performance");
@@ -201,6 +203,16 @@ export function Operations() {
         }
       })
       .catch(() => {});
+
+    // 5. Fetch live studio financial summary
+    fetch("/api/financial-summary")
+      .then((r) => r.json())
+      .then((records) => {
+        if (Array.isArray(records) && records.length > 0) {
+          setIsLiveConnected(true);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -245,7 +257,7 @@ export function Operations() {
               details="Live DAU, SRE telemetry, and player 360 profiles" 
             />
           </div>
-          <p className="text-slate-500 font-light mt-1 text-sm italic">Jingle Games Customer 360 • Live Telemetry Streams</p>
+          <p className="text-slate-500 font-light mt-1 text-sm italic">{publisherName} Customer 360 • Live Telemetry Streams</p>
         </div>
         <div className="flex gap-3">
           <button 
@@ -626,7 +638,7 @@ export function Operations() {
                   <h4 className="font-bold">Average Revenue Per User (ARPU)</h4>
                   <p className="text-3xl font-mono font-bold text-slate-800">$4.12 <span className="text-xs text-emerald-500 font-sans tracking-normal ml-2">+4.5% YoY</span></p>
                   <p className="text-xs text-slate-400 leading-relaxed font-light">
-                    Aggregated by connecting Snowflake real-time cohorts. ARPU has increased sequentially due to the introduction of season passes and limited-edition cosmetic drops in Jingle titles.
+                    Aggregated by connecting Snowflake real-time cohorts. ARPU has increased sequentially due to the introduction of season passes and limited-edition cosmetic drops in {publisherName} titles.
                   </p>
                </div>
                

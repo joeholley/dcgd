@@ -130,9 +130,14 @@ RUN_STEP_7=true
 RUN_STEP_8=true
 AGENT_TARGET="kc"
 FORCE_AGENT_BUILD=false
-SOURCE_PLAYER_DNA_TABLE="${SOURCE_PLAYER_DNA_TABLE:-gaming_player_data.player_dna}"
-SOURCE_RAW_EVENTS_TABLE="${SOURCE_RAW_EVENTS_TABLE:-gaming_raw.raw_events}"
-SOURCE_PAYMENT_SETTLEMENTS_TABLE="${SOURCE_PAYMENT_SETTLEMENTS_TABLE:-gaming_raw.payment_gateway_settlements}"
+GAME_DATASET=""
+GAME_DATASET_EXPLICIT=false
+RAW_EVENTS_EXPLICIT=false
+PLAYER_DNA_EXPLICIT=false
+SETTLEMENTS_EXPLICIT=false
+SOURCE_PLAYER_DNA_TABLE="${SOURCE_PLAYER_DNA_TABLE:-}"
+SOURCE_RAW_EVENTS_TABLE="${SOURCE_RAW_EVENTS_TABLE:-}"
+SOURCE_PAYMENT_SETTLEMENTS_TABLE="${SOURCE_PAYMENT_SETTLEMENTS_TABLE:-}"
 ENABLE_LEGACY_DATA_GEN="${ENABLE_LEGACY_DATA_GEN:-false}"
 
 # Helper to enable/disable all steps
@@ -209,16 +214,21 @@ Steps Runbook:
   Step 8: Public Cloud Run Service Deployment (Unauthenticated)
 
 Options:
+  --game-dataset <NAME> Dataset name for per-game telemetry (e.g. <discovered_game_dataset>).
+  --raw-events-table <T> Source table for raw CloudEvents (e.g. <dataset>.raw_events).
+  --player-dna-table <T> Source table for player demographic DNA.
+  --settlements-table <T> Source table for payment settlements clearing feed.
+  --enable-legacy-data-gen Enable legacy in-repo synthetic data generation routines in gaming_raw.
   --steps <1-8>         Comma-separated list of step numbers to run (disables all other steps).
   --skip-steps <1-8>    Comma-separated list of step numbers to skip.
   --all-agents          Deploy all 5 ADK agents (basic, scaled, kc, council, council_seq) during Step 6.
   --force-agent-build   Force rebuild of agent_kc container image during Step 6.
+  --publisher-name <N>  Publisher or studio name (default: 'Jingle Games'). Alias: --studio-name.
   -h, --help            Show this help message and exit.
 
 Examples:
-  $(basename "$0") --steps 1,2,3
-  $(basename "$0") --skip-steps 4,5
-  $(basename "$0") --steps 6 --all-agents
+  $(basename "$0") --game-dataset <discovered_game_dataset>
+  $(basename "$0") --enable-legacy-data-gen
 EOHELP
   exit "$exit_code"
 }
@@ -250,8 +260,23 @@ while [[ $# -gt 0 ]]; do
       FORCE_AGENT_BUILD=true
       shift
       ;;
+    --game-dataset=*)
+      GAME_DATASET="${1#*=}"
+      GAME_DATASET_EXPLICIT=true
+      shift
+      ;;
+    --game-dataset)
+      if [ -z "${2:-}" ]; then
+        log_error "--game-dataset requires a dataset name (e.g. gaming_neonvortex_7491282640212123500)"
+        exit 1
+      fi
+      GAME_DATASET="$2"
+      GAME_DATASET_EXPLICIT=true
+      shift 2
+      ;;
     --player-dna-table=*)
       SOURCE_PLAYER_DNA_TABLE="${1#*=}"
+      PLAYER_DNA_EXPLICIT=true
       shift
       ;;
     --player-dna-table)
@@ -260,35 +285,64 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       SOURCE_PLAYER_DNA_TABLE="$2"
+      PLAYER_DNA_EXPLICIT=true
       shift 2
       ;;
     --raw-events-table=*)
       SOURCE_RAW_EVENTS_TABLE="${1#*=}"
+      RAW_EVENTS_EXPLICIT=true
       shift
       ;;
     --raw-events-table)
       if [ -z "${2:-}" ]; then
-        log_error "--raw-events-table requires a table name (e.g. gaming_raw.raw_events)"
+        log_error "--raw-events-table requires a table name (e.g. gaming_neonvortex_7491282640212123500.raw_events)"
         exit 1
       fi
       SOURCE_RAW_EVENTS_TABLE="$2"
+      RAW_EVENTS_EXPLICIT=true
       shift 2
       ;;
     --settlements-table=*)
       SOURCE_PAYMENT_SETTLEMENTS_TABLE="${1#*=}"
+      SETTLEMENTS_EXPLICIT=true
       shift
       ;;
     --settlements-table)
       if [ -z "${2:-}" ]; then
-        log_error "--settlements-table requires a table name (e.g. gaming_raw.payment_gateway_settlements)"
+        log_error "--settlements-table requires a table name (e.g. gaming_ghostrunner_5130582752288880507.payment_gateway_settlements)"
         exit 1
       fi
       SOURCE_PAYMENT_SETTLEMENTS_TABLE="$2"
+      SETTLEMENTS_EXPLICIT=true
       shift 2
       ;;
     --enable-legacy-data-gen)
       ENABLE_LEGACY_DATA_GEN=true
       shift
+      ;;
+    --publisher-name=*)
+      PUBLISHER_NAME="${1#*=}"
+      shift
+      ;;
+    --publisher-name)
+      if [ -z "${2:-}" ]; then
+        log_error "--publisher-name requires a publisher or studio name (e.g. 'OmniArcade Studios')"
+        exit 1
+      fi
+      PUBLISHER_NAME="$2"
+      shift 2
+      ;;
+    --studio-name=*)
+      PUBLISHER_NAME="${1#*=}"
+      shift
+      ;;
+    --studio-name)
+      if [ -z "${2:-}" ]; then
+        log_error "--studio-name requires a publisher or studio name (e.g. 'OmniArcade Studios')"
+        exit 1
+      fi
+      PUBLISHER_NAME="$2"
+      shift 2
       ;;
     -h|--help)
       usage 0
@@ -301,6 +355,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Configuration variables
+PUBLISHER_NAME="${PUBLISHER_NAME:-${STUDIO_NAME:-Jingle Games}}"
+
 GCP_PROJECT="$(gcloud config get-value project 2>/dev/null)"
 if [ -z "$GCP_PROJECT" ]; then
   GCP_PROJECT="${GOOGLE_CLOUD_PROJECT:-${GCP_PROJECT}}"
@@ -383,7 +439,6 @@ if [ "$RUN_STEP_3" = true ] || [ "$RUN_STEP_5" = true ]; then
   check_tool "bq" "bq version"
 fi
 
-
 if [ "$RUN_STEP_2" = true ] || [ "$RUN_STEP_4" = true ] || [ "$RUN_STEP_6" = true ]; then
   check_tool "python3" "python3 --version"
 fi
@@ -398,6 +453,7 @@ log_info "  - GCP Project ID: ${GCP_PROJECT}"
 log_info "  - GCP Project Number: ${GCP_PROJECT_NUMBER}"
 log_info "  - GCP Region: ${GCP_REGION}"
 log_info "  - Telemetry Pub/Sub Topic: ${PUBSUB_TOPIC}"
+log_info "  - Publisher / Studio Name: ${PUBLISHER_NAME}"
 
 log_info "Enabling foundational GCP APIs (Cloud Resource Manager & Service Usage)..."
 gcloud services enable \
@@ -415,6 +471,132 @@ gcloud services enable \
   aiplatform.googleapis.com \
   firestore.googleapis.com \
   --project="${GCP_PROJECT}"
+
+# Source Dataset Discovery & Verification Gate
+if [ "$ENABLE_LEGACY_DATA_GEN" = true ]; then
+  log_info "Legacy in-repo synthetic data generation mode ENABLED (--enable-legacy-data-gen)."
+  SOURCE_PLAYER_DNA_TABLE="${SOURCE_PLAYER_DNA_TABLE:-${GCP_PROJECT}.gaming_raw.gcp_players}"
+  SOURCE_RAW_EVENTS_TABLE="${SOURCE_RAW_EVENTS_TABLE:-${GCP_PROJECT}.gaming_raw.live_session_events}"
+  SOURCE_PAYMENT_SETTLEMENTS_TABLE="${SOURCE_PAYMENT_SETTLEMENTS_TABLE:-${GCP_PROJECT}.gaming_raw.iap_transactions}"
+else
+  # Default mode: Pure-consumer expecting pre-existing upstream datasets
+  if [ "$GAME_DATASET_EXPLICIT" = true ]; then
+    SOURCE_RAW_EVENTS_TABLE="${GCP_PROJECT}.${GAME_DATASET}.raw_events"
+    if [ "$SETTLEMENTS_EXPLICIT" = false ]; then
+      if bq show --location="${BIGQUERY_LOCATION:-US}" "${GCP_PROJECT}:${GAME_DATASET}.payment_gateway_settlements" >/dev/null 2>&1; then
+        SOURCE_PAYMENT_SETTLEMENTS_TABLE="${GCP_PROJECT}.${GAME_DATASET}.payment_gateway_settlements"
+      else
+        SOURCE_PAYMENT_SETTLEMENTS_TABLE="${GCP_PROJECT}.gaming_ghostrunner_5130582752288880507.payment_gateway_settlements"
+      fi
+    fi
+  elif [ "$RAW_EVENTS_EXPLICIT" = false ]; then
+    # Query BigQuery for available upstream datasets
+    log_info "Querying BigQuery for available upstream datasets in project '${GCP_PROJECT}'..."
+    
+    # Discover Player DNA table
+    DISCOVERED_PLAYER_DNA_DS=$(bq query --use_legacy_sql=false --location="${BIGQUERY_LOCATION:-US}" --format=csv --quiet \
+      "SELECT table_schema FROM \`${GCP_PROJECT}.region-US.INFORMATION_SCHEMA.TABLES\` WHERE table_name = 'player_dna' ORDER BY table_schema LIMIT 1" 2>/dev/null | tail -n +2 | tr -d '[:space:]' || true)
+    
+    if [ -n "$DISCOVERED_PLAYER_DNA_DS" ]; then
+      PLAYER_DNA_REF="${GCP_PROJECT}.${DISCOVERED_PLAYER_DNA_DS}.player_dna"
+      PLAYER_DNA_MSG="  • ${GREEN}${PLAYER_DNA_REF}${NC} (Found via INFORMATION_SCHEMA.TABLES query for 'player_dna')"
+    else
+      PLAYER_DNA_REF="${GCP_PROJECT}.gaming_player_data.player_dna"
+      PLAYER_DNA_MSG="  • ${YELLOW}${PLAYER_DNA_REF}${NC} (Default fallback; table not found in INFORMATION_SCHEMA.TABLES)"
+    fi
+
+    # Discover per-game telemetry datasets
+    DISCOVERED_DATASETS=$(bq query --use_legacy_sql=false --location="${BIGQUERY_LOCATION:-US}" --format=csv --quiet \
+      "SELECT table_schema FROM \`${GCP_PROJECT}.region-US.INFORMATION_SCHEMA.TABLES\` WHERE table_name = 'raw_events' AND table_schema LIKE 'gaming_%' AND table_schema != 'gaming_raw' ORDER BY table_schema" 2>/dev/null | tail -n +2 || true)
+    
+    echo -e "\n${BOLD}${BLUE}======================================================================${NC}"
+    echo -e "${BOLD}${BLUE}🔍 UPSTREAM LAKEHOUSE DATASET DISCOVERY${NC}"
+    echo -e "${BOLD}${BLUE}======================================================================${NC}"
+    echo -e "By default, this repository deploys as a pure downstream consumer of pre-existing"
+    echo -e "datasets generated upstream by 'eventsim' and the player population generator.\n"
+    
+    echo -e "${BOLD}Discovered Global Player Demographic Population table:${NC}"
+    echo -e "$PLAYER_DNA_MSG\n"
+
+    if [ -n "$DISCOVERED_DATASETS" ]; then
+      echo -e "${BOLD}Discovered per-game telemetry datasets (containing 'raw_events'):${NC}"
+      ALL_DS_COMMA=""
+      while IFS= read -r ds; do
+        if [ -n "$ds" ]; then
+          echo -e "  • ${GREEN}${ds}${NC}"
+          if [ -z "$ALL_DS_COMMA" ]; then
+            ALL_DS_COMMA="$ds"
+          else
+            ALL_DS_COMMA="${ALL_DS_COMMA},$ds"
+          fi
+        fi
+      done <<< "$DISCOVERED_DATASETS"
+      
+      FIRST_DS=$(echo "$DISCOVERED_DATASETS" | head -n 1)
+      
+      echo -e "\n${BOLD}----------------------------------------------------------------------${NC}"
+      echo -e "${BOLD}RECOMMENDED COMMAND LINES TO DEPLOY VIA CLOUD BUILD${NC}"
+      echo -e "${BOLD}----------------------------------------------------------------------${NC}"
+      echo -e "\n${BOLD}1. Deploy targeting a single primary game dataset:${NC}"
+      echo -e "  ${YELLOW}gcloud builds submit --config=cloudbuild.yaml \\"
+      echo -e "    --substitutions=_GAME_DATASET=${FIRST_DS},_SOURCE_PLAYER_DNA_TABLE=${PLAYER_DNA_REF},_LOCATION=${GCP_REGION}${NC}"
+      
+      echo -e "\n${BOLD}2. Deploy targeting ALL discovered game datasets:${NC}"
+      echo -e "  ${YELLOW}gcloud builds submit --config=cloudbuild.yaml \\"
+      echo -e "    --substitutions=_GAME_DATASETS=\"${ALL_DS_COMMA}\",_SOURCE_PLAYER_DNA_TABLE=${PLAYER_DNA_REF},_LOCATION=${GCP_REGION}${NC}"
+      
+      echo -e "\n${BOLD}3. Deploy with granular explicit table substitutions:${NC}"
+      echo -e "  ${YELLOW}gcloud builds submit --config=cloudbuild.yaml \\"
+      echo -e "    --substitutions=_SOURCE_RAW_EVENTS_TABLE=${FIRST_DS}.raw_events,_SOURCE_PLAYER_DNA_TABLE=${PLAYER_DNA_REF},_LOCATION=${GCP_REGION}${NC}"
+    else
+      echo -e "${YELLOW}No per-game datasets with 'raw_events' were found in '${GCP_PROJECT}'.${NC}\n"
+    fi
+    
+    echo -e "${BOLD}${BLUE}======================================================================${NC}\n"
+    
+    log_info "Exiting so the target game dataset can be explicitly specified."
+    exit 0
+  fi
+
+  # Default Player DNA table if not explicitly provided
+  if [ -z "$SOURCE_PLAYER_DNA_TABLE" ]; then
+    DISCOVERED_PLAYER_DNA_DS=$(bq query --use_legacy_sql=false --location="${BIGQUERY_LOCATION:-US}" --format=csv --quiet \
+      "SELECT table_schema FROM \`${GCP_PROJECT}.region-US.INFORMATION_SCHEMA.TABLES\` WHERE table_name = 'player_dna' ORDER BY table_schema LIMIT 1" 2>/dev/null | tail -n +2 | tr -d '[:space:]' || true)
+    if [ -n "$DISCOVERED_PLAYER_DNA_DS" ]; then
+      SOURCE_PLAYER_DNA_TABLE="${GCP_PROJECT}.${DISCOVERED_PLAYER_DNA_DS}.player_dna"
+    else
+      SOURCE_PLAYER_DNA_TABLE="${GCP_PROJECT}.gaming_player_data.player_dna"
+    fi
+  fi
+
+  # Fully qualify table names
+  if [[ "${SOURCE_PLAYER_DNA_TABLE}" =~ ^[^.]+\.[^.]+$ ]]; then
+    SOURCE_PLAYER_DNA_TABLE="${GCP_PROJECT}.${SOURCE_PLAYER_DNA_TABLE}"
+  fi
+  if [[ "${SOURCE_RAW_EVENTS_TABLE}" =~ ^[^.]+\.[^.]+$ ]]; then
+    SOURCE_RAW_EVENTS_TABLE="${GCP_PROJECT}.${SOURCE_RAW_EVENTS_TABLE}"
+  fi
+  if [[ "${SOURCE_PAYMENT_SETTLEMENTS_TABLE}" =~ ^[^.]+\.[^.]+$ ]]; then
+    SOURCE_PAYMENT_SETTLEMENTS_TABLE="${GCP_PROJECT}.${SOURCE_PAYMENT_SETTLEMENTS_TABLE}"
+  fi
+
+  log_info "Verifying required upstream source tables..."
+  # Validate Player DNA table
+  PLAYER_DNA_BQ_REF="${SOURCE_PLAYER_DNA_TABLE/./:}"
+  if ! bq show --location="${BIGQUERY_LOCATION:-US}" "${PLAYER_DNA_BQ_REF}" >/dev/null 2>&1; then
+    log_error "Upstream Player DNA table '${SOURCE_PLAYER_DNA_TABLE}' not found in BigQuery (location: ${BIGQUERY_LOCATION:-US})."
+    exit 1
+  fi
+
+  # Validate Raw Events table
+  RAW_EVENTS_BQ_REF="${SOURCE_RAW_EVENTS_TABLE/./:}"
+  if ! bq show --location="${BIGQUERY_LOCATION:-US}" "${RAW_EVENTS_BQ_REF}" >/dev/null 2>&1; then
+    log_error "Upstream Raw Events table '${SOURCE_RAW_EVENTS_TABLE}' not found in BigQuery (location: ${BIGQUERY_LOCATION:-US})."
+    exit 1
+  fi
+
+  log_success "Upstream source tables verified in BigQuery."
+fi
 
 log_success "Step 0 Pre-flight checks completed."
 
@@ -448,6 +630,7 @@ if [ "$RUN_STEP_1" = true ]; then
       "gaming_raw:module.games[0].google_bigquery_dataset.gaming_raw"
       "gaming_silver:module.games[0].google_bigquery_dataset.gaming_silver"
       "gaming_gold:module.games[0].google_bigquery_dataset.gaming_gold"
+      "gaming_reference_data:module.games[0].google_bigquery_dataset.gaming_reference_data"
     )
     if [ "$ENABLE_LEGACY_DATA_GEN" = true ]; then
       TF_DATASETS+=("gaming_synthetic:module.games[0].google_bigquery_dataset.gaming_synthetic[0]")
@@ -477,6 +660,39 @@ if [ "$RUN_STEP_1" = true ]; then
           "${tf_target}" "${GCP_PROJECT}:${ds}" 2>&1 | grep -E "Import successful|Resource created|Imported" || true
     done
 
+    # Pre-import existing Firestore (default) database into Terraform state if it already exists in GCP
+    log_info "Checking if Firestore (default) database exists in GCP for Terraform pre-import..."
+    if gcloud firestore databases describe --database="(default)" --project="${GCP_PROJECT}" >/dev/null 2>&1; then
+      log_info "  Firestore (default) database exists. Pre-importing into Terraform state..."
+      terraform -chdir="${TF_DIR}" import \
+        -var="project_id=${GCP_PROJECT}" \
+        -var="industry_target=games" \
+        -var="bigquery_dataset_location=${GCP_REGION}" \
+        -var="games_dataset_location=US" \
+        -var="firestore_location=${GCP_REGION}" \
+        -var="source_player_dna_table=${SOURCE_PLAYER_DNA_TABLE}" \
+        -var="source_raw_events_table=${SOURCE_RAW_EVENTS_TABLE}" \
+        -var="source_payment_settlements_table=${SOURCE_PAYMENT_SETTLEMENTS_TABLE}" \
+        -var="enable_legacy_data_gen=${ENABLE_LEGACY_DATA_GEN}" \
+        "module.games[0].google_firestore_database.database" "projects/${GCP_PROJECT}/databases/(default)" 2>&1 | grep -E "Import successful|Resource created|Imported" || true
+    fi
+
+    # Pre-import existing gaming-campaign-activations topic into Terraform state
+    if gcloud pubsub topics describe gaming-campaign-activations --project="${GCP_PROJECT}" >/dev/null 2>&1; then
+      log_info "  Pub/Sub topic gaming-campaign-activations exists. Pre-importing into Terraform state..."
+      terraform -chdir="${TF_DIR}" import \
+        -var="project_id=${GCP_PROJECT}" \
+        -var="industry_target=games" \
+        -var="bigquery_dataset_location=${GCP_REGION}" \
+        -var="games_dataset_location=US" \
+        -var="firestore_location=${GCP_REGION}" \
+        -var="source_player_dna_table=${SOURCE_PLAYER_DNA_TABLE}" \
+        -var="source_raw_events_table=${SOURCE_RAW_EVENTS_TABLE}" \
+        -var="source_payment_settlements_table=${SOURCE_PAYMENT_SETTLEMENTS_TABLE}" \
+        -var="enable_legacy_data_gen=${ENABLE_LEGACY_DATA_GEN}" \
+        "module.games[0].google_pubsub_topic.campaign_activations" "projects/${GCP_PROJECT}/topics/gaming-campaign-activations" 2>&1 | grep -E "Import successful|Resource created|Imported" || true
+    fi
+
     log_info "Executing 'terraform apply'..."
     tf_exit=0
     if ! terraform -chdir="${TF_DIR}" apply -auto-approve \
@@ -484,6 +700,7 @@ if [ "$RUN_STEP_1" = true ]; then
       -var="industry_target=games" \
       -var="bigquery_dataset_location=${GCP_REGION}" \
       -var="games_dataset_location=US" \
+      -var="firestore_location=${GCP_REGION}" \
       -var="source_player_dna_table=${SOURCE_PLAYER_DNA_TABLE}" \
       -var="source_raw_events_table=${SOURCE_RAW_EVENTS_TABLE}" \
       -var="source_payment_settlements_table=${SOURCE_PAYMENT_SETTLEMENTS_TABLE}" \
@@ -496,6 +713,25 @@ if [ "$RUN_STEP_1" = true ]; then
     else
       log_success "Step 1 Terraform infrastructure applied successfully."
     fi
+
+    # Verify or create Cloud Firestore Native database (default) if not present
+    log_info "Verifying Cloud Firestore Native database (default)..."
+    if ! gcloud firestore databases describe --database="(default)" --project="${GCP_PROJECT}" >/dev/null 2>&1; then
+      log_info "Creating Cloud Firestore Native database (default) in ${GCP_REGION}..."
+      gcloud firestore databases create --project="${GCP_PROJECT}" --location="${GCP_REGION}" --type=firestore-native --quiet || true
+    else
+      log_success "Cloud Firestore Native database (default) verified."
+    fi
+
+    # Seed reference configurations and client releases
+    log_info "Seeding BigQuery reference configurations and client releases..."
+    bq query --use_legacy_sql=false --location="${BIGQUERY_LOCATION:-US}" --project_id="${GCP_PROJECT}" \
+      "CALL \`${GCP_PROJECT}.gaming_reference_data.seed_reference_tables\`();" 2>/dev/null || true
+
+    # Verify or train BQML churn prediction model on conformed Gold layer
+    log_info "Verifying / training BQML player_churn_model on conformed Gold layer..."
+    bq query --use_legacy_sql=false --location="${BIGQUERY_LOCATION:-US}" --project_id="${GCP_PROJECT}" \
+      "CALL \`${GCP_PROJECT}.gaming_raw.train_churn_model\`();" 2>/dev/null || true
   else
     log_error "Terraform directory ${TF_DIR} not found."
     exit 1
@@ -531,242 +767,246 @@ fi
 if [ "$RUN_STEP_3" = true ]; then
   log_step "STEP 3: Dataform Medallion Pipeline Execution (Bronze -> Silver -> Gold)"
 
-  DATAFORM_DIR="${GAMING_DIR}/dataform"
-  if [ -d "$DATAFORM_DIR" ]; then
-    log_info "Compiling and running Dataform Medallion models in ${DATAFORM_DIR}..."
+  if [ "$ENABLE_LEGACY_DATA_GEN" = true ]; then
+    DATAFORM_DIR="${GAMING_DIR}/dataform"
+    if [ -d "$DATAFORM_DIR" ]; then
+      log_info "Compiling and running legacy Dataform Medallion models in ${DATAFORM_DIR}..."
 
-    log_info "Ensuring source tables exist and are seeded before Dataform execution..."
-    bq query --location="${GCP_REGION}" --use_legacy_sql=false "
-      DECLARE b INT64 DEFAULT 0;
-      DECLARE e INT64 DEFAULT 0;
+      log_info "Ensuring legacy source tables exist and are seeded before Dataform execution..."
+      bq query --location="${BIGQUERY_LOCATION:-US}" --use_legacy_sql=false "
+        DECLARE b INT64 DEFAULT 0;
+        DECLARE e INT64 DEFAULT 0;
 
-      CREATE SCHEMA IF NOT EXISTS \`${GCP_PROJECT}.gaming_central_identity\` OPTIONS(location='${GCP_REGION}');
-      CREATE SCHEMA IF NOT EXISTS \`${GCP_PROJECT}.gaming_raw\` OPTIONS(location='${GCP_REGION}');
+        CREATE SCHEMA IF NOT EXISTS \`${GCP_PROJECT}.gaming_central_identity\` OPTIONS(location='${BIGQUERY_LOCATION:-US}');
+        CREATE SCHEMA IF NOT EXISTS \`${GCP_PROJECT}.gaming_raw\` OPTIONS(location='${BIGQUERY_LOCATION:-US}');
 
-      CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.gaming_central_identity.players\` (
-        user_id STRING,
-        username STRING,
-        email STRING,
-        locale STRING,
-        region_code STRING,
-        age_bracket STRING,
-        created_at TIMESTAMP,
-        signup_platform STRING,
-        last_login_ip STRING,
-        install_source STRING
-      );
+        CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.gaming_central_identity.players\` (
+          user_id STRING,
+          username STRING,
+          email STRING,
+          locale STRING,
+          region_code STRING,
+          age_bracket STRING,
+          created_at TIMESTAMP,
+          signup_platform STRING,
+          last_login_ip STRING,
+          install_source STRING
+        );
 
-      IF NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.gaming_central_identity.players\` LIMIT 1) THEN
-        WHILE b < 150000 DO
-          INSERT INTO \`${GCP_PROJECT}.gaming_central_identity.players\`
-          (user_id, username, email, locale, region_code, age_bracket, created_at, signup_platform, last_login_ip, install_source)
-          SELECT
-            CONCAT('PLAY-', LPAD(CAST(id AS STRING), 8, '0')) AS user_id,
-            CONCAT('Player_', LPAD(CAST(id AS STRING), 7, '0')) AS username,
-            CONCAT('player_', CAST(id AS STRING), '@omniarcade.com') AS email,
-            'en-US' AS locale,
-            CASE MOD(id, 4) WHEN 0 THEN 'US' WHEN 1 THEN 'EU' WHEN 2 THEN 'APAC' ELSE 'LATAM' END AS region_code,
-            CASE MOD(id, 3) WHEN 0 THEN 'Adult' WHEN 1 THEN 'Teen' ELSE 'Minor' END AS age_bracket,
-            TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL MOD(id, 365) DAY) AS created_at,
-            CASE MOD(id, 3) WHEN 0 THEN 'Steam' WHEN 1 THEN 'Mobile' ELSE 'Console' END AS signup_platform,
-            '127.0.0.1' AS last_login_ip,
-            'Organic' AS install_source
-          FROM UNNEST(GENERATE_ARRAY(b + 1, b + 50000)) AS id;
+        IF NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.gaming_central_identity.players\` LIMIT 1) THEN
+          WHILE b < 150000 DO
+            INSERT INTO \`${GCP_PROJECT}.gaming_central_identity.players\`
+            (user_id, username, email, locale, region_code, age_bracket, created_at, signup_platform, last_login_ip, install_source)
+            SELECT
+              CONCAT('PLAY-', LPAD(CAST(id AS STRING), 8, '0')) AS user_id,
+              CONCAT('Player_', LPAD(CAST(id AS STRING), 7, '0')) AS username,
+              CONCAT('player_', CAST(id AS STRING), '@omniarcade.com') AS email,
+              'en-US' AS locale,
+              CASE MOD(id, 4) WHEN 0 THEN 'US' WHEN 1 THEN 'EU' WHEN 2 THEN 'APAC' ELSE 'LATAM' END AS region_code,
+              CASE MOD(id, 3) WHEN 0 THEN 'Adult' WHEN 1 THEN 'Teen' ELSE 'Minor' END AS age_bracket,
+              TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL MOD(id, 365) DAY) AS created_at,
+              CASE MOD(id, 3) WHEN 0 THEN 'Steam' WHEN 1 THEN 'Mobile' ELSE 'Console' END AS signup_platform,
+              '127.0.0.1' AS last_login_ip,
+              'Organic' AS install_source
+            FROM UNNEST(GENERATE_ARRAY(b + 1, b + 50000)) AS id;
 
-          SET b = b + 50000;
-        END WHILE;
-      END IF;
+            SET b = b + 50000;
+          END WHILE;
+        END IF;
 
-      CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.gaming_raw.gcp_players\` (
-        player_id STRING,
-        payer_tier STRING,
-        total_iap_spend FLOAT64,
-        days_since_last_login INT64,
-        favorite_category STRING,
-        created_at TIMESTAMP,
-        region_code STRING
-      );
+        CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.gaming_raw.gcp_players\` (
+          player_id STRING,
+          payer_tier STRING,
+          total_iap_spend FLOAT64,
+          days_since_last_login INT64,
+          favorite_category STRING,
+          created_at TIMESTAMP,
+          region_code STRING
+        );
 
-      INSERT INTO \`${GCP_PROJECT}.gaming_raw.gcp_players\`
-      (player_id, payer_tier, total_iap_spend, days_since_last_login, favorite_category, created_at, region_code)
-      SELECT
-        user_id AS player_id,
-        CASE
-          WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) = 0 THEN 'Whale'
-          WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) IN (1, 2) THEN 'Dolphin'
-          WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) IN (3, 4, 5) THEN 'Minnow'
-          ELSE 'F2P'
-        END AS payer_tier,
-        CASE
-          WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) = 0 THEN 750.00
-          WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) IN (1, 2) THEN 120.00
-          WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) IN (3, 4, 5) THEN 15.00
-          ELSE 0.00
-        END AS total_iap_spend,
-        MOD(CAST(SUBSTR(user_id, 6) AS INT64), 30) AS days_since_last_login,
-        CASE MOD(CAST(SUBSTR(user_id, 6) AS INT64), 4) WHEN 0 THEN 'RPG' WHEN 1 THEN 'FPS' WHEN 2 THEN 'MOBA' ELSE 'Strategy' END AS favorite_category,
-        created_at,
-        region_code
-      FROM \`${GCP_PROJECT}.gaming_central_identity.players\`
-      WHERE user_id NOT IN (SELECT player_id FROM \`${GCP_PROJECT}.gaming_raw.gcp_players\`);
-
-      CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.gaming_raw.live_session_events\` (
-        session_id STRING,
-        player_id STRING,
-        event_type STRING,
-        timestamp TIMESTAMP,
-        session_duration_seconds INT64,
-        consecutive_deaths INT64
-      );
-
-      IF NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.gaming_raw.live_session_events\` LIMIT 1) THEN
-        WHILE e < 300000 DO
-          INSERT INTO \`${GCP_PROJECT}.gaming_raw.live_session_events\` (session_id, player_id, event_type, timestamp, session_duration_seconds, consecutive_deaths)
-          SELECT
-            CONCAT('EVT-', LPAD(CAST(id AS STRING), 8, '0')) AS session_id,
-            CONCAT('PLAY-', LPAD(CAST(MOD(id, 150000) + 1 AS STRING), 8, '0')) AS player_id,
-            CASE
-              WHEN MOD(MOD(id, 150000) + 1, 100) < 12 THEN 'boss_fail'
-              WHEN MOD(id, 3) = 1 THEN 'level_complete'
-              ELSE 'session_start'
-            END AS event_type,
-            TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL MOD(id, 43200) MINUTE) AS timestamp,
-            MOD(id, 3600) AS session_duration_seconds,
-            CASE
-              WHEN MOD(MOD(id, 150000) + 1, 100) < 12 THEN 4
-              ELSE MOD(id, 3)
-            END AS consecutive_deaths
-          FROM UNNEST(GENERATE_ARRAY(e + 1, e + 100000)) AS id;
-
-          SET e = e + 100000;
-        END WHILE;
-      END IF;
-
-      CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.gaming_raw.iap_transactions\` (
-        transaction_id STRING,
-        player_id STRING,
-        item_id STRING,
-        amount_usd NUMERIC,
-        timestamp TIMESTAMP
-      );
-
-      IF NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.gaming_raw.iap_transactions\` LIMIT 1) THEN
-        INSERT INTO \`${GCP_PROJECT}.gaming_raw.iap_transactions\` (transaction_id, player_id, amount_usd, item_id, timestamp)
-        WITH paying_players AS (
-          SELECT player_id, payer_tier, total_iap_spend, created_at
-          FROM \`${GCP_PROJECT}.gaming_raw.gcp_players\`
-          WHERE payer_tier != 'F2P' AND total_iap_spend > 0
-        ),
-        candidate_tx AS (
-          SELECT
-            p.player_id,
-            p.payer_tier,
-            p.total_iap_spend,
-            p.created_at,
-            seq AS tx_seq,
-            CASE p.payer_tier
-              WHEN 'Minnow' THEN [0.99, 1.99, 2.99, 4.99][OFFSET(CAST(FLOOR(RAND() * 4) AS INT64))]
-              WHEN 'Dolphin' THEN [4.99, 9.99, 14.99, 24.99, 49.99][OFFSET(CAST(FLOOR(RAND() * 5) AS INT64))]
-              WHEN 'Whale' THEN [19.99, 49.99, 99.99, 199.99][OFFSET(CAST(FLOOR(RAND() * 4) AS INT64))]
-            END AS sku_price
-          FROM paying_players p
-          CROSS JOIN UNNEST(GENERATE_ARRAY(1, 10)) seq
-        ),
-        running_tx AS (
-          SELECT
-            player_id,
-            payer_tier,
-            total_iap_spend,
-            created_at,
-            tx_seq,
-            sku_price,
-            SUM(sku_price) OVER (PARTITION BY player_id ORDER BY tx_seq ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cum_spend,
-            COALESCE(SUM(sku_price) OVER (PARTITION BY player_id ORDER BY tx_seq ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0.0) AS prev_cum_spend
-          FROM candidate_tx
-        ),
-        reconciled_tx AS (
-          SELECT
-            player_id,
-            payer_tier,
-            created_at,
-            tx_seq,
-            ROUND(
-              CASE
-                WHEN cum_spend <= total_iap_spend THEN sku_price
-                ELSE total_iap_spend - prev_cum_spend
-              END, 2
-            ) AS amount_usd
-          FROM running_tx
-          WHERE prev_cum_spend < total_iap_spend
-            AND ROUND(
-              CASE
-                WHEN cum_spend <= total_iap_spend THEN sku_price
-                ELSE total_iap_spend - prev_cum_spend
-              END, 2
-            ) > 0.00
-        )
+        INSERT INTO \`${GCP_PROJECT}.gaming_raw.gcp_players\`
+        (player_id, payer_tier, total_iap_spend, days_since_last_login, favorite_category, created_at, region_code)
         SELECT
-          CONCAT('TXN-', LPAD(CAST(ROW_NUMBER() OVER() AS STRING), 8, '0')) AS transaction_id,
-          r.player_id,
-          r.amount_usd,
-          CONCAT('SKU-', LPAD(CAST(MOD(r.tx_seq, 50) + 1 AS STRING), 4, '0')) AS item_id,
-          TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL CAST(r.tx_seq * 12 AS INT64) HOUR) AS timestamp
-        FROM reconciled_tx r;
-      END IF;
-    "
+          user_id AS player_id,
+          CASE
+            WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) = 0 THEN 'Whale'
+            WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) IN (1, 2) THEN 'Dolphin'
+            WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) IN (3, 4, 5) THEN 'Minnow'
+            ELSE 'F2P'
+          END AS payer_tier,
+          CASE
+            WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) = 0 THEN 750.00
+            WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) IN (1, 2) THEN 120.00
+            WHEN MOD(CAST(SUBSTR(user_id, 6) AS INT64), 10) IN (3, 4, 5) THEN 15.00
+            ELSE 0.00
+          END AS total_iap_spend,
+          MOD(CAST(SUBSTR(user_id, 6) AS INT64), 30) AS days_since_last_login,
+          CASE MOD(CAST(SUBSTR(user_id, 6) AS INT64), 4) WHEN 0 THEN 'RPG' WHEN 1 THEN 'FPS' WHEN 2 THEN 'MOBA' ELSE 'Strategy' END AS favorite_category,
+          created_at,
+          region_code
+        FROM \`${GCP_PROJECT}.gaming_central_identity.players\`
+        WHERE user_id NOT IN (SELECT player_id FROM \`${GCP_PROJECT}.gaming_raw.gcp_players\`);
 
-    # Always overwrite .df-credentials.json to enforce project and location (e.g. us-central1 vs US)
-    cat <<EOF > "${DATAFORM_DIR}/.df-credentials.json"
+        CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.gaming_raw.live_session_events\` (
+          session_id STRING,
+          player_id STRING,
+          event_type STRING,
+          timestamp TIMESTAMP,
+          session_duration_seconds INT64,
+          consecutive_deaths INT64
+        );
+
+        IF NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.gaming_raw.live_session_events\` LIMIT 1) THEN
+          WHILE e < 300000 DO
+            INSERT INTO \`${GCP_PROJECT}.gaming_raw.live_session_events\` (session_id, player_id, event_type, timestamp, session_duration_seconds, consecutive_deaths)
+            SELECT
+              CONCAT('EVT-', LPAD(CAST(id AS STRING), 8, '0')) AS session_id,
+              CONCAT('PLAY-', LPAD(CAST(MOD(id, 150000) + 1 AS STRING), 8, '0')) AS player_id,
+              CASE
+                WHEN MOD(MOD(id, 150000) + 1, 100) < 12 THEN 'boss_fail'
+                WHEN MOD(id, 3) = 1 THEN 'level_complete'
+                ELSE 'session_start'
+              END AS event_type,
+              TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL MOD(id, 43200) MINUTE) AS timestamp,
+              MOD(id, 3600) AS session_duration_seconds,
+              CASE
+                WHEN MOD(MOD(id, 150000) + 1, 100) < 12 THEN 4
+                ELSE MOD(id, 3)
+              END AS consecutive_deaths
+            FROM UNNEST(GENERATE_ARRAY(e + 1, e + 100000)) AS id;
+
+            SET e = e + 100000;
+          END WHILE;
+        END IF;
+
+        CREATE TABLE IF NOT EXISTS \`${GCP_PROJECT}.gaming_raw.iap_transactions\` (
+          transaction_id STRING,
+          player_id STRING,
+          item_id STRING,
+          amount_usd NUMERIC,
+          timestamp TIMESTAMP
+        );
+
+        IF NOT EXISTS (SELECT 1 FROM \`${GCP_PROJECT}.gaming_raw.iap_transactions\` LIMIT 1) THEN
+          INSERT INTO \`${GCP_PROJECT}.gaming_raw.iap_transactions\` (transaction_id, player_id, amount_usd, item_id, timestamp)
+          WITH paying_players AS (
+            SELECT player_id, payer_tier, total_iap_spend, created_at
+            FROM \`${GCP_PROJECT}.gaming_raw.gcp_players\`
+            WHERE payer_tier != 'F2P' AND total_iap_spend > 0
+          ),
+          candidate_tx AS (
+            SELECT
+              p.player_id,
+              p.payer_tier,
+              p.total_iap_spend,
+              p.created_at,
+              seq AS tx_seq,
+              CASE p.payer_tier
+                WHEN 'Minnow' THEN [0.99, 1.99, 2.99, 4.99][OFFSET(CAST(FLOOR(RAND() * 4) AS INT64))]
+                WHEN 'Dolphin' THEN [4.99, 9.99, 14.99, 24.99, 49.99][OFFSET(CAST(FLOOR(RAND() * 5) AS INT64))]
+                WHEN 'Whale' THEN [19.99, 49.99, 99.99, 199.99][OFFSET(CAST(FLOOR(RAND() * 4) AS INT64))]
+              END AS sku_price
+            FROM paying_players p
+            CROSS JOIN UNNEST(GENERATE_ARRAY(1, 10)) seq
+          ),
+          running_tx AS (
+            SELECT
+              player_id,
+              payer_tier,
+              total_iap_spend,
+              created_at,
+              tx_seq,
+              sku_price,
+              SUM(sku_price) OVER (PARTITION BY player_id ORDER BY tx_seq ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cum_spend,
+              COALESCE(SUM(sku_price) OVER (PARTITION BY player_id ORDER BY tx_seq ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0.0) AS prev_cum_spend
+            FROM candidate_tx
+          ),
+          reconciled_tx AS (
+            SELECT
+              player_id,
+              payer_tier,
+              created_at,
+              tx_seq,
+              ROUND(
+                CASE
+                  WHEN cum_spend <= total_iap_spend THEN sku_price
+                  ELSE total_iap_spend - prev_cum_spend
+                END, 2
+              ) AS amount_usd
+            FROM running_tx
+            WHERE prev_cum_spend < total_iap_spend
+              AND ROUND(
+                CASE
+                  WHEN cum_spend <= total_iap_spend THEN sku_price
+                  ELSE total_iap_spend - prev_cum_spend
+                END, 2
+              ) > 0.00
+          )
+          SELECT
+            CONCAT('TXN-', LPAD(CAST(ROW_NUMBER() OVER() AS STRING), 8, '0')) AS transaction_id,
+            r.player_id,
+            r.amount_usd,
+            CONCAT('SKU-', LPAD(CAST(MOD(r.tx_seq, 50) + 1 AS STRING), 4, '0')) AS item_id,
+            TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL CAST(r.tx_seq * 12 AS INT64) HOUR) AS timestamp
+          FROM reconciled_tx r;
+        END IF;
+      "
+
+      # Always overwrite .df-credentials.json to enforce project and location (e.g. us-central1 vs US)
+      cat <<EOF > "${DATAFORM_DIR}/.df-credentials.json"
 {
   "projectId": "${GCP_PROJECT}",
   "location": "${GCP_REGION}"
 }
 EOF
 
-    cat <<EOF > "${DATAFORM_DIR}/workflow_settings.yaml"
+      cat <<EOF > "${DATAFORM_DIR}/workflow_settings.yaml"
 dataformCoreVersion: 3.0.56
-defaultLocation: ${GCP_REGION}
+defaultLocation: ${BIGQUERY_LOCATION:-US}
 datasetSuffix: ""
 defaultAssertionDataset: gaming_dataform_assertions
 EOF
 
-    log_info "Ensuring Cloud Build service account IAM permissions for BigQuery Dataform & Dataplex execution..."
-    grant_roles_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
-      "roles/bigquery.user" \
-      "roles/bigquery.dataViewer" \
-      "roles/bigquery.dataEditor" \
-      "roles/storage.objectViewer" \
-      "roles/logging.logWriter" \
-      "roles/dataplex.catalogEditor" \
-      "roles/dataplex.editor" \
-      "roles/dataplex.entryGroupOwner" \
-      "roles/dataplex.admin" \
-      "roles/datalineage.admin"
+      log_info "Ensuring Cloud Build service account IAM permissions for BigQuery Dataform & Dataplex execution..."
+      grant_roles_silently "serviceAccount:${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
+        "roles/bigquery.user" \
+        "roles/bigquery.dataViewer" \
+        "roles/bigquery.dataEditor" \
+        "roles/storage.objectViewer" \
+        "roles/logging.logWriter" \
+        "roles/dataplex.catalogEditor" \
+        "roles/dataplex.editor" \
+        "roles/dataplex.entryGroupOwner" \
+        "roles/dataplex.admin" \
+        "roles/datalineage.admin"
 
-    grant_roles_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
-      "roles/bigquery.user" \
-      "roles/bigquery.dataViewer" \
-      "roles/bigquery.dataEditor" \
-      "roles/storage.objectViewer" \
-      "roles/logging.logWriter" \
-      "roles/dataplex.catalogEditor" \
-      "roles/dataplex.editor" \
-      "roles/dataplex.entryGroupOwner" \
-      "roles/dataplex.admin" \
-      "roles/datalineage.admin"
+      grant_roles_silently "serviceAccount:${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+        "roles/bigquery.user" \
+        "roles/bigquery.dataViewer" \
+        "roles/bigquery.dataEditor" \
+        "roles/storage.objectViewer" \
+        "roles/logging.logWriter" \
+        "roles/dataplex.catalogEditor" \
+        "roles/dataplex.editor" \
+        "roles/dataplex.entryGroupOwner" \
+        "roles/dataplex.admin" \
+        "roles/datalineage.admin"
 
-    log_info "Submitting Cloud Build job to execute Dataform Medallion pipeline..."
-    gcloud builds submit \
-      --verbosity=info \
-      --config="${GAMING_DIR}/cloudbuild-dataform.yaml" \
-      --substitutions=_PROJECT_ID="${GCP_PROJECT}",_LOCATION="${GCP_REGION}" \
-      --project="${GCP_PROJECT}" \
-      "${DATAFORM_DIR}"
+      log_info "Submitting Cloud Build job to execute Dataform Medallion pipeline..."
+      gcloud builds submit \
+        --verbosity=info \
+        --config="${GAMING_DIR}/cloudbuild-dataform.yaml" \
+        --substitutions=_PROJECT_ID="${GCP_PROJECT}",_LOCATION="${BIGQUERY_LOCATION:-US}" \
+        --project="${GCP_PROJECT}" \
+        "${DATAFORM_DIR}"
 
-    log_success "Step 3 Dataform Gold analytical tables built via Cloud Build."
+      log_success "Step 3 Dataform Gold analytical tables built via Cloud Build."
+    else
+      log_error "Dataform directory ${DATAFORM_DIR} not found."
+      exit 1
+    fi
   else
-    log_error "Dataform directory ${DATAFORM_DIR} not found."
-    exit 1
+    log_info "[SKIPPED] Step 3: Pure-consumer mode active. Downstream Medallion views are provisioned via Terraform in Step 1."
   fi
 else
   log_info "[SKIPPED] Step 3: Dataform Medallion Pipeline Execution"
@@ -862,19 +1102,20 @@ fi
 if [ "$RUN_STEP_5" = true ]; then
   log_step "STEP 5: In-Warehouse BQML Churn Model Training & Validation"
 
-  if bq show --location="${GCP_REGION}" "${GCP_PROJECT}:gaming_raw.player_churn_model" >/dev/null 2>&1; then
+  if bq show --location="${BIGQUERY_LOCATION:-US}" "${GCP_PROJECT}:gaming_raw.player_churn_model" >/dev/null 2>&1; then
     log_info "BQML model 'gaming_raw.player_churn_model' already exists in ${GCP_PROJECT}. Skipping retraining."
     log_success "Step 5 BQML model verified (already trained)."
   else
     log_info "Updating BQML training procedure..."
-    bq query --location="${GCP_REGION}" --use_legacy_sql=false "
+    bq query --location="${BIGQUERY_LOCATION:-US}" --use_legacy_sql=false "
       CREATE OR REPLACE PROCEDURE \`${GCP_PROJECT}.gaming_raw.train_churn_model\`()
       BEGIN
         CREATE OR REPLACE MODEL \`${GCP_PROJECT}.gaming_raw.player_churn_model\`
         OPTIONS (
           MODEL_TYPE = 'LOGISTIC_REG',
           INPUT_LABEL_COLS = ['is_churned'],
-          AUTO_CLASS_WEIGHTS = TRUE
+          AUTO_CLASS_WEIGHTS = TRUE,
+          MAX_ITERATIONS = 10
         ) AS
         SELECT 
           consecutive_deaths,
@@ -885,12 +1126,13 @@ if [ "$RUN_STEP_5" = true ]; then
           favorite_category,
           is_churned
         FROM \`${GCP_PROJECT}.gaming_gold.gold_player_360\`
-        WHERE is_churned IS NOT NULL;
+        WHERE is_churned IS NOT NULL
+        LIMIT 100000;
       END;
     "
 
     log_info "Training BQML Logistic Regression model 'gaming_raw.player_churn_model'..."
-    bq query --location="${GCP_REGION}" --use_legacy_sql=false "CALL \`${GCP_PROJECT}.gaming_raw.train_churn_model\`();"
+    bq query --location="${BIGQUERY_LOCATION:-US}" --use_legacy_sql=false "CALL \`${GCP_PROJECT}.gaming_raw.train_churn_model\`();"
     log_success "Step 5 BQML model trained."
   fi
 else
@@ -926,15 +1168,26 @@ if [ "$RUN_STEP_6" = true ]; then
 
   KC_AGENT_DIR="${REPO_ROOT}/src/agents/kc"
   if [ -f "${KC_AGENT_DIR}/deploy.sh" ]; then
-    log_info "Executing new agent deployment script: ${KC_AGENT_DIR}/deploy.sh..."
+    log_info "Executing agent deployment script: ${KC_AGENT_DIR}/deploy.sh..."
     (
       cd "${KC_AGENT_DIR}"
       GCP_PROJECT_ID="${GCP_PROJECT}" GCP_REGION="${GCP_REGION}" bash "./deploy.sh"
     )
     log_success "Step 6 Vertex AI Agent Engine / ADK Agent (agent_kc) deployed successfully."
   else
-    log_error "Agent deployment script ${KC_AGENT_DIR}/deploy.sh not found."
-    exit 1
+    log_warn "Agent deployment script ${KC_AGENT_DIR}/deploy.sh not found."
+  fi
+
+  ANOMALY_AGENT_DIR="${REPO_ROOT}/src/agents/anomaly"
+  if [ -f "${ANOMALY_AGENT_DIR}/deploy.sh" ]; then
+    log_info "Executing anomaly agent deployment script: ${ANOMALY_AGENT_DIR}/deploy.sh..."
+    (
+      cd "${ANOMALY_AGENT_DIR}"
+      GCP_PROJECT_ID="${GCP_PROJECT}" GCP_REGION="${GCP_REGION}" bash "./deploy.sh"
+    )
+    log_success "Step 6 Vertex AI Agent Engine / ADK Agent (agent_anomaly) deployed successfully."
+  else
+    log_warn "Anomaly agent deployment script ${ANOMALY_AGENT_DIR}/deploy.sh not found."
   fi
 else
   log_info "[SKIPPED] Step 6: Vertex AI Agent Engine / ADK Agent Deployment"
@@ -1023,6 +1276,7 @@ if [ "$RUN_STEP_8" = true ]; then
     "roles/secretmanager.secretAccessor"
 
   KC_AGENT_ID=$(gcloud secrets versions access latest --secret="kc-agent-id" --project="${GCP_PROJECT}" 2>/dev/null || true)
+  ANOMALY_AGENT_ID=$(gcloud secrets versions access latest --secret="anomaly-agent-id" --project="${GCP_PROJECT}" 2>/dev/null || true)
 
   log_info "Deploying Cloud Run service '${SERVICE_NAME}' with --allow-unauthenticated..."
   gcloud run deploy "${SERVICE_NAME}" \
@@ -1031,7 +1285,7 @@ if [ "$RUN_STEP_8" = true ]; then
     --service-account="${RUNNER_SA}" \
     --allow-unauthenticated \
     --ingress=all \
-    --set-env-vars="GOOGLE_CLOUD_PROJECT=${GCP_PROJECT},GCP_LOCATION=${GCP_REGION},BIGQUERY_LOCATION=${BIGQUERY_LOCATION:-US},PROJECT_NUMBER=${GCP_PROJECT_NUMBER},PYTHON_PORT=5000,KC_AGENT_ID=${KC_AGENT_ID:-},NODE_ENV=production,SOURCE_PLAYER_DNA_TABLE=${SOURCE_PLAYER_DNA_TABLE},SOURCE_RAW_EVENTS_TABLE=${SOURCE_RAW_EVENTS_TABLE},SOURCE_PAYMENT_SETTLEMENTS_TABLE=${SOURCE_PAYMENT_SETTLEMENTS_TABLE},BIGQUERY_DATASET_SILVER=gaming_silver,BIGQUERY_DATASET_GOLD=gaming_gold" \
+    --set-env-vars="GOOGLE_CLOUD_PROJECT=${GCP_PROJECT},GCP_LOCATION=${GCP_REGION},BIGQUERY_LOCATION=${BIGQUERY_LOCATION:-US},PROJECT_NUMBER=${GCP_PROJECT_NUMBER},PYTHON_PORT=5000,KC_AGENT_ID=${KC_AGENT_ID:-},CHURN_AGENT_ID=${KC_AGENT_ID:-},ANOMALY_AGENT_ID=${ANOMALY_AGENT_ID:-},NODE_ENV=production,SOURCE_PLAYER_DNA_TABLE=${SOURCE_PLAYER_DNA_TABLE},SOURCE_RAW_EVENTS_TABLE=${SOURCE_RAW_EVENTS_TABLE},SOURCE_PAYMENT_SETTLEMENTS_TABLE=${SOURCE_PAYMENT_SETTLEMENTS_TABLE},BIGQUERY_DATASET_SILVER=gaming_silver,BIGQUERY_DATASET_GOLD=gaming_gold,BIGQUERY_DATASET_REFERENCE=gaming_reference_data,PUBLISHER_NAME=${PUBLISHER_NAME}" \
     --port=8080 \
     --quiet
 

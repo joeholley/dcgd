@@ -97,15 +97,17 @@ flowchart TD
 ## 1. Upstream Data Schemas & Configurable Bindings
 
 ### 1.1 Configurable Input Datasets (Generated Upstream)
-* **Player DNA Table (`source_player_dna_table`, default: `gaming_player_data.player_dna`)**:
-  - Contains multi-device hardware ownership (Apple, Google, Steam, PSN), latent safety genetics (toxicity resilience, cheat propensities, chargeback risk), 7-genre taxonomy, and pseudonymous identifiers (`telemetry_guid`, `hashed_email`, `client_ip`).
-* **Raw Events Table (`source_raw_events_table`, default: `gaming_raw.raw_events`)**:
+* **Player DNA Table (`source_player_dna_table`, default: `<project_id>.gaming_player_data.player_dna`)**:
+  - Global demographic table containing multi-device hardware ownership (Apple, Google, Steam, PSN), latent safety genetics (toxicity resilience, cheat propensities, chargeback risk), 7-genre taxonomy, and pseudonymous identifiers (`telemetry_guid`, `hashed_email`, `client_ip`).
+* **Per-Game Telemetry Raw Events Table (`source_raw_events_table`, e.g., `<project_id>.<game_dataset>.raw_events`)**:
+  - Raw events are generated on a **per-game basis** by `eventsim` in dedicated datasets (`gaming_<title>_<id>.raw_events`). `gaming_raw` is the legacy monolithic dataset name.
   - Ingestion entropy: duplicates ($P_{\text{dup}} = 0.015$), late arrivals ($P_{\text{late}} = 0.030$), dirty sentinels ($P_{\text{dirty}} = 0.005$).
   - Multi-modal events: `iap_purchase`, `match_start`, `match_end`, `sre.client.performance_tick`, `marketing.attribution.install`, `chat_message_flagged`, `privacy.compliance.erasure_requested`.
   - Dynamic schema versions: `/schemas/v1.0.0`, `/schemas/v1.1.0`, `/schemas/v2.0.0`.
-* **Payment Settlements Table (`source_payment_settlements_table`, default: `gaming_raw.payment_gateway_settlements`)**:
+  - **Mandatory Discovery Exit**: When Cloud Build or `deploy-demo.sh` runs without `_GAME_DATASET` or `_SOURCE_RAW_EVENTS_TABLE` (and without `_ENABLE_LEGACY_DATA_GEN=true`), it automatically queries BigQuery for available per-game datasets, prints the exact command lines, and exits immediately.
+* **Payment Settlements Table (`source_payment_settlements_table`, e.g., `<project_id>.<game_dataset>.payment_gateway_settlements`)**:
   - Asynchronous clearing feeds modeling multi-store commissions, Net 2 to Net 45 day payout cycles, dispute fees ($15/chargeback), and clawbacks.
-* **Simulation Parameters Table (`source_simulation_parameters_table`, default: `gaming_player_data.simulation_parameters`)**:
+* **Simulation Parameters Table (`source_simulation_parameters_table`, default: `<project_id>.gaming_player_data.simulation_parameters`)**:
   - Ground-truth run registry containing target revenue, active player counts, and injected anomaly parameters (**strictly isolated for testing**).
 
 ---

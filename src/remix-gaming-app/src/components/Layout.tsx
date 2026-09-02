@@ -16,12 +16,17 @@ import {
   Crown,
   Sparkles,
   Fish,
-  Coins
+  Coins,
+  Calendar,
+  SlidersHorizontal
 } from "lucide-react";
 import { Section } from "../App";
 import { cn } from "../lib/utils";
 import { Country, LanguageSetting } from "./sections/CampaignEngine";
 import { isUsingFirebaseMock } from "../services/firebase";
+import { usePublisher } from "../context/PublisherContext";
+import { useTimeFilter } from "../context/TimeFilterContext";
+import { TimeFilterPullout } from "./TimeFilterPullout";
 import { 
   getRoutingMode, 
   setRoutingMode, 
@@ -79,10 +84,10 @@ const LAYOUT_TRANSLATIONS: Record<string, Record<Country, string>> = {
     Korea: "유닛 경제",
     China: "单元经济学"
   },
-  "Jingle Games Admin Console": {
-    Japan: "Jingle Games 管理コンソール",
-    Korea: "Jingle Games 관리 콘솔",
-    China: "Jingle Games 管理控制台"
+  "Admin Console": {
+    Japan: "管理コンソール",
+    Korea: "관리 콘솔",
+    China: "管理控制台"
   },
   "Player 360 Platform": {
     Japan: "プレイヤー360プラットフォーム",
@@ -117,6 +122,9 @@ export function Layout({
   languageSetting,
   setLanguageSetting
 }: LayoutProps) {
+  const { publisherName, publisherInitial } = usePublisher();
+  const { toggleFilter, isFilterOpen, formattedRangeLabel } = useTimeFilter();
+
   // Routing mode state (LIVE vs MOCKED)
   const [routingMode, setRoutingModeState] = useState<RoutingMode>(getRoutingMode());
 
@@ -358,12 +366,11 @@ export function Layout({
   return (
     <div className="flex flex-col h-screen bg-[#F8FAFC] font-sans text-slate-900 overflow-hidden">
       {/* Header */}
-      <nav className="h-16 bg-slate-900 flex items-center justify-between px-8 border-b border-white/10 shrink-0 text-white gap-4">
-        <div className="flex items-center gap-3 shrink-0">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-white font-mono">J</div>
-          <h1 className="text-sm sm:text-lg font-semibold tracking-tight">
-            Jingle Games <span className="font-light opacity-80 hidden md:inline">{t("Player 360 Platform")}</span>
-          </h1>
+      <nav className="h-16 bg-slate-900 flex items-center justify-between px-4 sm:px-6 md:px-8 border-b border-white/10 shrink-0 text-white gap-3 sm:gap-4">
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-white font-mono" title={publisherName}>
+            {publisherInitial}
+          </div>
         </div>
 
         {/* Live Game Telemetry Simulator Control Bar */}
@@ -499,10 +506,27 @@ export function Layout({
           </div>
         </div>
 
-        <div className="flex items-center gap-6 text-white/90 text-sm font-medium shrink-0">
-          <div className="flex items-center gap-3">
-            <span className="text-xs opacity-70 hidden lg:inline">{t("Jingle Games Admin Console")}</span>
-            <div className="w-8 h-8 rounded-full bg-white/20 border border-white/40 flex items-center justify-center">
+        <div className="flex items-center gap-4 text-white/90 text-sm font-medium shrink-0">
+          {/* Time Window Filter Pullout Trigger Button */}
+          <button
+            type="button"
+            onClick={toggleFilter}
+            className={cn(
+              "flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-mono transition-all cursor-pointer shadow-sm",
+              isFilterOpen
+                ? "bg-blue-600 border-blue-400 text-white shadow-blue-500/25 ring-2 ring-blue-400/20"
+                : "bg-slate-800/90 hover:bg-slate-800 border-slate-700/80 hover:border-slate-500 text-slate-200"
+            )}
+            title="Open Telemetry Time Filter Window"
+          >
+            <Calendar className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+            <span className="font-semibold text-[11px] whitespace-nowrap">{formattedRangeLabel}</span>
+            <SlidersHorizontal className="w-3 h-3 text-slate-400 shrink-0 ml-0.5" />
+          </button>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs opacity-70 hidden xl:inline">{t("Admin Console")}</span>
+            <div className="w-8 h-8 rounded-full bg-white/20 border border-white/40 flex items-center justify-center" title="Admin Console">
               <User className="w-4 h-4" />
             </div>
           </div>
@@ -523,6 +547,35 @@ export function Layout({
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
         <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col shrink-0 overflow-y-auto">
+          {/* Sidebar Time Window Quick Filter */}
+          <div className="p-3 pb-1 border-b border-white/10">
+            <button
+              type="button"
+              onClick={toggleFilter}
+              className={cn(
+                "w-full flex items-center justify-between p-2.5 rounded-xl border text-left transition-all cursor-pointer shadow-sm group",
+                isFilterOpen
+                  ? "bg-blue-600 border-blue-400 text-white shadow-blue-500/30 ring-2 ring-blue-400/20"
+                  : "bg-slate-800/90 hover:bg-slate-800 border-blue-500/40 hover:border-blue-400 text-slate-200"
+              )}
+              title="Open Telemetry Time Window Filter (1d, 3d, 7d, 30d, 90d, 1y)"
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className={cn(
+                  "p-1.5 rounded-lg transition-colors shrink-0",
+                  isFilterOpen ? "bg-white/20 text-white" : "bg-blue-500/20 text-blue-400 group-hover:bg-blue-500 group-hover:text-white"
+                )}>
+                  <Calendar className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Time Filter</span>
+                  <span className="text-xs font-mono font-bold text-white truncate block">{formattedRangeLabel}</span>
+                </div>
+              </div>
+              <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400 group-hover:text-white shrink-0 ml-1" />
+            </button>
+          </div>
+
           <div className="p-4 space-y-6">
             {navCategories.map((cat) => (
               <div key={cat.title}>
@@ -575,6 +628,27 @@ export function Layout({
           </motion.div>
         </main>
       </div>
+
+      {/* Floating Right-Edge Pullout Handle (always visible on screen) */}
+      {!isFilterOpen && (
+        <button
+          type="button"
+          onClick={toggleFilter}
+          className="fixed right-0 top-1/2 -translate-y-1/2 z-40 flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white shadow-2xl shadow-blue-500/40 rounded-l-2xl pl-2.5 pr-1 py-3 border-l-2 border-t border-b border-blue-300/40 transition-all cursor-pointer group hover:pl-3.5"
+          title={`Open Telemetry Time Filter (Current: ${formattedRangeLabel})`}
+        >
+          <div className="flex flex-col items-center gap-1.5 font-mono">
+            <Calendar className="w-4 h-4 text-white animate-pulse" />
+            <span className="[writing-mode:vertical-rl] rotate-180 text-[10px] font-bold tracking-widest uppercase">
+              Time Filter • {formattedRangeLabel}
+            </span>
+            <SlidersHorizontal className="w-3 h-3 text-blue-200 group-hover:text-white" />
+          </div>
+        </button>
+      )}
+
+      {/* Global Telemetry Time Window Filter Pullout */}
+      <TimeFilterPullout />
     </div>
   );
 }

@@ -24,6 +24,7 @@ import { db, isUsingFirebaseMock } from "../../services/firebase";
 import { cn } from "../../lib/utils";
 import { DataModeBadge } from "../DataModeBadge";
 import { useDemoEvent } from "../../context/DemoEventContext";
+import { usePublisher } from "../../context/PublisherContext";
 
 interface Asset {
   id: string;
@@ -54,6 +55,7 @@ interface DiscoveredRule {
 }
 
 export function KnowledgeCatalog({ initialSearch = "" }: { initialSearch?: string }) {
+  const { publisherName } = usePublisher();
   const [activeTab, setActiveTab] = useState<"search" | "sandbox">("search");
   const [search, setSearch] = useState(initialSearch);
   const [isFocused, setIsFocused] = useState(false);
@@ -91,8 +93,9 @@ export function KnowledgeCatalog({ initialSearch = "" }: { initialSearch?: strin
         { id: 'gold-studio-financial', title: 'Medallion Gold: Studio Multi-Store Financials & Settlements', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Finance', updatedAt: '2026-08-25T12:00:00Z', source: 'BigQuery Gold', description: 'Consolidated gross storefront revenues (Apple, Google, Steam, Direct) reconciled against clearing payout disbursements.' },
         { id: 'silver-conformance-lakehouse', title: 'Medallion Silver: CloudEvents 1.0 Real-Time Conformance Views', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Architecture', updatedAt: '2026-08-25T12:00:00Z', source: 'BigQuery Silver', description: 'JSON envelope schema conformance for microtransactions, match sessions, client SRE metrics, and marketing attribution.' },
         { id: 'dataplex-dq-sentinels', title: 'Dataplex Data Quality Scan & Anomaly Sentinel Findings', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Governance', updatedAt: '2026-08-25T12:00:00Z', source: 'Dataplex Catalog', description: 'Automated DQ scans detecting telemetry anomalies, dirty sentinels (P_dirty = 0.005), and compliance validation.' },
-        { id: 'gdpr-privacy', title: 'European GDPR Player Privacy Sandbox Directive', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Compliance', updatedAt: '2026-05-18T12:00:00Z', source: 'Corporate Governance', description: 'Mandatory standard for player PII masking across direct Jingle play files and active multiplayer lobbies.' },
-        { id: 'ops-scorecard', title: 'Q2 Game Operations Network Performance Scorecard', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Operations', updatedAt: '2026-05-18T10:00:00Z', source: 'AlloyDB', description: 'Real-time performance latency, active server tick ratios, and matchmaking queue performance derived from live server pools.' },
+        { id: 'gdpr-privacy', title: 'European GDPR Player Privacy Sandbox Directive', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Compliance', updatedAt: '2026-05-18T12:00:00Z', source: 'Corporate Governance', description: `Mandatory standard for player PII masking across direct ${publisherName} play files and active multiplayer lobbies.` },
+        { id: 'ops-scorecard', title: 'Q2 Game Operations Network Performance Scorecard', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Operations', updatedAt: '2026-05-18T10:00:00Z', source: 'Cloud Spanner', description: 'Real-time performance latency, active server tick ratios, and matchmaking queue performance derived from live server pools.' },
+        { id: 'gold-cheat-analytics', title: 'Medallion Gold: Anti-Cheat & Forensic Anomaly Mart', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Security', updatedAt: '2026-08-25T12:00:00Z', source: 'BigQuery Gold', description: 'Real-time exploit forensics, account sanctions, and quarantine audit trails governed by Dataplex security quarantine and economic guardrail policy aspects.' },
         { id: 'revenue-strategy', title: 'Strategic In-Game Monetization & Storefront Strategy', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Finance', updatedAt: '2026-05-19T08:00:00Z', source: 'Finance', description: 'LTV cohort growth targets, store category parameters, and in-app purchase price elasticities.' },
         { id: 's3-telemetry', title: 'AWS S3 Play Telemetry Archives & Audits', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', category: 'Logistics', updatedAt: '2026-05-17T15:00:00Z', source: 'AWS S3', description: 'Legacy historical play logs, old build game resources, and cold storage matchmaking records.' },
       ];
@@ -209,11 +212,11 @@ export function KnowledgeCatalog({ initialSearch = "" }: { initialSearch?: strin
             <header className="space-y-4">
               <div className="flex items-center gap-3">
                 <span className="px-3 py-1 rounded-full bg-blue-50 text-blue-600 border border-blue-100 text-[10px] font-bold uppercase tracking-widest">{selectedAsset.category}</span>
-                <span className="text-xs text-slate-400 font-medium">Jingle Games DNS • {selectedAsset.source || "Validated"}</span>
+                <span className="text-xs text-slate-400 font-medium">{publisherName} DNS • {selectedAsset.source || "Validated"}</span>
               </div>
               <h1 className="text-4xl font-bold text-slate-800 tracking-tight">{selectedAsset.title}</h1>
               <p className="text-xl text-slate-500 font-light leading-relaxed">
-                {selectedAsset.description || "This game governance asset provides directive guidance for Jingle Games operations."}
+                {selectedAsset.description || `This game governance asset provides directive guidance for ${publisherName} operations.`}
               </p>
             </header>
 
@@ -254,7 +257,7 @@ export function KnowledgeCatalog({ initialSearch = "" }: { initialSearch?: strin
                     </div>
                     <h4 className="text-2xl font-bold text-slate-800 mb-4">Official PDF Preview Restricted</h4>
                     <p className="text-slate-500 max-w-sm mx-auto font-light leading-relaxed mb-10">
-                      As per Jingle Games Player PII Masking Policy, full document viewing is logged. Click below to generate an authorized PDF download.
+                      As per {publisherName} Player PII Masking Policy, full document viewing is logged. Click below to generate an authorized PDF download.
                     </p>
                     <button 
                       onClick={() => window.open('https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', '_blank')}
@@ -340,7 +343,7 @@ export function KnowledgeCatalog({ initialSearch = "" }: { initialSearch?: strin
                     Telemetry Knowledge Catalog
                   </h1>
                   <p className="text-slate-500 font-light max-w-md mx-auto">
-                    Explore the Jingle Games Digital Nervous System. Search across AWS telemetry, Snowflake monetization, and Dataplex aspect entries.
+                    Explore the {publisherName} Digital Nervous System. Search across AWS telemetry, Snowflake monetization, and Dataplex aspect entries.
                   </p>
                 </div>
               )}
@@ -409,7 +412,7 @@ export function KnowledgeCatalog({ initialSearch = "" }: { initialSearch?: strin
               <div className="max-w-4xl mx-auto space-y-12">
                 <div className="flex items-center justify-between border-b border-slate-200 pb-4">
                   <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-                    {loading ? "Syncing Jingle Knowledge..." : `Found ${filteredAssets.length} matching definitions`}
+                    {loading ? `Syncing ${publisherName} Knowledge...` : `Found ${filteredAssets.length} matching definitions`}
                   </span>
                   <button 
                     onClick={() => setSearch("")}
@@ -448,7 +451,7 @@ export function KnowledgeCatalog({ initialSearch = "" }: { initialSearch?: strin
                                     {asset.category}
                                   </div>
                                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                    {asset.source || "Jingle Games Verified"}
+                                    {asset.source || `${publisherName} Verified`}
                                   </span>
                                 </div>
                                 
@@ -457,7 +460,7 @@ export function KnowledgeCatalog({ initialSearch = "" }: { initialSearch?: strin
                                     {asset.title}
                                   </h3>
                                   <p className="text-sm text-slate-500 font-light leading-relaxed">
-                                    {asset.description || "Managed telemetry asset synchronized with the Jingle Games governance database."}
+                                    {asset.description || `Managed telemetry asset synchronized with the ${publisherName} governance database.`}
                                   </p>
                                 </div>
                               </div>

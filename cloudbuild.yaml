@@ -1,9 +1,131 @@
 # Copyright 2026 Google LLC
-# Cloud Build Configuration: Optimized Multi-Stage Container Layer Caching
+# Cloud Build Configuration: Optimized Multi-Stage Container Layer Caching & Dynamic Table Drift Immunity
 
 steps:
-  # Step 0: Pull existing builder and final images for layer caching
+  # Step 0: Dataset Discovery & Parameter Validation Gate
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
+    id: 'dataset-discovery'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        
+        GAME_DATASET="${_GAME_DATASET}"
+        GAME_DATASETS="${_GAME_DATASETS}"
+        RAW_EVENTS="${_SOURCE_RAW_EVENTS_TABLE}"
+        PLAYER_DNA="${_SOURCE_PLAYER_DNA_TABLE}"
+        SETTLEMENTS="${_SOURCE_PAYMENT_SETTLEMENTS_TABLE}"
+        ENABLE_LEGACY="${_ENABLE_LEGACY_DATA_GEN}"
+        
+        # Support either _GAME_DATASET or _GAME_DATASETS
+        if [ -n "$$GAME_DATASETS" ] && [ -z "$$GAME_DATASET" ]; then
+          GAME_DATASET="$$(echo "$$GAME_DATASETS" | cut -d',' -f1 | tr -d '[:space:]')"
+        fi
+        
+        if [ "$$ENABLE_LEGACY" != "true" ] && [ -z "$$GAME_DATASET" ] && [ -z "$$RAW_EVENTS" ]; then
+          echo "======================================================================"
+          echo "🔍 UPSTREAM LAKEHOUSE DATASET DISCOVERY"
+          echo "======================================================================"
+          echo "By default, this repository deploys as a pure downstream consumer of pre-existing"
+          echo "datasets generated upstream by 'eventsim' and the player population generator."
+          echo ""
+          echo "Querying BigQuery for available upstream datasets in '${PROJECT_ID}'..."
+          
+          # Discover Player DNA table
+          DISCOVERED_PLAYER_DNA_DS=$$(bq query --use_legacy_sql=false --location="${_BIGQUERY_LOCATION}" --format=csv --quiet \
+            "SELECT table_schema FROM \`${PROJECT_ID}.region-${_BIGQUERY_LOCATION}.INFORMATION_SCHEMA.TABLES\` WHERE table_name = 'player_dna' ORDER BY table_schema LIMIT 1" 2>/dev/null | tail -n +2 | tr -d '[:space:]' || true)
+          
+          if [ -n "$$DISCOVERED_PLAYER_DNA_DS" ]; then
+            PLAYER_DNA_REF="${PROJECT_ID}.$${DISCOVERED_PLAYER_DNA_DS}.player_dna"
+            PLAYER_DNA_MSG="  • $$PLAYER_DNA_REF (Found via INFORMATION_SCHEMA.TABLES query for 'player_dna')"
+          else
+            PLAYER_DNA_REF="${PROJECT_ID}.gaming_player_data.player_dna"
+            PLAYER_DNA_MSG="  • $$PLAYER_DNA_REF (Default fallback; table not found in INFORMATION_SCHEMA.TABLES)"
+          fi
+          
+          echo -e "\nDiscovered Global Player Demographic Population table:"
+          echo "$$PLAYER_DNA_MSG"
+          
+          # Discover per-game telemetry datasets
+          DISCOVERED=$$(bq query --use_legacy_sql=false --location="${_BIGQUERY_LOCATION}" --format=csv --quiet \
+            "SELECT table_schema FROM \`${PROJECT_ID}.region-${_BIGQUERY_LOCATION}.INFORMATION_SCHEMA.TABLES\` WHERE table_name = 'raw_events' AND table_schema LIKE 'gaming_%' AND table_schema != 'gaming_raw' ORDER BY table_schema" 2>/dev/null | tail -n +2 || true)
+          
+          if [ -n "$$DISCOVERED" ]; then
+            echo -e "\nDiscovered per-game telemetry datasets (containing 'raw_events'):"
+            ALL_DS_COMMA=""
+            while IFS= read -r ds; do
+              if [ -n "$$ds" ]; then
+                echo "  • $$ds"
+                if [ -z "$$ALL_DS_COMMA" ]; then
+                  ALL_DS_COMMA="$$ds"
+                else
+                  ALL_DS_COMMA="$${ALL_DS_COMMA},$$ds"
+                fi
+              fi
+            done <<< "$$DISCOVERED"
+            
+            FIRST_DS=$$(echo "$$DISCOVERED" | head -n 1)
+            
+            echo -e "\n----------------------------------------------------------------------"
+            echo "RECOMMENDED COMMAND LINES TO DEPLOY VIA CLOUD BUILD"
+            echo "----------------------------------------------------------------------"
+            echo -e "\n1. Deploy targeting a single primary game dataset:"
+            echo "  gcloud builds submit --config=cloudbuild.yaml \\"
+            echo "    --substitutions=_GAME_DATASET=$$FIRST_DS,_SOURCE_PLAYER_DNA_TABLE=$$PLAYER_DNA_REF,_LOCATION=${_LOCATION}"
+            
+            echo -e "\n2. Deploy targeting ALL discovered game datasets:"
+            echo "  gcloud builds submit --config=cloudbuild.yaml \\"
+            echo "    --substitutions=_GAME_DATASETS=\"$$ALL_DS_COMMA\",_SOURCE_PLAYER_DNA_TABLE=$$PLAYER_DNA_REF,_LOCATION=${_LOCATION}"
+            
+            echo -e "\n3. Deploy with granular explicit table substitutions:"
+            echo "  gcloud builds submit --config=cloudbuild.yaml \\"
+            echo "    --substitutions=_SOURCE_RAW_EVENTS_TABLE=$$FIRST_DS.raw_events,_SOURCE_PLAYER_DNA_TABLE=$$PLAYER_DNA_REF,_LOCATION=${_LOCATION}"
+          else
+            echo -e "\nNo per-game datasets with 'raw_events' found in '${PROJECT_ID}'."
+            echo "Please run upstream eventsim to generate telemetry datasets."
+          fi
+          echo "======================================================================"
+          exit 1
+        fi
+        
+        # Resolve table names dynamically
+        if [ "$$ENABLE_LEGACY" = "true" ]; then
+          [ -z "$$PLAYER_DNA" ] && PLAYER_DNA="${PROJECT_ID}.gaming_raw.gcp_players"
+          [ -z "$$RAW_EVENTS" ] && RAW_EVENTS="${PROJECT_ID}.gaming_raw.live_session_events"
+          [ -z "$$SETTLEMENTS" ] && SETTLEMENTS="${PROJECT_ID}.gaming_raw.iap_transactions"
+        else
+          if [ -n "$$GAME_DATASET" ]; then
+            PRIMARY_DS="$$(echo "$$GAME_DATASET" | cut -d',' -f1 | tr -d '[:space:]')"
+            RAW_EVENTS="${PROJECT_ID}.$${PRIMARY_DS}.raw_events"
+            if [ -z "$$SETTLEMENTS" ]; then
+              if bq show --location="${_BIGQUERY_LOCATION}" "${PROJECT_ID}:$${PRIMARY_DS}.payment_gateway_settlements" >/dev/null 2>&1; then
+                SETTLEMENTS="${PROJECT_ID}.$${PRIMARY_DS}.payment_gateway_settlements"
+              else
+                SETTLEMENTS=""
+              fi
+            fi
+          fi
+          if [ -z "$$PLAYER_DNA" ]; then
+            DISCOVERED_PLAYER_DNA_DS=$$(bq query --use_legacy_sql=false --location="${_BIGQUERY_LOCATION}" --format=csv --quiet \
+              "SELECT table_schema FROM \`${PROJECT_ID}.region-${_BIGQUERY_LOCATION}.INFORMATION_SCHEMA.TABLES\` WHERE table_name = 'player_dna' ORDER BY table_schema LIMIT 1" 2>/dev/null | tail -n +2 | tr -d '[:space:]' || true)
+            if [ -n "$$DISCOVERED_PLAYER_DNA_DS" ]; then
+              PLAYER_DNA="${PROJECT_ID}.$${DISCOVERED_PLAYER_DNA_DS}.player_dna"
+            else
+              PLAYER_DNA="${PROJECT_ID}.gaming_player_data.player_dna"
+            fi
+          fi
+        fi
+        
+        echo "SOURCE_PLAYER_DNA_TABLE=$$PLAYER_DNA" > /workspace/env_vars.txt
+        echo "SOURCE_RAW_EVENTS_TABLE=$$RAW_EVENTS" >> /workspace/env_vars.txt
+        echo "SOURCE_PAYMENT_SETTLEMENTS_TABLE=$$SETTLEMENTS" >> /workspace/env_vars.txt
+        echo "Resolved dynamic deployment parameters:"
+        cat /workspace/env_vars.txt
+
+  # Step 1: Pull existing builder and final images for layer caching
   - name: 'gcr.io/cloud-builders/docker'
+    id: 'docker-pull-cache'
     entrypoint: 'bash'
     args:
       - '-c'
@@ -11,8 +133,9 @@ steps:
         docker pull ${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:builder || true
         docker pull ${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:${_TAG} || true
 
-  # Step 1: Build & tag the node-builder stage for npm ci layer caching
+  # Step 2: Build & tag the node-builder stage for npm ci layer caching
   - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-node-builder'
     args:
       - 'build'
       - '--target'
@@ -23,8 +146,9 @@ steps:
       - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:builder'
       - '.'
 
-  # Step 2: Build the final image using both builder and final image as cache sources
+  # Step 3: Build the final image using both builder and final image as cache sources
   - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-final-image'
     args:
       - 'build'
       - '--cache-from'
@@ -35,16 +159,40 @@ steps:
       - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:${_TAG}'
       - '.'
 
-  # Step 3: Push builder cache image and final image to Artifact Registry
+  # Step 4: Push builder cache image and final image to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
+    id: 'push-builder-image'
     args:
       - 'push'
       - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:builder'
 
   - name: 'gcr.io/cloud-builders/docker'
+    id: 'push-final-image'
     args:
       - 'push'
       - '${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:${_TAG}'
+
+  # Step 5: Deploy application to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
+    id: 'deploy-cloud-run'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        source /workspace/env_vars.txt
+        
+        gcloud run deploy gaming-demo-app \
+          --image="${_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/gaming-app:${_TAG}" \
+          --region="${_LOCATION}" \
+          --platform=managed \
+          --allow-unauthenticated \
+          --port=8080 \
+          --cpu=2 \
+          --memory=4Gi \
+          --concurrency=80 \
+          --service-account="gaming-runner-sa@${PROJECT_ID}.iam.gserviceaccount.com" \
+          --set-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${_LOCATION},BIGQUERY_LOCATION=${_BIGQUERY_LOCATION},SOURCE_PLAYER_DNA_TABLE=$${SOURCE_PLAYER_DNA_TABLE},SOURCE_RAW_EVENTS_TABLE=$${SOURCE_RAW_EVENTS_TABLE},SOURCE_PAYMENT_SETTLEMENTS_TABLE=$${SOURCE_PAYMENT_SETTLEMENTS_TABLE},BIGQUERY_DATASET_GOLD=gaming_gold,BIGQUERY_DATASET_SILVER=gaming_silver,BIGQUERY_DATASET_REFERENCE=gaming_reference_data,PYTHON_PORT=5000,NODE_ENV=production"
 
 # Store images in Artifact Registry
 images:
@@ -53,5 +201,12 @@ images:
 
 substitutions:
   _LOCATION: 'us-central1'
+  _BIGQUERY_LOCATION: 'US'
   _REPOSITORY: 'gaming-demo-images'
   _TAG: 'latest'
+  _GAME_DATASET: ''
+  _GAME_DATASETS: ''
+  _SOURCE_PLAYER_DNA_TABLE: ''
+  _SOURCE_RAW_EVENTS_TABLE: ''
+  _SOURCE_PAYMENT_SETTLEMENTS_TABLE: ''
+  _ENABLE_LEGACY_DATA_GEN: 'false'

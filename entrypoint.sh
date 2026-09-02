@@ -3,7 +3,17 @@ set -eo pipefail
 
 export PYTHON_PORT=${PYTHON_PORT:-5000}
 export PORT=${PORT:-8080}
+export PUBLISHER_NAME="${PUBLISHER_NAME:-${STUDIO_NAME:-Jingle Games}}"
 NODE_PORT=${PORT}
+
+echo "=== Active Studio / Publisher: '${PUBLISHER_NAME}' ==="
+echo "=== Data Source Tables & Datasets: ==="
+echo "  - Raw Events: ${SOURCE_RAW_EVENTS_TABLE:-gaming_raw.raw_events}"
+echo "  - Player DNA: ${SOURCE_PLAYER_DNA_TABLE:-gaming_player_data.player_dna}"
+echo "  - Settlements: ${SOURCE_PAYMENT_SETTLEMENTS_TABLE:-gaming_raw.payment_gateway_settlements}"
+echo "  - Gold Dataset: ${BIGQUERY_DATASET_GOLD:-gaming_gold}"
+echo "  - Silver Dataset: ${BIGQUERY_DATASET_SILVER:-gaming_silver}"
+echo "  - Reference Dataset: ${BIGQUERY_DATASET_REFERENCE:-gaming_reference_data}"
 
 PY_PID=""
 NODE_PID=""

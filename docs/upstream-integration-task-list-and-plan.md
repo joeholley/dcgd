@@ -22,16 +22,17 @@ This plan defines the concrete, step-by-step engineering tasks to refactor the *
 > - **Quarantine**: These routines are sequestered under `src/retail-data-and-ai-demo/infrastructure/terraform/games/legacy-data-gen/` and gated behind Terraform variable `enable_legacy_data_gen = false`.
 > - **Nothing Takes Their Place**: This repository will **NOT** run `eventsim` or the population generator as build or deployment steps.
 >
-> ### 3. Pure Downstream Consumption Architecture
+> ### 3. Pure Downstream Consumption & Per-Game Dataset Discovery
 > - The primary function of this repository is consuming pre-existing tables in the target GCP project:
->   - Pre-existing specified player DNA table (default: `gaming_player_data.player_dna`)
->   - Pre-existing specified raw telemetry table (default: `gaming_raw.raw_events`)
->   - Pre-existing specified payment clearing table (default: `gaming_raw.payment_gateway_settlements`)
+>   - Pre-existing specified player DNA table (default: `<project_id>.gaming_player_data.player_dna`)
+>   - Pre-existing per-game raw telemetry table (e.g. `<project_id>.<game_dataset>.raw_events` or specified via `_GAME_DATASET`)
+>   - Pre-existing specified payment clearing table (e.g. `<project_id>.<game_dataset>.payment_gateway_settlements`)
+> - **Mandatory Discovery Exit**: When Cloud Build or `deploy-demo.sh` runs without `_GAME_DATASET` or `_SOURCE_RAW_EVENTS_TABLE` (and without `_ENABLE_LEGACY_DATA_GEN=true`), it automatically queries BigQuery for available per-game datasets, prints the exact command lines, and exits immediately without auto-selecting.
 > - This repository creates and owns the conformed Medallion layers: `gaming_silver.*` (deduplication, SRE metrics, schema evolution handling) and `gaming_gold.*` (Player 360, studio financial performance, churn root cause, level difficulty funnels).
 >
 > ### 4. Demo Presenter Prerequisite Runbook
-> - The root [`README.md`](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/README.md) and [`deploy-demo.sh`](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/deploy-demo.sh) must prominently document:
->   > *"**Prerequisite**: The preferred and supported path is for the demo presenter to generate the required synthetic player population (`player_dna`) and telemetry streams (`raw_events`) using the upstream tools ([`generator`](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/upstream/generator.md) and [`eventsim`](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/upstream/eventsim.md)) **BEFORE** deploying this repository's software stack. If table names differ from defaults, provide them via `--player-dna-table` and `--raw-events-table`."*
+> - The root [`README.md`](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/README.md) and [`deploy-demo.sh`](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/deploy-demo.sh) prominently document:
+>   > *"**Prerequisite**: The preferred and supported path is for the demo presenter to generate the required synthetic player population (`player_dna`) and telemetry streams (`raw_events`) using the upstream tools ([`generator`](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/upstream/generator.md) and [`eventsim`](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/upstream/eventsim.md)) **BEFORE** deploying this repository's software stack. When deploying, provide the target game dataset via `--game-dataset=<name>` (or `--raw-events-table`). If omitted, `./deploy-demo.sh` will list all discovered game datasets and exit."*
 >
 > ### 5. Strict Ground-Truth Air-Gap
 > - The **Simulation Parameters Registry** (`gaming_player_data.simulation_parameters` and its helper views: [`v_latest_simulation_parameters`](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/docs/upstream/generator.md#L37-L41), `v_simulation_metrics_flattened`, `v_simulation_run_history`, `v_player_dna_parameter_history`) are **STRICTLY OFF-LIMITS** for all runtime applications ([`server.ts`](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/src/remix-gaming-app/server.ts), [`app.py`](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/src/gamingdatademo/website-live/app.py)), UI views, and AI agents ([`governance.py`](file:///usr/local/google/home/joeholley/Documents/repos/git/github.com/joeholley/dcgd/src/agents/kc/agent_kc/governance.py)).

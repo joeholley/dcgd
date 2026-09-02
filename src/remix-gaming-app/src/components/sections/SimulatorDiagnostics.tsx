@@ -79,7 +79,7 @@ export function SimulatorDiagnostics({ routingMode }: SimulatorDiagnosticsProps)
     : { status: "MOCKED", latency: "0ms (Local)", message: "MOCKED (OFFLINE SIMULATION) - In-Memory BroadcastChannel" };
 
   const firestoreStatus: ProbeInfo = isLive
-    ? (probeResults?.firestore || { status: "ACTIVE", latency: "18ms", message: "Collections 'campaigns' & 'offers' active in Firestore" })
+    ? (probeResults?.firestore || { status: "ACTIVE", latency: "18ms", message: "Collections 'campaigns', 'offers', 'moderation_actions', 'executive_actions' active in Firestore" })
     : { status: "MOCKED", latency: "0ms (Local)", message: "MOCKED (OFFLINE SIMULATION) - Local Dev Fallback" };
 
   const spannerStatus: ProbeInfo = {
@@ -87,6 +87,14 @@ export function SimulatorDiagnostics({ routingMode }: SimulatorDiagnosticsProps)
     latency: "N/A",
     message: "NOT YET IMPLEMENTED - Standalone JSON fallback active for table 'player_profiles'.${player_id}.'offers_accepted'",
   };
+
+  const bqStatus: ProbeInfo = isLive
+    ? (probeResults?.bigquery || { status: "ACTIVE", latency: "24ms", message: "Conformed Player 360 & Telemetry Marts online" })
+    : { status: "MOCKED", latency: "0ms (Local)", message: "MOCKED (OFFLINE SIMULATION) - In-Memory Fallback" };
+
+  const bqmlStatus: ProbeInfo = isLive
+    ? (probeResults?.bqml || { status: "ACTIVE", latency: "35ms", message: "BQML ML.PREDICT model online" })
+    : { status: "MOCKED", latency: "0ms (Local)", message: "MOCKED (OFFLINE SIMULATION) - Heuristic Scorer" };
 
   const services = [
     {
@@ -101,13 +109,33 @@ export function SimulatorDiagnostics({ routingMode }: SimulatorDiagnosticsProps)
     },
     {
       name: "Cloud Firestore Operational Datastore",
-      target: "Collections: campaigns & offers",
+      target: "Collections: campaigns, offers, moderation, executive",
       icon: Database,
       color: "text-emerald-400",
       bg: "bg-emerald-500/10",
       border: "border-emerald-500/20",
       info: firestoreStatus,
       probeCode: "firestoreClient.collection('campaigns').get()",
+    },
+    {
+      name: "BigQuery Conformed Telemetry Marts",
+      target: isLive && probeResults?.bigquery?.message ? probeResults.bigquery.message.split(" ")[1] || "Conformed Gold Tables" : "Conformed Feature Marts",
+      icon: Database,
+      color: "text-purple-400",
+      bg: "bg-purple-500/10",
+      border: "border-purple-500/20",
+      info: bqStatus,
+      probeCode: "executeCustomQuery('SELECT 1 FROM `gold_player_360`')",
+    },
+    {
+      name: "BigQuery ML Churn Prediction Engine",
+      target: "Model: player_churn_model",
+      icon: BrainCircuit,
+      color: "text-cyan-400",
+      bg: "bg-cyan-500/10",
+      border: "border-cyan-500/20",
+      info: bqmlStatus,
+      probeCode: "executeCustomQuery('SELECT * FROM ML.PREDICT(MODEL `player_churn_model`, ...)')",
     },
     {
       name: "Player Profiles in Cloud Spanner",

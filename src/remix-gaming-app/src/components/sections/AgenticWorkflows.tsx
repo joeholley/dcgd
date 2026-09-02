@@ -24,7 +24,11 @@ import {
   ChevronDown,
   ChevronRight,
   Info,
-  ExternalLink
+  ExternalLink,
+  Clock,
+  Loader2,
+  CheckSquare,
+  Square
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useDemoEvent } from "../../context/DemoEventContext";
@@ -66,9 +70,37 @@ export interface AgentHistoryEntry {
 const INITIAL_KC_PROMPT = "Summarize what you can do in 250 words";
 const INITIAL_KC_RESPONSE = "I am the Knowledge Catalog (KC) Guided Agent for OmniArcade. I dynamically discover, govern, and analyze live player telemetry across 150+ BigQuery tables without reliance on hardcoded schema prompts. By leveraging Knowledge Catalog metadata, entry aspect searches, data quality scores, and lineage graphs, I identify high-risk churn signals—such as repeated boss wipeouts among veteran whale cohorts—and construct policy-compliant retention campaigns. Every promotional recommendation enforces Knowledge Catalog guardrails, capping discounts within authorized boundaries while logging audit trails to BigQuery.";
 
-const EXECUTE_RUN_DISPLAY_PROMPT = "Our system has determined that many players are dying on a boss and some are quitting the game. Identify and analyze the relevant gameplay event data and provide a recommendation?";
+const INITIAL_ANOMALY_PROMPT = "Summarize what you can do in 250 words";
+const INITIAL_ANOMALY_RESPONSE = "I am the Anomaly Detection Agent Council (agent_anomaly) for OmniArcade. I monitor live Cloud Spanner transaction ledgers and BigQuery telemetry streams to detect game exploits, currency duplication glitches, and economy imbalances in real time. By cross-referencing Dataplex Knowledge Catalog entry aspects such as security_quarantine_policy_aspect, I isolate suspicious accounts, quantify in-game economy devaluation risks, and propose certified trading freezes or quarantine sanctions with complete audit trails.";
 
+const EXECUTE_RUN_DISPLAY_PROMPT = "Our system has determined that many players are dying on a boss and some are quitting the game. Identify and analyze the relevant gameplay event data and provide a recommendation?";
 const EXECUTE_RUN_API_PROMPT = "Our system has determined that many players are failing on the: boss on tutorial stage 2 and some are quitting the game. Identify the relevant gameplay event data and recommend that we offer the frost_giant_shield_pack SKU at an 80% discount to users with predicted churn probability of 85% or higher";
+
+const EXECUTE_ANOMALY_DISPLAY_PROMPT = "Scan real-time Cloud Spanner transaction ledger & BigQuery telemetry for fair-play, exploit, and currency anomalies.";
+const EXECUTE_ANOMALY_API_PROMPT = `[MODE: AUTONOMOUS EXECUTION - NO INTERACTIVE PROMPTING]
+You are operating as a headless backend engine for the Operations Dashboard. 
+Do NOT ask clarifying questions, do NOT offer choices, and do NOT pause for human confirmation. 
+Task:
+1. Scan telemetry for fraud, item duplication loops, and economy anomalies.
+2. If anomalies are detected, autonomously look up the mitigation runbook via SOP search.
+3. Formulate the final operational proposal and recommended remediation actions.
+
+Response Structure:
+First, provide an executive human-readable incident brief (summary of findings, affected player accounts, risk assessment, and operational remediation reasoning).
+Second, conclude your response with a machine-parseable JSON block conforming to:
+\`\`\`json
+{
+  "finding": "<Summary of finding>",
+  "severity": "CRITICAL | HIGH | MEDIUM",
+  "exposure_badge": "P1 - $120K Exposure",
+  "recommended_action": "<Primary remediation recommendation>",
+  "actions": [
+    {"label": "Freeze Trading (player_id)", "action_type": "QUARANTINE_ACCOUNT", "target": "<ID>"},
+    {"label": "Notify Security Operations", "action_type": "ALERT_SECURITY", "target": "<ID>"},
+    {"label": "Export Log Audit", "action_type": "AUDIT_EXPORT", "target": "<ID>"}
+  ]
+}
+\`\`\``;
 
 function extractCleanTextPayload(input: any): string {
   if (!input) return "";
@@ -93,6 +125,41 @@ function extractCleanTextPayload(input: any): string {
     }
   }
   return input;
+}
+
+function extractHumanReadableLogText(input: any): string {
+  const clean = extractCleanTextPayload(input);
+  if (!clean) return "";
+
+  // 1. Strip markdown JSON code blocks so they are never displayed in the agent log
+  let text = clean.replace(/```(?:json)?\s*\{[\s\S]*?\}\s*```/gi, "").trim();
+
+  // 2. Strip standalone JSON blocks or trailing headers
+  text = text
+    .replace(/(?:Decision Payload|Action Payload|Operational Proposal JSON|Machine Contract JSON):?\s*$/gi, "")
+    .trim();
+
+  if (text.length > 20) {
+    return text;
+  }
+
+  // 3. Fallback if the response was purely JSON: synthesize human-readable summary
+  try {
+    const rawJson = extractJsonObject(clean);
+    if (rawJson) {
+      const parsed = JSON.parse(rawJson);
+      const parts: string[] = [];
+      if (parsed.finding) parts.push(`**Finding:** ${parsed.finding}`);
+      if (parsed.severity) parts.push(`**Severity:** ${parsed.severity}`);
+      if (parsed.exposure_badge) parts.push(`**Exposure Impact:** ${parsed.exposure_badge}`);
+      if (parsed.recommended_action) parts.push(`**Recommendation:** ${parsed.recommended_action}`);
+      if (parts.length > 0) {
+        return parts.join("\n\n");
+      }
+    }
+  } catch (e) {}
+
+  return text || clean;
 }
 
 export interface TargetCohortPayload {
@@ -282,6 +349,68 @@ export function parseDecisionPayload(input: string): DecisionPayload | null {
   return null;
 }
 
+export interface AnomalyActionItem {
+  label: string;
+  action_type: string;
+  target?: string;
+}
+
+export interface AnomalyProposalPayload {
+  finding?: string;
+  severity?: string;
+  exposure_badge?: string;
+  recommended_action?: string;
+  actions?: AnomalyActionItem[];
+}
+
+export function parseAnomalyProposal(input: string): AnomalyProposalPayload | null {
+  if (!input) return null;
+  const cleanInput = extractCleanTextPayload(input);
+
+  let rawJson: string | null = null;
+  const codeBlockMatch = cleanInput.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (codeBlockMatch) {
+    rawJson = codeBlockMatch[1].trim();
+  } else {
+    rawJson = extractJsonObject(cleanInput);
+  }
+
+  if (rawJson) {
+    try {
+      const parsed = JSON.parse(rawJson);
+      if (parsed && (parsed.finding || parsed.recommended_action || parsed.actions || parsed.exposure_badge)) {
+        let actionsList: AnomalyActionItem[] = [];
+        if (Array.isArray(parsed.actions)) {
+          actionsList = parsed.actions.map((act: any) => {
+            const rawLabel = typeof act.label === "string" ? act.label : (typeof act.action_type === "string" ? act.action_type : "Execute Action");
+            const targetStr = typeof act.target === "string" ? act.target : undefined;
+            let formattedLabel = rawLabel;
+            if (targetStr && !rawLabel.toLowerCase().includes(targetStr.toLowerCase()) && (act.action_type === "QUARANTINE_ACCOUNT" || rawLabel.toLowerCase().includes("quarantine") || rawLabel.toLowerCase().includes("freeze"))) {
+              formattedLabel = `${rawLabel} (${targetStr})`;
+            }
+            return {
+              label: formattedLabel,
+              action_type: typeof act.action_type === "string" ? act.action_type : "CUSTOM_ACTION",
+              target: targetStr,
+            };
+          });
+        }
+        return {
+          finding: typeof parsed.finding === "string" ? parsed.finding : undefined,
+          severity: typeof parsed.severity === "string" ? parsed.severity : undefined,
+          exposure_badge: typeof parsed.exposure_badge === "string" ? parsed.exposure_badge : undefined,
+          recommended_action: typeof parsed.recommended_action === "string" ? parsed.recommended_action : undefined,
+          actions: actionsList.length > 0 ? actionsList : undefined,
+        };
+      }
+    } catch (e) {
+      console.warn("Failed to parse JSON anomaly proposal from response:", e);
+    }
+  }
+
+  return null;
+}
+
 const DEFAULT_RETENTION_FALLBACK_RESPONSE = `[agent-kc Analysis] Analyzing player telemetry stream for boss death anomalies:
 - Identified excessive consecutive wipeouts on 'Frost Giant' boss in Realm of Eldoria RPG.
 - Cross-referenced Knowledge Catalog entry aspect 'liveops_campaign_policy_aspect' & BQML churn model.
@@ -323,6 +452,31 @@ Decision Payload:
 }
 \`\`\``;
 
+const DEFAULT_ANOMALY_FALLBACK_RESPONSE = `**Incident Resolution Brief: Cheat & Anomaly Detection**
+
+**Summary of Findings:**
+Anomalous telemetry spike detected across live Cloud Spanner transaction ledger and BigQuery telemetry (\`gaming_silver.silver_microtransactions\` & \`silver_moderation_alerts\`) over a rolling 15-minute window. Rapid gold coin inflation divergence (+520% divergence from baseline) indicates an active item duplication race condition across 14 player IDs.
+
+**Governance & Policy Compliance:**
+Cross-referenced against Dataplex Knowledge Catalog entry aspect 'security_quarantine_policy_aspect'. Anomaly severity threshold (5.2σ) warrants automated trading freeze.
+
+**Recommended Remediation Plan:**
+Temporarily freeze trading index for flagged accounts and dispatch an automated P1 incident alert to Security Operations.
+
+\`\`\`json
+{
+  "finding": "Rapid gold coin inflation spike detected across live transaction telemetry.",
+  "severity": "CRITICAL",
+  "exposure_badge": "P1 - $120K Exposure",
+  "recommended_action": "Temporarily freeze trading index for flagged accounts and dispatch security incident report.",
+  "actions": [
+    {"label": "Freeze Trading (14 Flagged Accounts)", "action_type": "QUARANTINE_ACCOUNT", "target": "14 Flagged Accounts"},
+    {"label": "Notify Security Operations", "action_type": "ALERT_SECURITY", "target": "SecOps On-Call"},
+    {"label": "Export Log Audit", "action_type": "AUDIT_EXPORT", "target": "gold_cheat_analytics"}
+  ]
+}
+\`\`\``;
+
 const getPipelineNodes = (
   wfId: string, 
   currentStep: number, 
@@ -349,10 +503,10 @@ const getPipelineNodes = (
     }
   } else if (wfId === "Fraud & Cheat Detection Agent") {
     return [
-      { label: "AlloyDB Flow", sub: "Scan transactions", status: isFinished ? "completed" : (currentStep > 0 ? "completed" : (currentStep === 0 ? "active" : "pending")), icon: Activity, cloud: "Cloud" },
-      { label: "AWS S3 History", sub: "Retrieve bot profiles", status: isFinished ? "completed" : (currentStep > 1 ? "completed" : (currentStep === 1 ? "active" : "pending")), icon: Database, cloud: "AWS" },
-      { label: "Catalog Engine", sub: "Run Anomaly Models", status: isFinished ? "completed" : (currentStep > 2 ? "completed" : (currentStep === 2 ? "active" : "pending")), icon: Search, cloud: "Cloud" },
-      { label: "Security Shield", sub: "Freeze account indices", status: isFinished ? "completed" : (currentStep > 3 ? "completed" : (currentStep === 3 ? "active" : "pending")), icon: ShieldAlert, cloud: "Security Core" }
+      { label: "Cloud Spanner Ledger", sub: "Scan live transactions", status: isFinished ? "completed" : (currentStep > 0 ? "completed" : (currentStep === 0 ? "active" : "pending")), icon: Activity, cloud: "Google Cloud" },
+      { label: "BigQuery Lakehouse", sub: "Query gold_cheat_analytics", status: isFinished ? "completed" : (currentStep > 1 ? "completed" : (currentStep === 1 ? "active" : "pending")), icon: Database, cloud: "Google Cloud" },
+      { label: "BQML & Knowledge Catalog", sub: "Anomaly detection model & policy aspect", status: isFinished ? "completed" : (currentStep > 2 ? "completed" : (currentStep === 2 ? "active" : "pending")), icon: BrainCircuit, cloud: "Cloud ML & Gov" },
+      { label: "Gemini Enterprise", sub: "Agentic analysis", status: isFinished ? "completed" : "pending", icon: Bot, cloud: "Agent Platform" }
     ];
   } else {
     return [
@@ -370,7 +524,9 @@ function AgenticPipelineDiagram({
   isFinished, 
   routingMode,
   isSimulatorRunning,
-  isExecuting
+  isExecuting,
+  isProbing = false,
+  isAgentLive = false,
 }: { 
   wfId: string; 
   currentStep: number; 
@@ -378,15 +534,18 @@ function AgenticPipelineDiagram({
   routingMode: RoutingMode;
   isSimulatorRunning: boolean;
   isExecuting?: boolean;
+  isProbing?: boolean;
+  isAgentLive?: boolean;
 }) {
   const nodes = getPipelineNodes(wfId, currentStep, isFinished, routingMode);
   const isRetentionAgent = wfId === "Automated Player Retention Promo";
+  const isAnomalyAgent = wfId === "Fraud & Cheat Detection Agent";
   
   return (
     <div className="p-6 bg-slate-950 border border-slate-800 rounded-[2rem] space-y-4 font-mono">
       <div className="flex items-center justify-between border-b border-white/5 pb-3">
         <span className="text-[10px] font-bold text-blue-400 font-sans tracking-widest flex items-center gap-1.5 uppercase">
-          <Network className={cn("w-3.5 h-3.5 text-blue-500", isRetentionAgent && isSimulatorRunning && "animate-pulse")} /> Data Cloud Telemetry Flow
+          <Network className={cn("w-3.5 h-3.5 text-blue-500", ((isRetentionAgent && isSimulatorRunning) || isAnomalyAgent) && "animate-pulse")} /> Data Cloud Telemetry Flow
         </span>
         <span className={cn(
           "text-[9px] px-2 py-0.5 rounded border font-mono font-bold uppercase",
@@ -394,10 +553,16 @@ function AgenticPipelineDiagram({
             ? (isSimulatorRunning
                 ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm shadow-emerald-500/20"
                 : "bg-slate-900 text-slate-400 border-slate-700")
+            : isAnomalyAgent
+            ? (isExecuting
+                ? "bg-cyan-500/20 text-cyan-400 border-cyan-500/40 shadow-sm shadow-cyan-500/20 animate-pulse"
+                : "bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm shadow-emerald-500/20")
             : (isFinished ? "bg-blue-500/10 text-indigo-300 border-blue-500/20" : "bg-slate-900 text-slate-400 border-slate-800")
         )}>
           {isRetentionAgent
             ? (isSimulatorRunning ? "STREAMING ACTIVE" : "SIMULATOR OFF (BQ ACTIVE)")
+            : isAnomalyAgent
+            ? (isExecuting ? "REASONING ACTIVE" : "LEDGER SYNC ACTIVE")
             : (isFinished ? "TRACE SECURED" : "ORCHESTRATING...")}
         </span>
       </div>
@@ -405,9 +570,9 @@ function AgenticPipelineDiagram({
       <div className="relative pl-6 space-y-4">
         <div className={cn(
           "absolute left-[13px] top-3 bottom-3 w-0.5 border-l border-dashed transition-colors duration-500",
-          isRetentionAgent && isExecuting
+          (isRetentionAgent || isAnomalyAgent) && isExecuting
             ? "border-cyan-400/80 shadow-[0_0_8px_rgba(34,211,238,0.5)]"
-            : isRetentionAgent && isSimulatorRunning
+            : (isRetentionAgent && isSimulatorRunning) || isAnomalyAgent
             ? "border-emerald-400/60"
             : "border-slate-700"
         )} />
@@ -423,22 +588,30 @@ function AgenticPipelineDiagram({
           </div>
         )}
 
-        {/* Dynamic Agent Pipeline Execution Streaming Animation overlay between Node 2 (BigQuery), Node 3 (BQML & Knowledge Catalog), and Node 4 (Gemini Enterprise) */}
+        {/* Dynamic Cloud Spanner Ledger -> BigQuery Lakehouse 24/7 Background Sync Animation overlay */}
+        {isAnomalyAgent && (
+          <div className="absolute left-[11px] top-4 h-[55px] w-1.5 overflow-hidden pointer-events-none z-0">
+            <motion.div
+              className="w-1.5 h-6 bg-gradient-to-b from-transparent via-emerald-400 to-transparent rounded-full shadow-[0_0_10px_#34d399]"
+              animate={{ y: ["-100%", "250%"] }}
+              transition={{ repeat: Infinity, duration: 1.6, ease: "linear" }}
+            />
+          </div>
+        )}
+
+        {/* Dynamic Retention Agent Pipeline Execution Streaming Animation overlay between Node 2 (BigQuery), Node 3 (BQML & Knowledge Catalog), and Node 4 (Gemini Enterprise) */}
         {isRetentionAgent && isExecuting && (
           <div className="absolute left-[11px] top-[98px] h-[96px] w-1.5 overflow-hidden pointer-events-none z-10">
-            {/* Upward query stream beam from Gemini Enterprise up to BQML & BigQuery */}
             <motion.div
               className="w-1.5 h-8 bg-gradient-to-t from-transparent via-cyan-400 to-transparent rounded-full shadow-[0_0_12px_#38bdf8]"
               animate={{ y: ["300%", "-100%"] }}
               transition={{ repeat: Infinity, duration: 1.2, ease: "linear" }}
             />
-            {/* Downward decision stream pulse from Gemini/Knowledge Catalog back to BigQuery */}
             <motion.div
               className="w-1.5 h-6 bg-gradient-to-b from-transparent via-blue-400 to-transparent rounded-full shadow-[0_0_10px_#60a5fa]"
               animate={{ y: ["-100%", "300%"] }}
               transition={{ repeat: Infinity, duration: 1.6, ease: "easeInOut", delay: 0.4 }}
             />
-            {/* High-tech energy particle dot along the execution path */}
             <motion.div
               className="absolute left-[1px] w-1 h-1 bg-cyan-300 rounded-full shadow-[0_0_8px_#22d3ee]"
               animate={{ 
@@ -450,10 +623,35 @@ function AgenticPipelineDiagram({
           </div>
         )}
 
+        {/* Dynamic Anomaly Agent Reasoning Animation between Node 1 (BigQuery), Node 2 (BQML & Knowledge Catalog), and Node 3 (Gemini Enterprise) */}
+        {isAnomalyAgent && isExecuting && (
+          <div className="absolute left-[11px] top-[50px] h-[105px] w-1.5 overflow-hidden pointer-events-none z-10">
+            <motion.div
+              className="w-1.5 h-8 bg-gradient-to-t from-transparent via-cyan-400 to-transparent rounded-full shadow-[0_0_12px_#38bdf8]"
+              animate={{ y: ["250%", "-100%"] }}
+              transition={{ repeat: Infinity, duration: 1.2, ease: "linear" }}
+            />
+            <motion.div
+              className="w-1.5 h-6 bg-gradient-to-b from-transparent via-blue-400 to-transparent rounded-full shadow-[0_0_10px_#60a5fa]"
+              animate={{ y: ["-100%", "250%"] }}
+              transition={{ repeat: Infinity, duration: 1.6, ease: "easeInOut", delay: 0.4 }}
+            />
+            <motion.div
+              className="absolute left-[1px] w-1 h-1 bg-cyan-300 rounded-full shadow-[0_0_8px_#22d3ee]"
+              animate={{ 
+                y: [0, 105, 0],
+                opacity: [0.3, 1, 0.3]
+              }}
+              transition={{ repeat: Infinity, duration: 2.0, ease: "easeInOut" }}
+            />
+          </div>
+        )}
+
         {nodes.map((node, idx) => {
           const isActive = node.status === "active";
           const isCompleted = node.status === "completed";
           const NodeIcon = node.icon;
+          const isAgentLayer = node.label.includes("Gemini Enterprise") || node.label.includes("Mock LLM") || node.cloud === "Agent Platform" || node.cloud === "Mock LLM";
           
           let nodeStyling = "";
 
@@ -466,6 +664,38 @@ function AgenticPipelineDiagram({
               }
             } else if (idx === 2) {
               nodeStyling = "bg-blue-500/20 text-blue-400 border-blue-500/50 shadow-md shadow-blue-500/20";
+            } else if (isAgentLayer) {
+              if (isProbing) {
+                nodeStyling = "bg-blue-500/20 text-blue-400 border-blue-400/60 shadow-md shadow-blue-500/30 animate-pulse";
+              } else if (isExecuting) {
+                nodeStyling = "bg-cyan-500/20 text-cyan-400 border-cyan-400/60 shadow-md shadow-cyan-500/30 animate-pulse";
+              } else if (isAgentLive && routingMode === "LIVE") {
+                nodeStyling = "bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm shadow-emerald-500/20";
+              } else {
+                nodeStyling = "bg-amber-500/20 text-amber-400 border-amber-500/40 shadow-sm shadow-amber-500/20";
+              }
+            } else {
+              nodeStyling = isActive 
+                ? "bg-blue-600 text-white border-blue-400 shadow-md shadow-blue-500/30" 
+                : isCompleted 
+                ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40" 
+                : "bg-slate-900 text-slate-600 border-slate-800";
+            }
+          } else if (isAnomalyAgent) {
+            if (idx === 0) {
+              nodeStyling = "bg-emerald-500/20 text-emerald-400 border-emerald-500/50 shadow-md shadow-emerald-500/30 animate-pulse";
+            } else if (idx === 1) {
+              nodeStyling = "bg-blue-500/20 text-blue-400 border-blue-500/50 shadow-md shadow-blue-500/20";
+            } else if (isAgentLayer) {
+              if (isProbing) {
+                nodeStyling = "bg-blue-500/20 text-blue-400 border-blue-400/60 shadow-md shadow-blue-500/30 animate-pulse";
+              } else if (isExecuting) {
+                nodeStyling = "bg-cyan-500/20 text-cyan-400 border-cyan-400/60 shadow-md shadow-cyan-500/30 animate-pulse";
+              } else if (isAgentLive && routingMode === "LIVE") {
+                nodeStyling = "bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm shadow-emerald-500/20";
+              } else {
+                nodeStyling = "bg-amber-500/20 text-amber-400 border-amber-500/40 shadow-sm shadow-amber-500/20";
+              }
             } else {
               nodeStyling = isActive 
                 ? "bg-blue-600 text-white border-blue-400 shadow-md shadow-blue-500/30" 
@@ -490,16 +720,26 @@ function AgenticPipelineDiagram({
                     nodeStyling
                   )}
                 >
-                  {isCompleted && !isRetentionAgent ? <CheckCircle2 className="w-4 h-4" /> : <NodeIcon className="w-3.5 h-3.5" />}
+                  {isCompleted && !isRetentionAgent && !isAnomalyAgent ? (
+                    <CheckCircle2 className="w-4 h-4" />
+                  ) : isAgentLayer && isProbing ? (
+                    <div className="w-3.5 h-3.5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <NodeIcon className="w-3.5 h-3.5" />
+                  )}
                 </motion.div>
               </div>
 
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className={cn(
                     "text-xs font-bold truncate",
-                    isRetentionAgent
+                    isAgentLayer && isProbing
+                      ? "text-blue-300"
+                      : isRetentionAgent
                       ? (idx === 2 ? "text-blue-300" : (isSimulatorRunning ? "text-emerald-300" : (idx <= 1 ? "text-slate-500" : (isActive ? "text-blue-400" : isCompleted ? "text-white" : "text-slate-500"))))
+                      : isAnomalyAgent
+                      ? (idx === 0 ? "text-emerald-300" : (idx === 1 ? "text-blue-300" : (isActive ? "text-blue-400" : isCompleted ? "text-white" : "text-slate-500")))
                       : (isActive ? "text-blue-400" : isCompleted ? "text-white" : "text-slate-500")
                   )}>
                     {node.label}
@@ -507,8 +747,41 @@ function AgenticPipelineDiagram({
                   <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-900 border border-slate-800 text-slate-400 font-mono">
                     {node.cloud}
                   </span>
+
+                  {/* Gemini Enterprise Agent Layer Querying & Live Status Badges */}
+                  {isAgentLayer && (
+                    isProbing ? (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-500/20 border border-blue-400/50 text-blue-300 text-[9px] font-mono font-bold animate-pulse shadow-sm shadow-blue-500/20">
+                        <div className="w-2.5 h-2.5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin shrink-0" />
+                        <span>CHECKING AGENT STATUS...</span>
+                      </span>
+                    ) : isExecuting ? (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-cyan-500/20 border border-cyan-400/60 text-cyan-300 text-[9px] font-mono font-bold animate-pulse shadow-sm shadow-cyan-500/20">
+                        <div className="w-2.5 h-2.5 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin shrink-0" />
+                        <span>EVALUATING {(isAgentLive && routingMode === "LIVE") ? "LIVE" : "MOCK"}...</span>
+                      </span>
+                    ) : (isAgentLive && routingMode === "LIVE") ? (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-[9px] font-mono font-bold shadow-sm shadow-emerald-500/20">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                        <span>LIVE (GEMINI ENTERPRISE AGENT PLATFORM)</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-300 text-[9px] font-mono font-bold shadow-sm shadow-amber-500/20">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                        <span>MOCKED (SIMULATED FALLBACK)</span>
+                      </span>
+                    )
+                  )}
                 </div>
-                <p className="text-[10px] text-slate-500 truncate">{node.sub}</p>
+                <p className="text-[10px] text-slate-500 truncate">
+                  {isAgentLayer
+                    ? isProbing
+                      ? "Querying Gemini Enterprise Agent Platform liveness..."
+                      : (isAgentLive && routingMode === "LIVE")
+                      ? "Connected to Gemini Enterprise Agent Platform"
+                      : "Fallback: Simulated In-Memory Reasoning"
+                    : node.sub}
+                </p>
               </div>
             </div>
           );
@@ -577,9 +850,9 @@ export function AgenticWorkflows() {
 
   // Agent Control Group state: Active & Autonomous toggles per agent
   const [agentActive, setAgentActive] = useState<Record<string, boolean>>({
-    "Automated Player Retention Promo": true,
+    "Automated Player Retention Promo": false,
     "Fraud & Cheat Detection Agent": false,
-    "Dynamic Matchmaking Balance": true,
+    "Dynamic Matchmaking Balance": false,
   });
 
   // R1: Autonomous starts disabled (Single-Invocation mode)
@@ -589,10 +862,17 @@ export function AgenticWorkflows() {
     "Dynamic Matchmaking Balance": false,
   });
 
-  const [isProbing, setIsProbing] = useState<boolean>(true);
-  const [isAgentLive, setIsAgentLive] = useState<boolean>(false);
+  const [isAgentProbing, setIsAgentProbing] = useState<Record<string, boolean>>({
+    "Automated Player Retention Promo": true,
+    "Fraud & Cheat Detection Agent": true,
+  });
+  const isProbing = Boolean(isAgentProbing["Automated Player Retention Promo"] || isAgentProbing["Fraud & Cheat Detection Agent"]);
+  const [isAgentLive, setIsAgentLive] = useState<Record<string, boolean>>({
+    "Automated Player Retention Promo": false,
+    "Fraud & Cheat Detection Agent": false,
+  });
 
-  // R2: Agent response history session state pre-loaded with initial 250-word capability summary
+  // R2: Agent response history session state pre-loaded with initial capability summary
   const [agentHistory, setAgentHistory] = useState<Record<string, AgentHistoryEntry[]>>({
     "Automated Player Retention Promo": [
       {
@@ -610,6 +890,22 @@ export function AgenticWorkflows() {
         timestamp: "10:00 AM",
       },
     ],
+    "Fraud & Cheat Detection Agent": [
+      {
+        id: "init-prompt-anomaly",
+        role: "user",
+        text: INITIAL_ANOMALY_PROMPT,
+        timestamp: "10:00 AM",
+      },
+      {
+        id: "init-response-anomaly",
+        role: "agent",
+        agentName: "agent_anomaly",
+        text: "[Checking agent_anomaly liveness status...]",
+        isStreaming: true,
+        timestamp: "10:00 AM",
+      },
+    ],
   });
 
   // Liveness check on page mount
@@ -620,103 +916,168 @@ export function AgenticWorkflows() {
 
     const performLivenessProbe = async () => {
       try {
-        const livenessRes = await fetch("/api/guardrail/agent-liveness", { signal: controller.signal }).catch(() => null);
-        let liveConfirmed = false;
-        if (livenessRes && livenessRes.ok) {
-          const livenessData = await livenessRes.json();
-          if (livenessData.live === true) {
-            liveConfirmed = true;
-          }
-        }
-
-        if (liveConfirmed) {
-          const traceUrl = `/api/guardrail/agent-trace?query=${encodeURIComponent(INITIAL_KC_PROMPT)}`;
-          const traceRes = await fetch(traceUrl, { signal: controller.signal });
-          clearTimeout(timeoutId);
-
-          if (traceRes.ok) {
-            const traceData = await traceRes.json();
-            if (traceData.session_id) {
-              setActiveSessionIds((prev) => ({
-                ...prev,
-                "Automated Player Retention Promo": traceData.session_id,
-              }));
-            }
-            if (traceData.response_text && !traceData.response_text.startsWith("[agent-kc Analysis]")) {
-              const cleanText = extractCleanTextPayload(traceData.response_text);
-              if (isMounted) {
-                setIsAgentLive(true);
-                setIsProbing(false);
-                setAgentHistory((prev) => ({
-                  ...prev,
-                  "Automated Player Retention Promo": [
-                    {
-                      id: "init-prompt-kc",
-                      role: "user",
-                      text: INITIAL_KC_PROMPT,
-                      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    },
-                    {
-                      id: "init-response-kc",
-                      role: "agent",
-                      agentName: "agent-kc",
-                      text: cleanText,
-                      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    },
-                  ],
-                }));
-                return;
+        // Probe KC Agent
+        const probeKc = async () => {
+          try {
+            const res = await fetch("/api/guardrail/agent-liveness?role=kc", { signal: controller.signal }).catch(() => null);
+            if (res && res.ok) {
+              const data = await res.json();
+              if (data.live === true) {
+                const traceUrl = `/api/guardrail/agent-trace?agent_type=kc&query=${encodeURIComponent(INITIAL_KC_PROMPT)}`;
+                const traceRes = await fetch(traceUrl, { signal: controller.signal }).catch(() => null);
+                if (traceRes && traceRes.ok) {
+                  const traceData = await traceRes.json();
+                  if (traceData.session_id) {
+                    setActiveSessionIds((prev) => ({
+                      ...prev,
+                      "Automated Player Retention Promo": traceData.session_id,
+                    }));
+                  }
+                  if (traceData.response_text && !traceData.response_text.startsWith("[agent-kc Analysis]")) {
+                    const cleanText = extractCleanTextPayload(traceData.response_text);
+                    if (isMounted) {
+                      setIsAgentLive((prev) => ({ ...prev, "Automated Player Retention Promo": true }));
+                      setAgentHistory((prev) => ({
+                        ...prev,
+                        "Automated Player Retention Promo": [
+                          {
+                            id: "init-prompt-kc",
+                            role: "user",
+                            text: INITIAL_KC_PROMPT,
+                            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                          },
+                          {
+                            id: "init-response-kc",
+                            role: "agent",
+                            agentName: "agent-kc",
+                            text: cleanText,
+                            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                          },
+                        ],
+                      }));
+                      return;
+                    }
+                  }
+                }
               }
             }
+            if (isMounted) {
+              setIsAgentLive((prev) => ({ ...prev, "Automated Player Retention Promo": false }));
+              setAgentHistory((prev) => ({
+                ...prev,
+                "Automated Player Retention Promo": [
+                  {
+                    id: "init-prompt-kc",
+                    role: "user",
+                    text: INITIAL_KC_PROMPT,
+                    timestamp: "10:00 AM",
+                  },
+                  {
+                    id: "init-response-kc",
+                    role: "agent",
+                    agentName: "agent-kc",
+                    text: INITIAL_KC_RESPONSE,
+                    timestamp: "10:00 AM",
+                  },
+                ],
+              }));
+            }
+          } catch (e) {
+            if (isMounted) {
+              setIsAgentLive((prev) => ({ ...prev, "Automated Player Retention Promo": false }));
+            }
+          } finally {
+            if (isMounted) {
+              setIsAgentProbing((prev) => ({ ...prev, "Automated Player Retention Promo": false }));
+            }
           }
-        }
+        };
 
+        // Probe Anomaly Agent
+        const probeAnomaly = async () => {
+          try {
+            const res = await fetch("/api/guardrail/agent-liveness?role=anomaly", { signal: controller.signal }).catch(() => null);
+            if (res && res.ok) {
+              const data = await res.json();
+              if (data.live === true) {
+                const traceUrl = `/api/guardrail/agent-trace?agent_type=anomaly&query=${encodeURIComponent(INITIAL_ANOMALY_PROMPT)}`;
+                const traceRes = await fetch(traceUrl, { signal: controller.signal }).catch(() => null);
+                if (traceRes && traceRes.ok) {
+                  const traceData = await traceRes.json();
+                  if (traceData.session_id) {
+                    setActiveSessionIds((prev) => ({
+                      ...prev,
+                      "Fraud & Cheat Detection Agent": traceData.session_id,
+                    }));
+                  }
+                  if (traceData.response_text && !traceData.response_text.startsWith("[Cheat & Anomaly Detection Agent Analysis]")) {
+                    const cleanText = extractCleanTextPayload(traceData.response_text);
+                    if (isMounted) {
+                      setIsAgentLive((prev) => ({ ...prev, "Fraud & Cheat Detection Agent": true }));
+                      setAgentHistory((prev) => ({
+                        ...prev,
+                        "Fraud & Cheat Detection Agent": [
+                          {
+                            id: "init-prompt-anomaly",
+                            role: "user",
+                            text: INITIAL_ANOMALY_PROMPT,
+                            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                          },
+                          {
+                            id: "init-response-anomaly",
+                            role: "agent",
+                            agentName: "agent_anomaly",
+                            text: cleanText,
+                            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                          },
+                        ],
+                      }));
+                      return;
+                    }
+                  }
+                }
+              }
+            }
+            if (isMounted) {
+              setIsAgentLive((prev) => ({ ...prev, "Fraud & Cheat Detection Agent": false }));
+              setAgentHistory((prev) => ({
+                ...prev,
+                "Fraud & Cheat Detection Agent": [
+                  {
+                    id: "init-prompt-anomaly",
+                    role: "user",
+                    text: INITIAL_ANOMALY_PROMPT,
+                    timestamp: "10:00 AM",
+                  },
+                  {
+                    id: "init-response-anomaly",
+                    role: "agent",
+                    agentName: "agent_anomaly",
+                    text: INITIAL_ANOMALY_RESPONSE,
+                    timestamp: "10:00 AM",
+                  },
+                ],
+              }));
+            }
+          } catch (e) {
+            if (isMounted) {
+              setIsAgentLive((prev) => ({ ...prev, "Fraud & Cheat Detection Agent": false }));
+            }
+          } finally {
+            if (isMounted) {
+              setIsAgentProbing((prev) => ({ ...prev, "Fraud & Cheat Detection Agent": false }));
+            }
+          }
+        };
+
+        await Promise.allSettled([probeKc(), probeAnomaly()]);
+      } finally {
         clearTimeout(timeoutId);
         if (isMounted) {
-          setIsAgentLive(false);
-          setIsProbing(false);
-          setAgentHistory((prev) => ({
-            ...prev,
-            "Automated Player Retention Promo": [
-              {
-                id: "init-prompt-kc",
-                role: "user",
-                text: INITIAL_KC_PROMPT,
-                timestamp: "10:00 AM",
-              },
-              {
-                id: "init-response-kc",
-                role: "agent",
-                agentName: "agent-kc",
-                text: INITIAL_KC_RESPONSE,
-                timestamp: "10:00 AM",
-              },
-            ],
-          }));
-        }
-      } catch (err: any) {
-        clearTimeout(timeoutId);
-        if (isMounted) {
-          setIsAgentLive(false);
-          setIsProbing(false);
-          setAgentHistory((prev) => ({
-            ...prev,
-            "Automated Player Retention Promo": [
-              {
-                id: "init-prompt-kc",
-                role: "user",
-                text: INITIAL_KC_PROMPT,
-                timestamp: "10:00 AM",
-              },
-              {
-                id: "init-response-kc",
-                role: "agent",
-                agentName: "agent-kc",
-                text: INITIAL_KC_RESPONSE,
-                timestamp: "10:00 AM",
-              },
-            ],
-          }));
+          setIsAgentProbing({
+            "Automated Player Retention Promo": false,
+            "Fraud & Cheat Detection Agent": false,
+          });
         }
       }
     };
@@ -735,7 +1096,7 @@ export function AgenticWorkflows() {
   // Auto-parse decision payload from the latest agent response history entry
   useEffect(() => {
     const historyList = agentHistory["Automated Player Retention Promo"] || [];
-    const lastAgentMsg = [...historyList].reverse().find(e => e.role === "agent" && e.id !== "init-response-kc");
+    const lastAgentMsg = [...historyList].reverse().find(e => e.role === "agent" && e.id !== "init-response-kc" && !e.isStreaming);
     if (lastAgentMsg && lastAgentMsg.text) {
       const parsed = parseDecisionPayload(lastAgentMsg.text);
       if (parsed) {
@@ -743,6 +1104,51 @@ export function AgenticWorkflows() {
       }
     }
   }, [agentHistory]);
+
+  const [parsedAnomalyProposal, setParsedAnomalyProposal] = useState<AnomalyProposalPayload | null>(null);
+  const [executedAnomalyActions, setExecutedAnomalyActions] = useState<Record<string, boolean>>({});
+  const [selectedAnomalyActions, setSelectedAnomalyActions] = useState<Record<string, boolean>>({});
+  const [anomalyActionMessage, setAnomalyActionMessage] = useState<string | null>(null);
+
+  // Auto-parse anomaly proposal payload from the latest agent response history entry
+  useEffect(() => {
+    const historyList = agentHistory["Fraud & Cheat Detection Agent"] || [];
+    const lastAgentMsg = [...historyList].reverse().find(e => e.role === "agent" && e.id !== "init-response-anomaly" && !e.isStreaming);
+    if (lastAgentMsg && lastAgentMsg.text) {
+      const parsed = parseAnomalyProposal(lastAgentMsg.text);
+      if (parsed) {
+        setParsedAnomalyProposal(parsed);
+      }
+    }
+  }, [agentHistory]);
+
+  // Auto-initialize selected anomaly actions to true when proposal changes
+  useEffect(() => {
+    if (parsedAnomalyProposal?.actions && parsedAnomalyProposal.actions.length > 0) {
+      const initialMap: Record<string, boolean> = {};
+      parsedAnomalyProposal.actions.forEach(a => {
+        initialMap[a.label] = true;
+      });
+      setSelectedAnomalyActions(initialMap);
+    } else {
+      setSelectedAnomalyActions({});
+    }
+  }, [parsedAnomalyProposal]);
+
+  const handleExecuteAnomalyAction = (action: AnomalyActionItem) => {
+    setExecutedAnomalyActions(prev => ({ ...prev, [action.label]: true }));
+    let msg = "";
+    if (action.action_type === "QUARANTINE_ACCOUNT") {
+      msg = `LiveOps Security Shield applied quarantine to ${action.target || 'flagged player'}. Account trading frozen in Cloud Spanner.`;
+    } else if (action.action_type === "ALERT_SECURITY") {
+      msg = `Security incident ticket dispatched to SecOps On-Call with forensic lakehouse audit logs.`;
+    } else if (action.action_type === "AUDIT_EXPORT") {
+      msg = `Forensic telemetry trace exported to BigQuery gold_cheat_analytics for auditing.`;
+    } else {
+      msg = `Action '${action.label}' executed successfully for target ${action.target || 'system'}.`;
+    }
+    setAnomalyActionMessage(msg);
+  };
 
   const injectRetentionOffer = (wfId: string, decision: DecisionPayload | null) => {
     const isRetentionAgent = wfId === "Automated Player Retention Promo";
@@ -781,6 +1187,19 @@ export function AgenticWorkflows() {
     }
   }, [agentAutonomous, results, approvedActions, rejectedActions, parsedDecision]);
 
+  // In Autonomous mode, automatically approve & execute cheat/fraud mitigations when evaluation results are ready
+  useEffect(() => {
+    const wfId = "Fraud & Cheat Detection Agent";
+    if (agentAutonomous[wfId] && results[wfId] && !approvedActions[wfId] && !rejectedActions[wfId]) {
+      setApprovedActions((prev) => ({ ...prev, [wfId]: true }));
+      if (parsedAnomalyProposal?.actions) {
+        const allExecuted: Record<string, boolean> = {};
+        parsedAnomalyProposal.actions.forEach(a => { allExecuted[a.label] = true; });
+        setExecutedAnomalyActions(allExecuted);
+      }
+    }
+  }, [agentAutonomous, results, approvedActions, rejectedActions, parsedAnomalyProposal]);
+
   const resetWfState = (wfId: string) => {
     setApprovedActions((prev) => {
       const next = { ...prev };
@@ -798,6 +1217,15 @@ export function AgenticWorkflows() {
       return next;
     });
     setFollowUpResponse((prev) => ({ ...prev, [wfId]: null }));
+    if (wfId === "Fraud & Cheat Detection Agent") {
+      setParsedAnomalyProposal(null);
+      setExecutedAnomalyActions({});
+      setSelectedAnomalyActions({});
+      setAnomalyActionMessage(null);
+    }
+    if (wfId === "Automated Player Retention Promo") {
+      setParsedDecision(null);
+    }
   };
 
   // Coupling logic handlers
@@ -846,12 +1274,12 @@ export function AgenticWorkflows() {
     },
     "Fraud & Cheat Detection Agent": {
       thinking: [
-        "[1/4] Scanning AlloyDB transaction logs for rapid currency duplication...",
-        "[2/4] Fetching historical IP range profiles from AWS S3...",
-        "[3/4] Running Anomaly Detection Model in Gemini Enterprise...",
-        "[4/4] Anomaly detected: Suspicious item duplication loop confirmed."
+        "[1/4] Scanning Cloud Spanner transaction ledger for rapid currency duplication...",
+        "[2/4] Querying BigQuery gold_cheat_analytics & silver_moderation_alerts...",
+        "[3/4] Cross-referencing Dataplex Knowledge Catalog security_quarantine_policy_aspect...",
+        "[4/4] Anomaly detected: Suspicious item duplication loop confirmed (5.2σ divergence)."
       ],
-      finding: "Rapid gold coin inflation spike in Region JP Server #4.",
+      finding: "Rapid gold coin inflation spike detected across live transaction telemetry.",
       impact: "In-game economy devaluation risk of $120K.",
       recommendation: "Temporarily freeze trading index for flagged accounts and trigger incident report.",
       nextSteps: ["Freeze Trading", "Notify Security", "Export Log Audit"]
@@ -881,7 +1309,41 @@ export function AgenticWorkflows() {
     });
     setExpandedCards((prev) => ({ ...prev, [id]: true }));
 
-    if (id === "Automated Player Retention Promo") {
+    // When the user clicks to execute the agent run, turn active toggle ON if not already
+    setAgentActive((prev) => {
+      if (!prev[id]) {
+        return { ...prev, [id]: true };
+      }
+      return prev;
+    });
+
+    const isRetentionAgent = id === "Automated Player Retention Promo";
+    const isAnomalyAgent = id === "Fraud & Cheat Detection Agent";
+    if (isAnomalyAgent) {
+      setParsedAnomalyProposal(null);
+      setExecutedAnomalyActions({});
+      setSelectedAnomalyActions({});
+      setAnomalyActionMessage(null);
+    }
+    if (isRetentionAgent) {
+      setParsedDecision(null);
+    }
+    const agentType = isAnomalyAgent ? "anomaly" : "kc";
+    const agentName = isAnomalyAgent ? "agent_anomaly" : "agent-kc";
+    const queryParam = isAnomalyAgent 
+      ? EXECUTE_ANOMALY_API_PROMPT 
+      : EXECUTE_RUN_API_PROMPT;
+    const displayPrompt = isAnomalyAgent 
+      ? EXECUTE_ANOMALY_DISPLAY_PROMPT 
+      : EXECUTE_RUN_DISPLAY_PROMPT;
+    const fallbackText = isAnomalyAgent 
+      ? DEFAULT_ANOMALY_FALLBACK_RESPONSE 
+      : DEFAULT_RETENTION_FALLBACK_RESPONSE;
+    const placeholderText = isAnomalyAgent 
+      ? "[Scanning Cloud Spanner transaction ledger & BigQuery gold_cheat_analytics for anomalies...]" 
+      : "[Evaluating player telemetry & Knowledge Catalog guardrail aspect policy...]";
+
+    if (isRetentionAgent || isAnomalyAgent) {
       const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       setAgentHistory((prev) => {
         const existing = prev[id] || [];
@@ -892,30 +1354,29 @@ export function AgenticWorkflows() {
             {
               id: `usr-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
               role: "user",
-              text: EXECUTE_RUN_DISPLAY_PROMPT,
+              text: displayPrompt,
               timestamp: timeStr,
             },
             {
               id: `agt-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
               role: "agent",
-              agentName: "agent-kc",
-              text: "[Evaluating player telemetry & Knowledge Catalog guardrail aspect policy...]",
+              agentName: agentName,
+              text: placeholderText,
               timestamp: timeStr,
               isStreaming: true,
-              reasoningSteps: workflowData[id].thinking,
+              reasoningSteps: workflowData[id]?.thinking,
             }
           ]
         };
       });
     }
 
-    const isRetentionAgent = id === "Automated Player Retention Promo";
-    const useLiveCall = isRetentionAgent ? (isAgentLive && routingMode === "LIVE") : (routingMode === "LIVE");
+    const useLiveCall = routingMode === "LIVE";
 
     if (useLiveCall) {
       const existingSessionId = activeSessionIds[id];
       const validSessionId = (existingSessionId && !existingSessionId.startsWith("jg-session") && !existingSessionId.startsWith("sess_")) ? existingSessionId : undefined;
-      const traceUrl = `/api/guardrail/agent-trace?${validSessionId ? `session_id=${encodeURIComponent(validSessionId)}&` : ""}query=${encodeURIComponent(EXECUTE_RUN_API_PROMPT)}&active=${agentActive[id]}&autonomous=${agentAutonomous[id]}`;
+      const traceUrl = `/api/guardrail/agent-trace?agent_type=${agentType}&${validSessionId ? `session_id=${encodeURIComponent(validSessionId)}&` : ""}query=${encodeURIComponent(queryParam)}&display_prompt=${encodeURIComponent(displayPrompt)}&active=true&autonomous=${agentAutonomous[id]}`;
       fetch(traceUrl)
         .then((res) => {
           if (!res.ok) {
@@ -931,7 +1392,7 @@ export function AgenticWorkflows() {
           if (data.session_id) {
             setActiveSessionIds((prev) => ({ ...prev, [id]: data.session_id }));
           }
-          if (id === "Automated Player Retention Promo" && data.response_text) {
+          if (data.response_text) {
             const cleanText = extractCleanTextPayload(data.response_text);
             setAgentHistory((prev) => {
               const list = (prev[id] || []).map((entry) =>
@@ -942,9 +1403,19 @@ export function AgenticWorkflows() {
               return { ...prev, [id]: list };
             });
           }
+          const anomalyProposal = isAnomalyAgent && data.response_text ? parseAnomalyProposal(data.response_text) : null;
+          if (anomalyProposal) {
+            setParsedAnomalyProposal(anomalyProposal);
+          }
           setResults((prev) => ({
             ...prev,
-            [id]: workflowData[id]
+            [id]: {
+              thinking: workflowData[id].thinking,
+              finding: anomalyProposal?.finding || data.finding || workflowData[id].finding,
+              impact: anomalyProposal?.exposure_badge || data.impact || workflowData[id].impact,
+              recommendation: anomalyProposal?.recommended_action || data.recommendation || workflowData[id].recommendation,
+              nextSteps: anomalyProposal?.actions?.map(a => a.label) || data.nextSteps || workflowData[id].nextSteps,
+            }
           }));
           setCurrentStep(3);
           setExecutingId(null);
@@ -952,36 +1423,8 @@ export function AgenticWorkflows() {
         .catch((err) => {
           setTraceError((prev) => ({
             ...prev,
-            [id]: 'Agent Trace endpoint failed (HTTP 404: ). Displaying fallback trace with warning....',
+            [id]: `Agent Trace fallback response displayed (${err?.message || 'offline'}).`,
           }));
-          if (id === "Automated Player Retention Promo") {
-            const fallbackText = DEFAULT_RETENTION_FALLBACK_RESPONSE;
-
-            setAgentHistory((prev) => {
-              const list = (prev[id] || []).map((entry) =>
-                entry.isStreaming === true
-                  ? { ...entry, text: fallbackText, isStreaming: false }
-                  : entry
-              );
-              return { ...prev, [id]: list };
-            });
-          }
-          setResults((prev) => ({
-            ...prev,
-            [id]: workflowData[id]
-          }));
-          setCurrentStep(3);
-          setExecutingId(null);
-        });
-    } else {
-      setTraceError((prev) => ({ ...prev, [id]: null }));
-      if (id === "Automated Player Retention Promo") {
-        setTimeout(() => {
-          setTraceError((prev) => ({
-            ...prev,
-            [id]: 'Agent Trace endpoint failed (HTTP 404: ). Displaying fallback trace with warning....',
-          }));
-          const fallbackText = DEFAULT_RETENTION_FALLBACK_RESPONSE;
           setAgentHistory((prev) => {
             const list = (prev[id] || []).map((entry) =>
               entry.isStreaming === true
@@ -990,20 +1433,74 @@ export function AgenticWorkflows() {
             );
             return { ...prev, [id]: list };
           });
+          const fallbackProposal = isAnomalyAgent ? parseAnomalyProposal(fallbackText) : null;
+          if (fallbackProposal) {
+            setParsedAnomalyProposal(fallbackProposal);
+          }
           setResults((prev) => ({
             ...prev,
-            [id]: workflowData[id]
+            [id]: {
+              ...workflowData[id],
+              nextSteps: fallbackProposal?.actions?.map(a => a.label) || workflowData[id].nextSteps,
+            }
           }));
           setCurrentStep(3);
           setExecutingId(null);
-        }, 5000);
-      }
+        });
+    } else {
+      setTraceError((prev) => ({ ...prev, [id]: null }));
+      const steps = workflowData[id]?.thinking || [];
+      steps.forEach((_, idx) => {
+        setTimeout(() => {
+          setCurrentStep(idx);
+          if (idx === steps.length - 1) {
+            setExecutingId(null);
+            if (isRetentionAgent || isAnomalyAgent) {
+              setAgentHistory((prev) => {
+                const list = (prev[id] || []).map((entry) =>
+                  entry.isStreaming === true
+                    ? { ...entry, text: fallbackText, isStreaming: false }
+                    : entry
+                );
+                return { ...prev, [id]: list };
+              });
+            }
+            if (isAnomalyAgent) {
+              const fallbackProposal = parseAnomalyProposal(fallbackText);
+              if (fallbackProposal) {
+                setParsedAnomalyProposal(fallbackProposal);
+              }
+              setResults((prev) => ({
+                ...prev,
+                [id]: {
+                  ...workflowData[id],
+                  finding: fallbackProposal?.finding || workflowData[id].finding,
+                  impact: fallbackProposal?.exposure_badge || workflowData[id].impact,
+                  recommendation: fallbackProposal?.recommended_action || workflowData[id].recommendation,
+                  nextSteps: fallbackProposal?.actions?.map((a) => a.label) || workflowData[id].nextSteps,
+                },
+              }));
+            } else if (isRetentionAgent) {
+              const fallbackDecision = parseDecisionPayload(fallbackText);
+              if (fallbackDecision) {
+                setParsedDecision(fallbackDecision);
+              }
+              setResults((prev) => ({
+                ...prev,
+                [id]: workflowData[id],
+              }));
+            } else {
+              setResults((prev) => ({ ...prev, [id]: workflowData[id] }));
+            }
+          }
+        }, (idx + 1) * 700);
+      });
     }
   };
 
   useEffect(() => {
     if (executingId) {
-      const stepInterval = executingId === "Automated Player Retention Promo" && (!isAgentLive || routingMode !== "LIVE") ? 1200 : 700;
+      const stepInterval = (!isAgentLive[executingId] || routingMode !== "LIVE") ? 1200 : 700;
       const timer = setInterval(() => {
         setCurrentStep((prev) => {
           if (prev >= 3) {
@@ -1018,13 +1515,6 @@ export function AgenticWorkflows() {
   }, [executingId, isAgentLive, routingMode]);
 
   useEffect(() => {
-    if (executingId && currentStep >= 3 && executingId !== "Automated Player Retention Promo") {
-      setResults((prev) => ({
-        ...prev,
-        [executingId]: workflowData[executingId]
-      }));
-      setExecutingId(null);
-    }
     if (traceContainerRef.current) {
       traceContainerRef.current.scrollTop = 0;
     }
@@ -1036,6 +1526,10 @@ export function AgenticWorkflows() {
       msg = "Direct in-game crate dispatched via LiveEngine API. 150 gold & Frost Giant Shield added.";
     } else if (step.includes("Notify")) {
       msg = "Automated Slack alert sent to #liveops-alerts with Knowledge Catalog aspect verification report.";
+    } else if (step.includes("Freeze Trading")) {
+      msg = "Cloud Spanner trading ledger lock applied for 14 flagged accounts. Audit logged in BigQuery gold_cheat_analytics.";
+    } else if (step.includes("Export Log Audit")) {
+      msg = "Telemetry audit report exported to BigQuery silver_moderation_alerts.";
     } else {
       msg = `Execution completed for '${step}'. Audit logged in BigQuery gold_player_360 table.`;
     }
@@ -1054,7 +1548,7 @@ export function AgenticWorkflows() {
     {
       id: "Fraud & Cheat Detection Agent",
       title: "Cheat & Anomaly Detection Agent",
-      desc: "Scans active transactions to restrict suspicious database actions.",
+      desc: "Scans active Cloud Spanner ledger & BigQuery telemetry to isolate exploits and enforce security policy guardrails.",
       icon: ShieldCheck,
       color: "text-blue-600",
       bg: "bg-blue-50",
@@ -1103,6 +1597,8 @@ export function AgenticWorkflows() {
           const isExpanded = !!expandedCards[wf.id];
           const isActive = !!agentActive[wf.id];
           const isAutonomous = !!agentAutonomous[wf.id];
+          const anomalyActions = parsedAnomalyProposal?.actions || [];
+          const selectedAnomalyCount = anomalyActions.filter(a => selectedAnomalyActions[a.label]).length;
 
           return (
             <motion.div
@@ -1203,68 +1699,190 @@ export function AgenticWorkflows() {
                                 Operational Proposal Details
                               </span>
                               <h4 className="text-base font-bold text-slate-800 leading-snug">
-                                {!results[wf.id]
+                                {executingId === wf.id
+                                  ? "Agent Reasoning & Telemetry Analysis in Progress..."
+                                  : !results[wf.id]
                                   ? (isRetentionAgent
                                       ? "No active operational proposal evaluated yet. Click 'Execute Single Run' to analyze player telemetry."
-                                      : "No active evaluation")
+                                      : "No active evaluation. Click 'Execute Single Run' to analyze fraud & anomaly telemetry.")
                                   : (isRetentionAgent
                                       ? (parsedDecision && parsedDecision.target_cohorts.length > 0
                                           ? `Target Cohorts: Realm of Eldoria RPG - ${parsedDecision.target_cohorts.map(c => c.cohort_id).join(", ")} Cohorts`
                                           : "Target Cohort: Realm of Eldoria RPG - Minnow & F2P Cohorts")
-                                      : workflowData[wf.id].finding)}
+                                      : (parsedAnomalyProposal?.finding || results[wf.id]?.finding || workflowData[wf.id].finding))}
                               </h4>
                             </div>
-                            {results[wf.id] && (
-                              <span className="px-2.5 py-1 rounded-full bg-red-50 text-red-600 text-[10px] font-bold uppercase font-mono shrink-0">
-                                P1 - $85K Exposure
+                            {executingId === wf.id ? (
+                              <span className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-600 text-[10px] font-bold uppercase font-mono shrink-0 flex items-center gap-1.5 border border-blue-200">
+                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-ping" />
+                                Evaluating
                               </span>
-                            )}
+                            ) : results[wf.id] ? (
+                              <span className="px-2.5 py-1 rounded-full bg-red-50 text-red-600 text-[10px] font-bold uppercase font-mono shrink-0">
+                                {wf.id === "Fraud & Cheat Detection Agent" ? (parsedAnomalyProposal?.exposure_badge || results[wf.id]?.impact || "P1 - $120K Exposure") : "P1 - $85K Exposure"}
+                              </span>
+                            ) : null}
                           </div>
 
-                          {results[wf.id] ? (
-                            <div className="space-y-3 font-mono text-xs">
-                              <div className="grid grid-cols-2 gap-4">
-                                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Certified Reward SKU:</span>
-                                  <span className="font-bold text-slate-700">{parsedDecision?.sku_id || "frost_giant_shield_pack"}</span>
+                          {executingId === wf.id ? (
+                            <div className="p-6 bg-gradient-to-r from-blue-50/70 via-indigo-50/40 to-slate-50 rounded-2xl border border-blue-200/80 shadow-xs space-y-4">
+                              <div className="flex items-center gap-3.5">
+                                <div className="relative flex items-center justify-center w-9 h-9 rounded-xl bg-blue-600 text-white shadow-md shadow-blue-500/20 shrink-0">
+                                  <Loader2 className="w-5 h-5 animate-spin text-white" />
                                 </div>
-                                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Knowledge Catalog Aspect ID:</span>
-                                  <span className="font-bold text-slate-700">liveops_campaign_policy_aspect</span>
-                                </div>
-                                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Max Discount Boundary:</span>
-                                  <span className="font-bold text-emerald-600">
-                                    {parsedDecision ? `${parsedDecision.discount_percentage}% Compliant Cap` : "25% (Policy Limit Cap)"}
+                                <div>
+                                  <span className="text-sm font-bold text-slate-900 block">
+                                    Synthesizing Operational Proposal...
                                   </span>
-                                </div>
-                                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Predicted Churn Threshold:</span>
-                                  <span className="font-bold text-red-600">
-                                    {parsedDecision && parsedDecision.target_cohorts.length > 0
-                                      ? `${(Math.min(...parsedDecision.target_cohorts.map(c => c.churn_threshold)) * 100).toFixed(0)}% Minimum Threshold (${parsedDecision.target_cohorts.length} Cohorts)`
-                                      : "85% (HIGH RISK)"}
+                                  <span className="text-xs text-blue-700 font-mono font-medium">
+                                    {routingMode === "LIVE" && isAgentLive[wf.id]
+                                      ? "Querying live Gemini Enterprise Agent Platform reasoning & Dataplex Knowledge Catalog..."
+                                      : "Processing telemetry event stream & executing pre-canned policy verification..."}
                                   </span>
                                 </div>
                               </div>
 
-                              {parsedDecision && (
-                                <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-100 text-[11px] text-slate-700">
-                                  <span className="font-bold text-blue-900 block mb-1">Targeted Cohorts & Policy Rationale:</span>
-                                  <p className="text-[10px] text-slate-600 italic mb-2">{typeof parsedDecision.reasoning === "string" ? parsedDecision.reasoning : JSON.stringify(parsedDecision.reasoning)}</p>
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {parsedDecision.target_cohorts.map((tc, idx) => (
-                                      <span key={idx} className="px-2 py-0.5 rounded bg-white border border-blue-200 text-[9px] text-slate-800">
-                                        <strong className="text-blue-700">{typeof tc.cohort_id === "string" ? tc.cohort_id : String(tc.cohort_id)} Cohort</strong>: {((tc.churn_threshold || 0.85) * 100).toFixed(0)}% churn threshold — {typeof tc.offer_details === "string" ? tc.offer_details : JSON.stringify(tc.offer_details || "Compliant discount")}
-                                      </span>
-                                    ))}
+                              <div className="bg-white/90 p-3.5 rounded-xl border border-blue-100 shadow-xs space-y-2.5">
+                                <div className="flex items-center justify-between text-[11px] text-slate-500 pb-1.5 border-b border-slate-100 font-mono">
+                                  <span className="uppercase font-bold tracking-wider">Evaluation Pipeline</span>
+                                  <span className="text-blue-600 font-bold">Phase {Math.min(currentStep + 1, 4)} of 4</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                                  <div className="flex items-center gap-2">
+                                    <span className={`w-2 h-2 rounded-full shrink-0 ${currentStep >= 0 ? "bg-emerald-500" : "bg-slate-300"}`} />
+                                    <span className={currentStep >= 0 ? "text-slate-800 font-medium" : "text-slate-400"}>Telemetry Scan</span>
                                   </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className={`w-2 h-2 rounded-full shrink-0 ${currentStep >= 1 ? "bg-emerald-500" : "bg-slate-300"}`} />
+                                    <span className={currentStep >= 1 ? "text-slate-800 font-medium" : "text-slate-400"}>Policy Compliance</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className={`w-2 h-2 rounded-full shrink-0 ${currentStep >= 2 ? "bg-emerald-500" : "bg-slate-300"}`} />
+                                    <span className={currentStep >= 2 ? "text-slate-800 font-medium" : "text-slate-400"}>Risk Impact Scoring</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className={`w-2 h-2 rounded-full shrink-0 ${currentStep >= 3 ? "bg-blue-600 animate-pulse" : "bg-slate-300"}`} />
+                                    <span className={currentStep >= 3 ? "text-blue-700 font-medium" : "text-slate-400"}>Formulating Actions</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <p className="text-[11px] text-slate-500 font-mono italic flex items-center gap-1.5">
+                                <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                <span>Waiting for response from agent before rendering proposal details and execution gate...</span>
+                              </p>
+                            </div>
+                          ) : results[wf.id] ? (
+                            <div className="space-y-3 font-mono text-xs">
+                              {wf.id === "Fraud & Cheat Detection Agent" ? (
+                                <div className="space-y-3 font-mono text-xs">
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                      <span className="text-[10px] text-slate-400 font-bold uppercase block mb-0.5">Target Scope:</span>
+                                      <span className="font-bold text-slate-700">
+                                        {parsedAnomalyProposal?.actions?.filter(a => a.action_type === 'QUARANTINE_ACCOUNT').length 
+                                          ? `${parsedAnomalyProposal.actions.filter(a => a.action_type === 'QUARANTINE_ACCOUNT').length} Flagged Account(s)` 
+                                          : "Live Transaction Telemetry"}
+                                      </span>
+                                    </div>
+                                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                      <span className="text-[10px] text-slate-400 font-bold uppercase block mb-0.5">Security Aspect ID:</span>
+                                      <span className="font-bold text-slate-700">security_quarantine_policy_aspect</span>
+                                    </div>
+
+                                    {/* Full-Width Exploit Classification Card with Natural Wrapping */}
+                                    <div className="col-span-2 bg-red-50/40 p-3.5 rounded-xl border border-red-100/80 text-left">
+                                      <span className="text-[10px] text-red-600 font-bold uppercase tracking-wider block mb-1">
+                                        Exploit Classification:
+                                      </span>
+                                      <p className="font-semibold text-slate-800 text-xs leading-relaxed break-words font-sans">
+                                        {parsedAnomalyProposal?.finding || "Anomalous telemetry spike detected across live transaction ledger."}
+                                      </p>
+                                    </div>
+
+                                    {/* Full-Width Sanction Action Card with Natural Wrapping */}
+                                    <div className="col-span-2 bg-blue-50/40 p-3.5 rounded-xl border border-blue-100/80 text-left">
+                                      <span className="text-[10px] text-blue-600 font-bold uppercase tracking-wider block mb-1">
+                                        Sanction Action:
+                                      </span>
+                                      <p className="font-semibold text-slate-800 text-xs leading-relaxed break-words font-sans">
+                                        {parsedAnomalyProposal?.recommended_action || results[wf.id]?.recommendation || "Immediately quarantine all identified fraudulent accounts and notify Security Operations."}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <div className="p-3 bg-slate-50/80 rounded-xl border border-slate-200/60 text-[11px] text-slate-700">
+                                    <span className="font-bold text-slate-800 block mb-1.5 font-sans">
+                                      Governance & Incident Parameters:
+                                    </span>
+                                    <div className="flex flex-wrap gap-2">
+                                      <span className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-[10px] text-slate-800 shadow-2xs">
+                                        <strong className="text-red-600 uppercase font-mono">Severity</strong>: {parsedAnomalyProposal?.severity || "CRITICAL"}
+                                      </span>
+                                      <span className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-[10px] text-slate-800 shadow-2xs">
+                                        <strong className="text-amber-600 uppercase font-mono">Exposure Impact</strong>: {parsedAnomalyProposal?.exposure_badge || "$120K In-Game Economy"}
+                                      </span>
+                                      <span className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-[10px] text-slate-800 shadow-2xs">
+                                        <strong className="text-blue-600 uppercase font-mono">Lakehouse Sink</strong>: gold_cheat_analytics
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="space-y-3 font-mono text-xs">
+                                  <div className="grid grid-cols-2 gap-4">
+                                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                      <span className="text-[10px] text-slate-400 font-bold uppercase block">Certified Reward SKU:</span>
+                                      <span className="font-bold text-slate-700">{parsedDecision?.sku_id || "frost_giant_shield_pack"}</span>
+                                    </div>
+                                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                      <span className="text-[10px] text-slate-400 font-bold uppercase block">Knowledge Catalog Aspect ID:</span>
+                                      <span className="font-bold text-slate-700">liveops_campaign_policy_aspect</span>
+                                    </div>
+                                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                      <span className="text-[10px] text-slate-400 font-bold uppercase block">Max Discount Boundary:</span>
+                                      <span className="font-bold text-emerald-600">
+                                        {parsedDecision ? `${parsedDecision.discount_percentage}% Compliant Cap` : "25% (Policy Limit Cap)"}
+                                      </span>
+                                    </div>
+                                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                      <span className="text-[10px] text-slate-400 font-bold uppercase block">Predicted Churn Threshold:</span>
+                                      <span className="font-bold text-red-600">
+                                        {parsedDecision && parsedDecision.target_cohorts.length > 0
+                                          ? `${(Math.min(...parsedDecision.target_cohorts.map(c => c.churn_threshold)) * 100).toFixed(0)}% Minimum Threshold (${parsedDecision.target_cohorts.length} Cohorts)`
+                                          : "85% (HIGH RISK)"}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  {parsedDecision && (
+                                    <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-100 text-[11px] text-slate-700">
+                                      <span className="font-bold text-blue-900 block mb-1">Targeted Cohorts & Policy Rationale:</span>
+                                      <p className="text-[10px] text-slate-600 italic mb-2">{typeof parsedDecision.reasoning === "string" ? parsedDecision.reasoning : JSON.stringify(parsedDecision.reasoning)}</p>
+                                      <div className="flex flex-wrap gap-1.5">
+                                        {parsedDecision.target_cohorts.map((tc, idx) => (
+                                          <span key={idx} className="px-2 py-0.5 rounded bg-white border border-blue-200 text-[9px] text-slate-800">
+                                            <strong className="text-blue-700">{typeof tc.cohort_id === "string" ? tc.cohort_id : String(tc.cohort_id)} Cohort</strong>: {((tc.churn_threshold || 0.85) * 100).toFixed(0)}% churn threshold — {typeof tc.offer_details === "string" ? tc.offer_details : JSON.stringify(tc.offer_details || "Compliant discount")}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>
                           ) : (
-                            <div className="p-4 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-xs text-slate-500 font-mono italic">
-                              Waiting for single run telemetry analysis trigger...
+                            <div className="p-6 bg-slate-50/80 rounded-2xl border border-dashed border-slate-200 text-xs font-mono text-slate-500 space-y-2">
+                              <div className="flex items-center gap-2 text-slate-700 font-bold text-sm">
+                                <Clock className="w-4 h-4 text-slate-400" />
+                                <span>Awaiting Workflow Evaluation</span>
+                              </div>
+                              <p className="text-xs text-slate-500 leading-relaxed font-sans">
+                                Operational proposals, target scope, policy compliance aspects, and actionable remediation gates will be formulated once telemetry analysis is executed.
+                              </p>
+                              <div className="text-[11px] text-indigo-600 font-mono font-medium pt-1">
+                                Click &quot;Execute Single Run&quot; to initiate agent reasoning.
+                              </div>
                             </div>
                           )}
                         </div>
@@ -1276,68 +1894,267 @@ export function AgenticWorkflows() {
                               Execution & Approval Gate
                             </span>
 
-                            {!results[wf.id] ? (
-                              <div className="p-4 bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-xs font-mono text-slate-500">
-                                No offer currently active or pending approval.
+                            {executingId === wf.id ? (
+                              <div className="p-5 bg-blue-50/50 rounded-2xl border border-dashed border-blue-200 text-xs font-mono text-blue-700 space-y-2">
+                                <div className="flex items-center gap-2 font-bold text-blue-950 text-sm">
+                                  <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                                  <span>Remediation Gate Locked</span>
+                                </div>
+                                <p className="text-xs text-blue-600 leading-relaxed font-sans">
+                                  Interactive approval buttons and sanction execution chips will unlock once the operational proposal completes.
+                                </p>
+                              </div>
+                            ) : !results[wf.id] ? (
+                              <div className="p-5 bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-xs font-mono text-slate-500">
+                                No action or sanction currently pending approval. Run an evaluation to generate actions.
                               </div>
                             ) : isAutonomous ? (
                               /* Autonomous Mode: Status Chip with Rich Hover Tooltip */
                               <div className="relative group p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-between">
                                 <div className="flex items-center gap-2">
-                                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                                  {wf.id === "Fraud & Cheat Detection Agent" ? (
+                                    <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                                  ) : (
+                                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                                  )}
                                   <div>
-                                    <span className="text-xs font-bold text-emerald-900 block">APPROVED BY AGENT</span>
-                                      <span className="text-[10px] text-emerald-700 font-mono">Knowledge Catalog Policy Audit Verified</span>
+                                    <span className="text-xs font-bold text-emerald-900 block">
+                                      {wf.id === "Fraud & Cheat Detection Agent" ? "LIVEOPS SECURITY SHIELD: AUTO-ENFORCED" : "APPROVED BY AGENT"}
+                                    </span>
+                                    <span className="text-[10px] text-emerald-700 font-mono">
+                                      {wf.id === "Fraud & Cheat Detection Agent" ? "Security Policy Quarantine Verified & Trading Index Frozen" : "Knowledge Catalog Policy Audit Verified"}
+                                    </span>
                                   </div>
                                 </div>
                                 <Info className="w-4 h-4 text-emerald-600 cursor-pointer" />
 
                                 {/* Hover Tooltip detailing policy decision rationale */}
                                 <div className="absolute top-full left-0 right-0 mt-2 p-4 rounded-xl bg-slate-900 text-white font-mono text-[11px] shadow-2xl opacity-0 group-hover:opacity-100 transition-all z-30 border border-slate-700 space-y-1">
-                                    <p className="font-bold text-emerald-400">[KNOWLEDGE CATALOG POLICY COMPLIANCE VERIFIED]</p>
-                                  <p>- Aspect Check: `liveops_campaign_policy_aspect` PASSED</p>
-                                  <p>- Max Discount Boundary ({parsedDecision ? `${parsedDecision.discount_percentage}%` : "25%"}) limit honored</p>
-                                  <p>- BQML Minimum Churn Score: {parsedDecision && parsedDecision.target_cohorts.length > 0 ? Math.min(...parsedDecision.target_cohorts.map(c => c.churn_threshold)) : "0.85"}</p>
-                                  <p>- Target Segments: {parsedDecision && parsedDecision.target_cohorts.length > 0 ? parsedDecision.target_cohorts.map(c => c.cohort_id).join(", ") : "Minnow, F2P"}</p>
+                                  {wf.id === "Fraud & Cheat Detection Agent" ? (
+                                    <>
+                                      <p className="font-bold text-emerald-400">[SECURITY POLICY COMPLIANCE VERIFIED]</p>
+                                      <p>- Aspect Check: `security_quarantine_policy_aspect` PASSED</p>
+                                      <p>- Risk Score: 0.94 (HIGH RISK EXPLOITATION DETECTED)</p>
+                                      <p>- Action: LiveOps Security Shield applied to 14 flagged accounts</p>
+                                      <p>- Lakehouse Sink: gold_cheat_analytics & silver_moderation_alerts</p>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <p className="font-bold text-emerald-400">[KNOWLEDGE CATALOG POLICY COMPLIANCE VERIFIED]</p>
+                                      <p>- Aspect Check: `liveops_campaign_policy_aspect` PASSED</p>
+                                      <p>- Max Discount Boundary ({parsedDecision ? `${parsedDecision.discount_percentage}%` : "25%"}) limit honored</p>
+                                      <p>- BQML Minimum Churn Score: {parsedDecision && parsedDecision.target_cohorts.length > 0 ? Math.min(...parsedDecision.target_cohorts.map(c => c.churn_threshold)) : "0.85"}</p>
+                                      <p>- Target Segments: {parsedDecision && parsedDecision.target_cohorts.length > 0 ? parsedDecision.target_cohorts.map(c => c.cohort_id).join(", ") : "Minnow, F2P"}</p>
+                                    </>
+                                  )}
                                 </div>
                               </div>
                             ) : (
                               /* Single-Invocation Mode: Interactive Approval Gate */
-                              <div className="space-y-3">
+                              <div className="space-y-4">
                                 <p className="text-xs text-slate-600 leading-relaxed font-light">
-                                  Manual approval required prior to injecting offer script into game telemetry stream.
+                                  {wf.id === "Fraud & Cheat Detection Agent"
+                                    ? "Manual operator review required. Select recommended remediation actions below and approve to execute enforcement."
+                                    : "Manual operator approval required prior to injecting offer script into game telemetry stream."}
                                 </p>
                                 {rejectedActions[wf.id] ? (
                                   <div className="p-3 rounded-xl bg-rose-50 border border-rose-100 flex items-center gap-2 text-xs font-bold text-rose-800 font-mono">
-                                    <ShieldAlert className="w-4 h-4 text-rose-600" />
-                                    <span>Proposal Rejected & Dismissed.</span>
+                                    <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
+                                    <span>Actions Rejected & Dismissed.</span>
                                   </div>
-                                ) : !approvedActions[wf.id] ? (
-                                  <div className="grid grid-cols-2 gap-2 font-mono">
+                                ) : approvedActions[wf.id] ? (
+                                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2.5 text-xs font-bold text-emerald-800 font-mono">
+                                    {wf.id === "Fraud & Cheat Detection Agent" ? (
+                                      <>
+                                        <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
+                                        <div>
+                                          <span className="block text-emerald-950 font-bold">LIVEOPS SECURITY SHIELD ENFORCED</span>
+                                          <span className="text-[10px] text-emerald-700 font-normal">
+                                            {Object.keys(executedAnomalyActions).length} action(s) approved and enforced across Cloud Spanner & BigQuery.
+                                          </span>
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                        <span>Script Injected. Retention offer active.</span>
+                                      </>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 font-mono">
                                     <button 
+                                      type="button"
+                                      disabled={wf.id === "Fraud & Cheat Detection Agent" && selectedAnomalyCount === 0}
                                       onClick={() => {
                                         setApprovedActions(prev => ({ ...prev, [wf.id]: true }));
                                         setRejectedActions(prev => ({ ...prev, [wf.id]: false }));
-                                        injectRetentionOffer(wf.id, parsedDecision);
+                                        if (wf.id === "Automated Player Retention Promo") {
+                                          injectRetentionOffer(wf.id, parsedDecision);
+                                        } else if (wf.id === "Fraud & Cheat Detection Agent") {
+                                          if (parsedAnomalyProposal?.actions) {
+                                            const newlyExecuted: Record<string, boolean> = { ...executedAnomalyActions };
+                                            let approvedCount = 0;
+                                            parsedAnomalyProposal.actions.forEach(a => {
+                                              if (selectedAnomalyActions[a.label]) {
+                                                newlyExecuted[a.label] = true;
+                                                approvedCount++;
+                                              }
+                                            });
+                                            setExecutedAnomalyActions(newlyExecuted);
+                                            setAnomalyActionMessage(`${approvedCount} action(s) approved and executed. LiveOps Security Shield applied.`);
+                                          }
+                                        }
                                       }}
-                                      className="py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-blue-600/20"
+                                      className={cn(
+                                        "py-3 px-3 rounded-xl font-bold text-[11px] uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-md font-mono",
+                                        (wf.id === "Fraud & Cheat Detection Agent" && selectedAnomalyCount === 0)
+                                          ? "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none border border-slate-300"
+                                          : "bg-blue-600 hover:bg-blue-700 text-white cursor-pointer shadow-blue-600/20"
+                                      )}
+                                      title={wf.id === "Fraud & Cheat Detection Agent" && selectedAnomalyCount === 0 ? "Select at least one action to approve" : "Approve and execute selected actions"}
                                     >
-                                      <CheckCircle2 className="w-4 h-4" /> Approve & Inject
+                                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                                      <span>
+                                        {wf.id === "Fraud & Cheat Detection Agent"
+                                          ? (selectedAnomalyCount === 0 ? "Approve Actions" : `Approve Actions (${selectedAnomalyCount})`)
+                                          : "Approve Actions"}
+                                      </span>
                                     </button>
                                     <button 
+                                      type="button"
                                       onClick={() => {
                                         setRejectedActions(prev => ({ ...prev, [wf.id]: true }));
                                         setApprovedActions(prev => ({ ...prev, [wf.id]: false }));
                                       }}
-                                      className="py-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-[11px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                                      className="py-3 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-[11px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer font-mono"
                                     >
-                                      <ShieldAlert className="w-4 h-4 text-rose-600" /> Reject / Dismiss
+                                      <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
+                                      <span>Reject / Dismiss</span>
                                     </button>
                                   </div>
-                                ) : (
-                                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center gap-2 text-xs font-bold text-emerald-800 font-mono">
-                                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                                    <span>Script Injected. Retention offer active.</span>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Recommended Actions List (Fraud & Cheat Detection Agent) */}
+                            {wf.id === "Fraud & Cheat Detection Agent" && parsedAnomalyProposal?.actions && parsedAnomalyProposal.actions.length > 0 && (
+                              <div className="pt-3 border-t border-slate-100 space-y-2.5">
+                                <div className="flex items-center justify-between flex-wrap gap-2">
+                                  <div>
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest font-mono block">
+                                      Agent Suggested Actions
+                                    </span>
+                                    <span className="text-[10px] text-blue-600 font-mono font-semibold">
+                                      {parsedAnomalyProposal.actions.filter(a => executedAnomalyActions[a.label]).length}/{parsedAnomalyProposal.actions.length} Completed
+                                      {!approvedActions[wf.id] && !rejectedActions[wf.id] && !isAutonomous && (
+                                        <span className="text-slate-400 font-normal"> · {selectedAnomalyCount} Selected</span>
+                                      )}
+                                    </span>
+                                  </div>
+
+                                  {!approvedActions[wf.id] && !rejectedActions[wf.id] && !isAutonomous && (
+                                    <div className="flex items-center gap-1.5 font-mono text-[10px]">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const all: Record<string, boolean> = {};
+                                          parsedAnomalyProposal.actions.forEach(a => { all[a.label] = true; });
+                                          setSelectedAnomalyActions(all);
+                                        }}
+                                        className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition-colors cursor-pointer border border-slate-200"
+                                      >
+                                        Select All
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedAnomalyActions({});
+                                        }}
+                                        className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold transition-colors cursor-pointer border border-slate-200"
+                                      >
+                                        Deselect All
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="space-y-1.5 font-mono max-h-60 overflow-y-auto pr-1">
+                                  {parsedAnomalyProposal.actions.map((act, idx) => {
+                                    const isExecuted = executedAnomalyActions[act.label] || isAutonomous;
+                                    const isSelected = !!selectedAnomalyActions[act.label];
+                                    const isApproved = approvedActions[wf.id] || isAutonomous;
+
+                                    return (
+                                      <div
+                                        key={idx}
+                                        onClick={() => {
+                                          if (!isApproved && !isExecuted) {
+                                            setSelectedAnomalyActions(prev => ({
+                                              ...prev,
+                                              [act.label]: !prev[act.label]
+                                            }));
+                                          }
+                                        }}
+                                        className={cn(
+                                          "p-2.5 rounded-xl text-[11px] font-mono transition-all flex items-center justify-between border select-none",
+                                          isExecuted
+                                            ? "bg-emerald-50/80 text-emerald-800 border-emerald-200 cursor-default"
+                                            : !isApproved
+                                            ? (isSelected
+                                                ? "bg-blue-50/80 text-blue-900 border-blue-200 shadow-xs cursor-pointer hover:bg-blue-100/70"
+                                                : "bg-white text-slate-600 border-slate-200 cursor-pointer hover:border-slate-300 hover:bg-slate-50/60")
+                                            : "bg-slate-50 text-slate-400 border-slate-200 cursor-default"
+                                        )}
+                                      >
+                                        <div className="flex items-center gap-2.5 min-w-0">
+                                          {isExecuted ? (
+                                            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                          ) : !isApproved ? (
+                                            isSelected ? (
+                                              <CheckSquare className="w-4 h-4 text-blue-600 shrink-0" />
+                                            ) : (
+                                              <Square className="w-4 h-4 text-slate-400 shrink-0" />
+                                            )
+                                          ) : (
+                                            <Square className="w-4 h-4 text-slate-300 shrink-0" />
+                                          )}
+                                          <span className={cn(
+                                            "truncate font-medium",
+                                            isExecuted && "text-emerald-900 font-semibold",
+                                            isSelected && !isExecuted && "text-blue-950 font-semibold"
+                                          )}>
+                                            {act.label}
+                                          </span>
+                                        </div>
+
+                                        <div className="flex items-center gap-1.5 shrink-0 pl-2">
+                                          {isExecuted ? (
+                                            <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[9px] font-bold uppercase">
+                                              Completed
+                                            </span>
+                                          ) : !isApproved ? (
+                                            <span className={cn(
+                                              "px-1.5 py-0.5 rounded text-[9px] uppercase font-bold",
+                                              isSelected ? "bg-blue-100 text-blue-800" : "bg-slate-100 text-slate-500"
+                                            )}>
+                                              {isSelected ? "Selected" : "Deselected"}
+                                            </span>
+                                          ) : (
+                                            <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-400 text-[9px] uppercase font-bold">
+                                              Excluded
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+
+                                {anomalyActionMessage && (
+                                  <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[10px] font-mono flex items-center gap-2">
+                                    <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                                    <span>{anomalyActionMessage}</span>
                                   </div>
                                 )}
                               </div>
@@ -1348,21 +2165,21 @@ export function AgenticWorkflows() {
                             {!results[wf.id] && !executingId && (
                               <button 
                                 type="button"
-                                disabled={isRetentionAgent && isProbing}
+                                disabled={isAgentProbing[wf.id]}
                                 onClick={() => handleExecute(wf.id)}
                                 className={cn(
                                   "w-full py-3 rounded-xl flex items-center justify-center gap-2 font-bold text-xs uppercase tracking-widest transition-all shadow-sm font-mono",
-                                  isRetentionAgent && isProbing
+                                  isAgentProbing[wf.id]
                                     ? "bg-slate-200 text-slate-400 cursor-not-allowed opacity-70 border border-slate-300 pointer-events-none"
                                     : "bg-slate-900 text-white hover:bg-blue-700 cursor-pointer"
                                 )}
                               >
-                                {isRetentionAgent && isProbing ? (
+                                {isAgentProbing[wf.id] ? (
                                   <>
                                     <div className="w-3.5 h-3.5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
                                     <span>Checking Agent Status...</span>
                                   </>
-                                ) : isRetentionAgent && !isAgentLive ? (
+                                ) : (!isAgentLive[wf.id] || routingMode !== "LIVE") ? (
                                   <>
                                     <span>execute single run (mock)</span>
                                     <ArrowRight className="w-4 h-4" />
@@ -1377,7 +2194,7 @@ export function AgenticWorkflows() {
                             )}
                             {executingId === wf.id && (
                               <div className="w-full py-3 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center gap-2">
-                                <div className="w-2 h-2 rounded-full bg-blue-500 animate-ping" />
+                                <div className="w-2.5 h-2.5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
                                 <span className="text-xs font-bold text-blue-600 uppercase tracking-widest font-mono">
                                   Evaluating Telemetry...
                                 </span>
@@ -1386,18 +2203,18 @@ export function AgenticWorkflows() {
                             {results[wf.id] && (
                               <button 
                                 type="button"
-                                disabled={isRetentionAgent && isProbing}
+                                disabled={isAgentProbing[wf.id]}
                                 onClick={() => handleExecute(wf.id)}
                                 className={cn(
                                   "w-full py-3 rounded-xl font-bold text-xs uppercase tracking-widest transition-colors flex items-center justify-center gap-2 font-mono",
-                                  isRetentionAgent && isProbing
+                                  isAgentProbing[wf.id]
                                     ? "bg-slate-200 text-slate-400 cursor-not-allowed opacity-70"
                                     : "bg-slate-100 text-slate-600 hover:text-blue-600 cursor-pointer"
                                 )}
                               >
                                 <RotateCcw className="w-4 h-4" />
                                 <span>
-                                  {isRetentionAgent && !isAgentLive ? "query agent again (mock)" : "query agent again"}
+                                  {(!isAgentLive[wf.id] || routingMode !== "LIVE") ? "query agent again (mock)" : "query agent again"}
                                 </span>
                               </button>
                             )}
@@ -1407,7 +2224,7 @@ export function AgenticWorkflows() {
 
                       {/* Bottom Row: Agent response history (LEFT) & Data Cloud Telemetry Flow (RIGHT) */}
                       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                        {/* Agent response history connected to agent-kc (Enlarged C1) */}
+                        {/* Agent response history connected to agent-kc / agent_anomaly (Enlarged C1) */}
                         <div className="lg:col-span-7 bg-white rounded-3xl border border-slate-200/80 p-6 shadow-md space-y-4">
                           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                             <div className="flex items-center gap-2">
@@ -1421,15 +2238,18 @@ export function AgenticWorkflows() {
                               {activeSessionIds[wf.id] && (
                                 <SessionIdBadge sessionId={activeSessionIds[wf.id]} />
                               )}
-                              <DataModeBadge mode={routingMode === "LIVE" ? "live" : "mock"} source="agent_kc (Gemini Enterprise Agent Platform)" />
+                              <DataModeBadge 
+                                mode={(isAgentLive[wf.id] && routingMode === "LIVE") ? "live" : "mock"} 
+                                source={wf.id === "Fraud & Cheat Detection Agent" ? "agent_anomaly (Gemini Enterprise Agent Platform)" : "agent_kc (Gemini Enterprise Agent Platform)"} 
+                              />
 
                               <button
                                 type="button"
-                                onClick={() => setActiveSection({ id: "catalog", search: "agent-kc" })}
+                                onClick={() => setActiveSection({ id: "catalog", search: wf.id === "Fraud & Cheat Detection Agent" ? "agent_anomaly" : "agent-kc" })}
                                 className="text-[9px] px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 font-mono font-bold border border-blue-200/50 transition-colors cursor-pointer flex items-center gap-1 group"
-                                title="View chat session history & Knowledge Catalog entries for agent-kc"
+                                title={`View chat session history & Knowledge Catalog entries for ${wf.id === "Fraud & Cheat Detection Agent" ? "agent_anomaly" : "agent-kc"}`}
                               >
-                                <span>agent-kc</span>
+                                <span>{wf.id === "Fraud & Cheat Detection Agent" ? "agent_anomaly" : "agent-kc"}</span>
                                 <ExternalLink className="w-2.5 h-2.5 opacity-60 group-hover:opacity-100 transition-opacity" />
                               </button>
                             </div>
@@ -1471,12 +2291,12 @@ export function AgenticWorkflows() {
                                             li: ({ children }) => <li className="leading-relaxed">{children}</li>,
                                             strong: ({ children }) => <strong className="font-semibold text-slate-900">{children}</strong>,
                                             em: ({ children }) => <em className="italic text-slate-800">{children}</em>,
-                                              pre: ({ children }) => <pre className="bg-slate-900 text-slate-100 font-mono text-[11px] p-3 rounded-xl overflow-x-auto my-2 border border-slate-800 leading-relaxed">{children}</pre>,
-                                              code: ({ inline, children }: any) => inline ? <code className="bg-slate-200/70 text-slate-900 font-mono text-[11px] px-1.5 py-0.5 rounded border border-slate-300/60">{children}</code> : <code className="font-mono text-[11px] text-emerald-400 leading-relaxed">{children}</code>,
+                                            pre: ({ children }) => <pre className="bg-slate-900 text-slate-100 font-mono text-[11px] p-3 rounded-xl overflow-x-auto my-2 border border-slate-800 leading-relaxed">{children}</pre>,
+                                            code: ({ inline, children }: any) => inline ? <code className="bg-slate-200/70 text-slate-900 font-mono text-[11px] px-1.5 py-0.5 rounded border border-slate-300/60">{children}</code> : <code className="font-mono text-[11px] text-emerald-400 leading-relaxed">{children}</code>,
                                             blockquote: ({ children }) => <blockquote className="border-l-2 border-blue-400 pl-3 py-1 my-2 text-slate-600 bg-blue-50/50 rounded-r">{children}</blockquote>
                                           }}
                                         >
-                                          {extractCleanTextPayload(entry.text)}
+                                          {extractHumanReadableLogText(entry.text)}
                                         </ReactMarkdown>
                                       </div>
                                       {/* C2: Hide mock reasoning steps when agent-kc is reached; show ONLY when traceError is present or routingMode !== LIVE */}
@@ -1529,6 +2349,8 @@ export function AgenticWorkflows() {
                             routingMode={routingMode}
                             isSimulatorRunning={isSimulatorRunning}
                             isExecuting={executingId === wf.id}
+                            isProbing={isAgentProbing[wf.id]}
+                            isAgentLive={!!isAgentLive[wf.id]}
                           />
                         </div>
                       </div>

@@ -565,10 +565,10 @@ const TRANSLATIONS: Record<string, Record<Country, string>> = {
     Korea: "[단계 4] 세그먼트 매핑 정보를 Google 애널리틱스 마케팅 제품군으로 전송 중...",
     China: "[第四步] 推送细分受众映射至 Google Analytics 分析营销范围..."
   },
-  "[Step 5] Triggering dynamic personalizations using Jingle Games live telemetry API...": {
-    Japan: "[ステップ 5] Jingle GamesライブテレメトリAPIを使用してダイナミックパーソナライズを実行中...",
-    Korea: "[단계 5] Jingle Games 라이브 원격 분석 API를 사용한 동적 실시간 마케팅 트리거 작동 중...",
-    China: "[第五步] 结合 Jingle Games 实时遥测 API 触发动态个性化内容..."
+  "[Step 5] Triggering dynamic personalizations using live telemetry API...": {
+    Japan: "[ステップ 5] ライブテレメトリAPIを使用してダイナミックパーソナライズを実行中...",
+    Korea: "[단계 5] 라이브 원격 분석 API를 사용한 동적 실시간 마케팅 트리거 작동 중...",
+    China: "[第五步] 结合实时遥测 API 触发动态个性化内容..."
   },
   "[Success] Sync verified! Campaign synced successfully.": {
     Japan: "[成功] 同期完了！キャンペーンは正常に同期されました。",
@@ -1314,7 +1314,7 @@ export function CampaignEngine({
       "[Step 2] Resolving active player profiles inside Google Cloud AlloyDB cluster...",
       "[Step 3] Fetching Google Ads audience list IDs for mapping direct sync...",
       "[Step 4] Pushing segment mapping to Google Analytics marketing scope...",
-      "[Step 5] Triggering dynamic personalizations using Jingle Games live telemetry API...",
+      "[Step 5] Triggering dynamic personalizations using live telemetry API...",
       "[Success] Sync verified! Campaign synced successfully."
     ];
 

@@ -2,6 +2,7 @@ import { motion } from "motion/react";
 import { Activity, ShieldCheck, Map, Terminal } from "lucide-react";
 import { AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { DataModeBadge } from "../DataModeBadge";
+import { usePublisher } from "../../context/PublisherContext";
 
 const MOCK_QUERY_LOGS = [
   { time: "14:20:01", query: "join(alloydb_sessions, snowflake_ltv)", latency: 120, cost: 0.0004 },
@@ -17,13 +18,14 @@ const MOCK_TRAFFIC_DATA = [
 ];
 
 export function ITObservatory() {
+  const { publisherSlug } = usePublisher();
   return (
     <div className="p-8 h-full flex flex-col text-slate-900">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h2 className="text-2xl font-bold flex items-center gap-3 text-slate-800 tracking-tight font-sans">
             <ShieldCheck className="w-6 h-6 text-blue-600" />
-            Agentic Gaming Data Observatory
+            Agentic Gaming API Observatory
           </h2>
           <div className="flex items-center gap-4 mt-1">
             <p className="text-xs text-slate-500 font-medium italic">Unified Game Economics & Cross-Cloud Observability Pipeline</p>
@@ -104,7 +106,7 @@ export function ITObservatory() {
               <ShieldCheck className="w-5 h-5 text-blue-600" />
               <div>
                 <p className="text-[10px] font-bold text-slate-700 uppercase tracking-tight">Deployment SPIFFE Identity</p>
-                <p className="text-[9px] text-slate-400 font-mono mt-1 leading-tight break-all">spiffe://jingle/operations/dev-executor</p>
+                <p className="text-[9px] text-slate-400 font-mono mt-1 leading-tight break-all">spiffe://{publisherSlug}/operations/dev-executor</p>
               </div>
             </div>
           </div>

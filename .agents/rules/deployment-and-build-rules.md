@@ -1,5 +1,9 @@
 # Deployment & Build Rules
 
+0. **Mandatory Cloud Build Execution (Never Run Deployments Locally)**:
+   - **Never run deployment scripts locally**: Agents and developers MUST NOT run `deploy-demo.sh` or local end-to-end multi-step deployment commands directly in the local environment/shell.
+   - **Always deploy via Cloud Build**: All deployments must be submitted and executed using Google Cloud Build (`gcloud builds submit --config=...`) with the provided Cloud Build YAML configuration file and appropriate substitutions.
+
 1. **Cloud Run Reserved Env Vars**:
    - Do NOT pass `PORT` in `--set-env-vars` when executing `gcloud run deploy`. Use `--port=<port>` instead.
 

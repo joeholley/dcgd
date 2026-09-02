@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Country, LanguageSetting } from "./CampaignEngine";
 import { DataModeBadge } from "../DataModeBadge";
+import { usePublisher } from "../../context/PublisherContext";
 import { 
   Database, 
   Cloud, 
@@ -11,9 +12,7 @@ import {
   FileText, 
   Zap, 
   BarChart3, 
-  Bot, 
   CheckCircle2, 
-  BrainCircuit,
   LayoutDashboard,
   ShieldCheck,
   Stethoscope,
@@ -62,14 +61,14 @@ const CONNECTORS: Connector[] = [
     search: "Snowflake" 
   },
   { 
-    label: "AlloyDB", 
-    industryTitle: "Live Gameplay Telemetry", 
-    definition: "High-performance transactional engine for real-time play sessions, instant purchases, and matchmaking loads.",
-    includes: ["Active Match Lobby Concurrency", "Live Session Ping Monitoring", "Real-Time Microtransaction Logs", "Active Virtual Server Allocation"],
-    metrics: ["<10ms Transaction Latency", "99.99% Database Nodes Uptime", "GDPR-Compliant Player Privacy Masking"],
+    label: "Cloud Spanner", 
+    industryTitle: "Global Player State & Graph", 
+    definition: "Globally distributed transactional database for real-time play sessions, virtual currency wallets, inventory entitlements, and player social graphs.",
+    includes: ["Global Session Concurrency (TrueTime)", "Real-Time Virtual Currency Wallets", "Spanner Graph Player Social Topology", "Spanner Change Streams CDC Ingestion"],
+    metrics: ["<10ms Global Write Latency", "99.999% Zero-Downtime SLA", "Automated PII Privacy Masking"],
     color: "bg-emerald-500", 
     icon: Radio,
-    search: "AlloyDB" 
+    search: "Spanner" 
   },
 ];
 
@@ -78,11 +77,6 @@ const OVERVIEW_TRANSLATIONS: Record<string, Record<Country, string>> = {
     Japan: "ゲーム開発者のためのインテリジェント分析プラットフォーム -",
     Korea: "지능형 플레이어 분석 -",
     China: "智能玩家数据分析 -"
-  },
-  "Jingle Games.": {
-    Japan: "Jingle Games",
-    Korea: "Jingle Games",
-    China: "Jingle Games"
   },
   "Unifying AWS S3 cold logs, Snowflake player economic data, and AlloyDB live session concurrency into a singular cognitive interface for game developers and analytics directors.": {
     Japan: "AWS S3コールドログ、Snowflakeプレイヤーエコノミクスデータ、AlloyDBライブセッション同時実行数を統合し、ゲーム開発者や分析担当役員向けの単一のインテリジェント・インターフェースを提供します。",
@@ -125,6 +119,7 @@ export function Overview({
   country?: Country;
   languageSetting?: LanguageSetting;
 }) {
+  const { publisherName } = usePublisher();
   const [selectedConnector, setSelectedConnector] = useState<Connector | null>(null);
 
   const [financialData, setFinancialData] = useState<{
@@ -149,20 +144,20 @@ export function Overview({
     regions: Array<{ region: string; revenue: number; players: number }>;
     isLive: boolean;
   }>({
-    totalPlayers: 50000000,
+    totalPlayers: 133949,
     dau: 1250000,
     regions: [
-      { region: "US", revenue: 2837033, players: 17500000 },
-      { region: "EMEA", revenue: 2500361, players: 15000000 },
-      { region: "APAC", revenue: 1820371, players: 12500000 },
-      { region: "LATAM", revenue: 642000, players: 5000000 },
+      { region: "NA", revenue: 2837033, players: 49095 },
+      { region: "EMEA", revenue: 2500361, players: 41864 },
+      { region: "APAC", revenue: 1820371, players: 29022 },
+      { region: "LATAM", revenue: 642000, players: 13968 },
     ],
     isLive: false,
   });
 
   useEffect(() => {
-    // Fetch live financial performance from gold_studio_financial_performance
-    fetch("/api/analytics/financial?limit=30")
+    // Fetch live financial performance strictly up to current date (e.g. 90-day active window)
+    fetch("/api/analytics/financial?limit=90")
       .then((res) => res.json())
       .then((res) => {
         if (res.success && Array.isArray(res.data) && res.data.length > 0) {
@@ -181,21 +176,43 @@ export function Overview({
       })
       .catch(() => {});
 
+    // Fetch active accounts from the last 90 days from games raw event data (deduplicated across games)
+    fetch("/api/analytics/active-players-90d")
+      .then((res) => res.json())
+      .then((res) => {
+        if (res.success && typeof res.total_active_players === "number") {
+          setRegionalSummary((prev) => ({
+            ...prev,
+            totalPlayers: res.total_active_players,
+            isLive: true,
+            regions: Array.isArray(res.regional_active) && res.regional_active.length > 0
+              ? res.regional_active.map((r: any) => ({
+                  region: r.region,
+                  revenue: prev.regions.find((p) => p.region === r.region)?.revenue || 0,
+                  players: r.active_players,
+                }))
+              : prev.regions,
+          }));
+        }
+      })
+      .catch(() => {});
+
     // Fetch live regional KPIs from gold_regional_kpis
     fetch("/api/analytics/regional?limit=10")
       .then((res) => res.json())
       .then((res) => {
         if (res.success && Array.isArray(res.data) && res.data.length > 0) {
-          setRegionalSummary({
-            totalPlayers: 50000000,
-            dau: res.data.reduce((acc: number, r: any) => acc + (Number(r.dau) || 0), 0) || 1250000,
-            regions: res.data.map((r: any) => ({
-              region: r.region,
-              revenue: Number(r.total_revenue_dollars) || 0,
-              players: r.region === "US" ? 17500000 : r.region === "EMEA" ? 15000000 : r.region === "APAC" ? 12500000 : 5000000,
-            })),
-            isLive: true,
-          });
+          setRegionalSummary((prev) => ({
+            ...prev,
+            dau: res.data.reduce((acc: number, r: any) => acc + (Number(r.dau) || 0), 0) || prev.dau,
+            regions: prev.regions.map((pr) => {
+              const matched = res.data.find((r: any) => r.region === pr.region);
+              return {
+                ...pr,
+                revenue: matched ? Number(matched.total_revenue_dollars) || pr.revenue : pr.revenue,
+              };
+            }),
+          }));
         }
       })
       .catch(() => {});
@@ -218,7 +235,7 @@ export function Overview({
           className="flex items-center gap-2 mb-6"
         >
           <div className="px-3 py-1 rounded-full bg-blue-50 border border-blue-100 text-blue-600 text-[10px] font-bold tracking-[0.1em] uppercase">
-            Jingle Games Customer 360
+            {publisherName} Customer 360
           </div>
           <div className="px-3 py-1 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 text-[10px] font-bold tracking-[0.1em] uppercase">
             Powered by Gemini Enterprise
@@ -227,7 +244,7 @@ export function Overview({
         
         <h2 className="text-5xl font-bold tracking-tight mb-6 text-slate-800 leading-tight">
           {t("Intelligent Player Analytics for")} <br />
-          <span className="text-blue-600">{t("Jingle Games.")}</span>
+          <span className="text-blue-600">{publisherName}.</span>
         </h2>
         <p className="text-xl text-slate-500 max-w-3xl leading-relaxed font-light mb-8">
           {t("Unifying AWS S3 cold logs, Snowflake player economic data, and AlloyDB live session concurrency into a singular cognitive interface for game developers and analytics directors.")}
@@ -287,13 +304,13 @@ export function Overview({
 
             <div className="p-5 rounded-2xl bg-white/5 border border-white/10">
               <div className="flex items-center justify-between text-slate-400 mb-2">
-                <span className="text-[10px] uppercase font-bold tracking-wider">Conformed Global Players</span>
+                <span className="text-[10px] uppercase font-bold tracking-wider">Active Accounts (90D)</span>
                 <Globe2 className="w-4 h-4 text-indigo-400" />
               </div>
               <p className="text-2xl font-bold text-indigo-300 tracking-tight">
-                {(regionalSummary.totalPlayers / 1000000).toFixed(1)}M Players
+                {regionalSummary.totalPlayers.toLocaleString()}
               </p>
-              <p className="text-[10px] text-indigo-300 mt-1">US, EMEA, APAC, LATAM DNA</p>
+              <p className="text-[10px] text-indigo-300 mt-1">Deduplicated 90-Day Active Logins</p>
             </div>
           </div>
         </div>
@@ -312,7 +329,7 @@ export function Overview({
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{conn.label}</span>
-                  <DataModeBadge mode={conn.label.includes("AlloyDB") ? "hybrid" : "mock"} />
+                  <DataModeBadge mode="mock" />
                 </div>
                 <h4 className="text-lg font-bold text-slate-800 group-hover:text-blue-600 transition-colors uppercase tracking-tight">{t(conn.industryTitle)}</h4>
                 <p className="text-xs text-slate-400 font-light line-clamp-2">
@@ -389,7 +406,7 @@ export function Overview({
                       {selectedConnector.metrics.map(metric => (
                         <div key={metric} className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
                            <p className="text-xs font-bold text-slate-800">{metric}</p>
-                           <p className="text-[9px] text-slate-400 uppercase tracking-tighter mt-1">Managed via Jingle Core DNS</p>
+                           <p className="text-[9px] text-slate-400 uppercase tracking-tighter mt-1">Managed via {publisherName} Core DNS</p>
                         </div>
                       ))}
                     </div>
@@ -432,16 +449,16 @@ export function Overview({
             bg: "bg-rose-50"
           },
           {
-            title: "Data Observatory",
+            title: "API Observatory",
             desc: "Unified query latency, cross-cloud database federation ratios, and live transaction cost mapping.",
             icon: Activity,
-            link: "Monitor Game Pipelines",
+            link: "Monitor API Pipelines",
             id: "observatory",
             color: "text-indigo-600",
             bg: "bg-indigo-50"
           },
           {
-            title: "Active Play Agents",
+            title: "Operations Agents",
             desc: "Autonomous player segment promotion campaigns, anomaly economy checkers, and match tuning.",
             icon: Zap,
             link: "Review Agent Traces",
@@ -468,47 +485,6 @@ export function Overview({
             </div>
           </motion.div>
         ))}
-      </div>
-
-      <div className="p-12 rounded-[3.5rem] bg-slate-900 overflow-hidden relative text-white">
-        <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-blue-600/20 to-transparent pointer-events-none" />
-        <div className="relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
-            <div>
-              <div className="flex items-center gap-3 mb-8">
-                 <BrainCircuit className="w-8 h-8 text-blue-400" />
-                 <span className="text-[10px] font-bold tracking-[0.3em] uppercase opacity-60">Architecture Spotlight</span>
-              </div>
-              <h3 className="text-3xl font-bold mb-6">Unified Cross-Cloud Lakehouse</h3>
-              <p className="text-slate-400 leading-relaxed font-light mb-10">
-                Instead of moving data, we bring the compute to the data. Our federation layer allows sub-second analysis of gaming datasets across AWS S3 and Snowflake while maintaining zero-delay syncs with live database clusters.
-              </p>
-              <div className="grid grid-cols-2 gap-6">
-                 <div className="p-6 rounded-3xl bg-white/5 border border-white/10">
-                    <span className="text-3xl font-bold text-white block mb-1">98ms</span>
-                    <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Avg Query Latency</span>
-                 </div>
-                 <div 
-                   onClick={() => onSectionChange({ id: "catalog", search: "GDPR" })}
-                   className="p-6 rounded-3xl bg-white/5 border border-white/10 hover:border-blue-400/50 cursor-pointer transition-all group"
-                 >
-                    <span className="text-3xl font-bold text-white block mb-1 group-hover:text-blue-400 transition-colors">100%</span>
-                    <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">GDPR Player Privacy Compliance</span>
-                 </div>
-              </div>
-           </div>
-           
-           <div className="h-full flex items-center justify-center">
-              <div className="relative">
-                 <div className="w-64 h-64 rounded-full border border-blue-500/30 animate-spin-slow" style={{ animationDuration: '20s' }} />
-                 <div className="absolute inset-0 w-64 h-64 rounded-full border border-indigo-400/20 animate-spin-reverse" style={{ animationDuration: '15s' }} />
-                 <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-32 h-32 rounded-3xl bg-blue-600 shadow-2xl shadow-blue-500/40 flex items-center justify-center transform rotate-12 transition-transform hover:rotate-0">
-                       <Bot className="w-12 h-12 text-white" />
-                    </div>
-                 </div>
-              </div>
-           </div>
-        </div>
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 import express, { Request, Response } from "express";
 import path from "path";
+import fs from "fs";
 import http from "http";
 import net from "net";
 import { createServer as createViteServer } from "vite";
@@ -31,8 +32,10 @@ import {
   queryRegionalKPIs, 
   queryCampaignAnalytics, 
   queryStudioFinancial,
+  queryActivePlayers90D,
   queryChurnRootCause,
   queryCheatAnalytics,
+  queryPerformanceMetrics,
   executeCustomQuery,
   checkBigQueryHealth 
 } from "./src/services/bigquery";
@@ -88,9 +91,14 @@ function proxyToFlask(req: Request, res: Response, targetPath?: string) {
 
 // GCP Configuration using Application Default Credentials (ADC)
 const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT || "datacloudgamesdemo004";
-const LOCATION = process.env.GCP_LOCATION || process.env.BIGQUERY_LOCATION || "us-central1";
+const LOCATION = process.env.VERTEX_LOCATION || process.env.GCP_REGION || process.env.GCP_LOCATION || "us-central1";
+const BIGQUERY_LOCATION = process.env.BIGQUERY_LOCATION || "US";
 const PUBSUB_TOPIC_NAME = process.env.PUBSUB_TOPIC || "gaming-live-telemetry";
+const PUBSUB_TOPIC_CAMPAIGNS = process.env.PUBSUB_TOPIC_CAMPAIGNS || "gaming-campaign-activations";
 const BQML_MODEL_NAME = process.env.BQML_MODEL || "gaming_raw.player_churn_model";
+const PUBLISHER_NAME = (process.env.PUBLISHER_NAME || process.env.STUDIO_NAME || "Jingle Games").trim();
+const PUBLISHER_SLUG = PUBLISHER_NAME.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "jingle";
+const PUBLISHER_INITIAL = PUBLISHER_NAME.charAt(0).toUpperCase() || "J";
 
 // Initialize GCP Clients using Application Default Credentials (ADC)
 const auth = new GoogleAuth({
@@ -99,19 +107,22 @@ const auth = new GoogleAuth({
 
 const pubsubClient = new PubSub({ projectId: PROJECT_ID });
 const bigqueryClient = new BigQuery({ projectId: PROJECT_ID });
-const firestoreClient = new Firestore({ projectId: PROJECT_ID });
+const firestoreClient = new Firestore({ projectId: PROJECT_ID, databaseId: "(default)" });
 
 /**
- * Safely resolves a Google ADC Access Token (string or object.token)
+ * Safely resolves a Google ADC Access Token with timeout protection
  */
 async function getADCAccessToken(): Promise<string | null> {
   try {
-    const client = await auth.getClient().catch(() => null);
-    if (!client) return null;
-    const tokenRes = await client.getAccessToken().catch(() => null);
-    if (!tokenRes) return null;
-    return typeof tokenRes === 'string' ? tokenRes : tokenRes.token || null;
-  } catch {
+    const tokenPromise = (async () => {
+      const client = await auth.getClient();
+      const tokenResponse = await client.getAccessToken();
+      return typeof tokenResponse === 'string' ? tokenResponse : tokenResponse?.token || null;
+    })();
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000));
+    return await Promise.race([tokenPromise, timeoutPromise]);
+  } catch (err: any) {
+    console.warn(`[ADC Token] Failed to resolve ADC token: ${err?.message || err}`);
     return null;
   }
 }
@@ -129,36 +140,45 @@ interface DiscoveredAgent {
 let discoveredAgentsCache: DiscoveredAgent[] | null = null;
 let discoveryPromise: Promise<DiscoveredAgent[]> | null = null;
 
-async function discoverReasoningEngines(): Promise<DiscoveredAgent[]> {
-  if (discoveredAgentsCache !== null) {
+async function discoverReasoningEngines(force = false): Promise<DiscoveredAgent[]> {
+  if (!force && discoveredAgentsCache && discoveredAgentsCache.length > 0) {
     return discoveredAgentsCache;
   }
-  if (discoveryPromise !== null) {
+  if (!force && discoveryPromise !== null) {
     return discoveryPromise;
   }
 
-  discoveryPromise = (async () => {
+  const discoveryAction = async (): Promise<DiscoveredAgent[]> => {
     try {
       const accessToken = await getADCAccessToken();
 
       if (!accessToken) {
-        console.warn("[Agent Runtime Discovery] Access token unavailable; skipping dynamic agent discovery.");
-        discoveredAgentsCache = [];
+        console.warn("[Agent Runtime Discovery] Access token unavailable; skipping dynamic discovery.");
         return [];
       }
 
       const url = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/reasoningEngines`;
       console.log(`[Agent Runtime Discovery] Querying Vertex AI Reasoning Engines: GET ${url}`);
 
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } }).catch(() => null);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: controller.signal,
+      }).catch((err) => {
+        console.warn(`[Agent Runtime Discovery] Fetch error: ${err?.message || err}`);
+        return null;
+      }).finally(() => {
+        clearTimeout(timeoutId);
+      });
+
       if (!res || !res.ok) {
-        console.warn(`[Agent Runtime Discovery] Reasoning Engine list returned HTTP ${res?.status || 'network_error'}`);
-        discoveredAgentsCache = [];
+        console.warn(`[Agent Runtime Discovery] HTTP ${res?.status || 'network_error'}`);
         return [];
       }
 
-      const data = await res.json();
-      const rawEngines = data.reasoningEngines || [];
+      const data = await res.json().catch(() => null);
+      const rawEngines = data?.reasoningEngines || [];
 
       discoveredAgentsCache = rawEngines.map((e: any) => ({
         id: e.name ? e.name.split("/").pop()! : "",
@@ -167,26 +187,58 @@ async function discoverReasoningEngines(): Promise<DiscoveredAgent[]> {
         createTime: e.createTime || "",
       })).sort((a: any, b: any) => new Date(b.createTime || 0).getTime() - new Date(a.createTime || 0).getTime());
 
-      console.log(`[Agent Runtime Discovery] Discovered ${discoveredAgentsCache.length} deployed agent(s) on startup:`);
+      console.log(`[Agent Runtime Discovery] Discovered ${discoveredAgentsCache.length} deployed agent(s):`);
       discoveredAgentsCache.forEach((ag) => {
         console.log(`  - DisplayName: "${ag.displayName}" (ID: ${ag.id})`);
       });
 
       return discoveredAgentsCache;
     } catch (err: any) {
-      console.warn(`[Agent Runtime Discovery] Failed to discover agents: ${err.message}`);
-      discoveredAgentsCache = [];
+      console.warn(`[Agent Runtime Discovery] Error: ${err.message}`);
       return [];
-    } finally {
-      discoveryPromise = null;
     }
-  })();
+  };
+
+  const timeoutPromise = new Promise<DiscoveredAgent[]>((resolve) => setTimeout(() => resolve([]), 5000));
+  discoveryPromise = Promise.race([discoveryAction(), timeoutPromise]).finally(() => {
+    discoveryPromise = null;
+  });
 
   return discoveryPromise;
 }
 
-async function getAgentEngineInfo(targetRole: 'kc' | 'basic' | 'scaled' | 'council' = 'kc'): Promise<{ id: string; displayName: string; endpoint: string; name: string } | null> {
-  const envOverride = process.env.VERTEX_AGENT_ENGINE_ID || (targetRole === 'kc' ? process.env.KC_AGENT_ID : targetRole === 'basic' ? process.env.BASIC_AGENT_ID : "");
+async function getAgentEngineInfo(
+  roleInput: 'kc' | 'basic' | 'scaled' | 'council' | 'difficulty' | 'anomaly' | 'churn' | 'retention' | 'fraud' | 'cheat' | string = 'kc'
+): Promise<{ id: string; displayName: string; endpoint: string; name: string } | null> {
+  const normalized = (roleInput || 'kc').toLowerCase().trim();
+  const targetRole = (
+    normalized === 'anomaly' || normalized === 'fraud' || normalized === 'cheat'
+  ) ? 'anomaly' : (
+    normalized === 'kc' || normalized === 'retention' || normalized === 'churn'
+  ) ? 'kc' : (
+    normalized === 'basic' ? 'basic' :
+    normalized === 'scaled' ? 'scaled' :
+    normalized === 'council' ? 'council' :
+    normalized === 'difficulty' ? 'difficulty' : 'kc'
+  );
+
+  const envOverride = process.env.VERTEX_AGENT_ENGINE_ID || (
+    targetRole === 'kc' ? (process.env.KC_AGENT_ID || process.env.CHURN_AGENT_ID || process.env.RETENTION_AGENT_ID) : 
+    targetRole === 'anomaly' ? (process.env.ANOMALY_AGENT_ID || process.env.FRAUD_AGENT_ID || process.env.CHEAT_AGENT_ID) :
+    targetRole === 'basic' ? process.env.BASIC_AGENT_ID :
+    targetRole === 'difficulty' ? process.env.DIFFICULTY_AGENT_ID : ""
+  );
+
+  if (envOverride) {
+    const display = targetRole === 'anomaly' ? 'Anomaly Detection Agent Council (agent_anomaly)' : (targetRole === 'kc' ? 'Knowledge Catalog Analytics Agent (agent_kc)' : `Agent Engine (${envOverride})`);
+    const endpoint = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/reasoningEngines/${envOverride}`;
+    return {
+      id: envOverride,
+      displayName: display,
+      endpoint,
+      name: `projects/${PROJECT_ID}/locations/${LOCATION}/reasoningEngines/${envOverride}`
+    };
+  }
 
   const agents = await discoverReasoningEngines();
 
@@ -195,30 +247,29 @@ async function getAgentEngineInfo(targetRole: 'kc' | 'basic' | 'scaled' | 'counc
     if (targetRole === 'kc') {
       match = agents.find((a) => 
         a.displayName.toLowerCase().includes("knowledge catalog") || 
-        a.displayName.toLowerCase().includes("kc")
+        a.displayName.toLowerCase().includes("kc") ||
+        a.displayName.toLowerCase().includes("churn") ||
+        a.displayName.toLowerCase().includes("retention")
+      );
+    } else if (targetRole === 'anomaly') {
+      match = agents.find((a) => 
+        a.displayName.toLowerCase().includes("anomaly") || 
+        a.displayName.toLowerCase().includes("fraud") ||
+        a.displayName.toLowerCase().includes("cheat")
       );
     } else if (targetRole === 'basic') {
       match = agents.find((a) => a.displayName.toLowerCase().includes("basic"));
     } else if (targetRole === 'scaled') {
       match = agents.find((a) => a.displayName.toLowerCase().includes("scaled"));
     } else if (targetRole === 'council') {
-      match = agents.find((a) => a.displayName.toLowerCase().includes("council") || a.displayName.toLowerCase().includes("swarm"));
+      match = agents.find((a) => a.displayName.toLowerCase().includes("council") || a.displayName.toLowerCase().includes("swarm") || a.displayName.toLowerCase().includes("marketing"));
+    } else if (targetRole === 'difficulty') {
+      match = agents.find((a) => a.displayName.toLowerCase().includes("difficulty") || a.displayName.toLowerCase().includes("balancer") || a.displayName.toLowerCase().includes("tuning"));
     }
 
     if (!match && targetRole === 'kc') {
       match = agents[0]; // Fallback to newest deployed agent
     }
-  }
-
-  if (envOverride) {
-    const display = match && match.id === envOverride ? match.displayName : `Agent Engine (${envOverride})`;
-    const endpoint = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/reasoningEngines/${envOverride}`;
-    return {
-      id: envOverride,
-      displayName: display,
-      endpoint,
-      name: match?.name || `projects/${PROJECT_ID}/locations/${LOCATION}/reasoningEngines/${envOverride}`
-    };
   }
 
   if (match) {
@@ -229,6 +280,28 @@ async function getAgentEngineInfo(targetRole: 'kc' | 'basic' | 'scaled' | 'counc
       endpoint,
       name: match.name
     };
+  }
+
+  // Known fallback engine IDs for active GCP project environment
+  if (PROJECT_ID === "datacloudgamesdemo006" || PROJECT_ID.startsWith("datacloudgamesdemo")) {
+    if (targetRole === 'anomaly') {
+      const fallbackId = "5638671110456213504";
+      return {
+        id: fallbackId,
+        displayName: "Anomaly Detection Agent Council (agent_anomaly)",
+        endpoint: `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/reasoningEngines/${fallbackId}`,
+        name: `projects/${PROJECT_ID}/locations/${LOCATION}/reasoningEngines/${fallbackId}`
+      };
+    }
+    if (targetRole === 'kc') {
+      const fallbackId = "4303824411917549568";
+      return {
+        id: fallbackId,
+        displayName: "Knowledge Catalog Analytics Agent (agent_kc)",
+        endpoint: `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/reasoningEngines/${fallbackId}`,
+        name: `projects/${PROJECT_ID}/locations/${LOCATION}/reasoningEngines/${fallbackId}`
+      };
+    }
   }
 
   return null;
@@ -329,7 +402,7 @@ async function queryADKReasoningEngine(
           session_id: finalSessionId
         }
       }),
-      signal: AbortSignal.timeout(300000), // 300s (5 min) timeout matching Vertex AI Agent API limits
+      signal: AbortSignal.timeout(45000), // 45s max - graceful fallback trigger if reasoning engine exceeds SLA
     }).catch((err: any) => {
       streamFetchError = err?.message || String(err);
       console.warn("[ADK Stream Query Fetch Error]:", streamFetchError);
@@ -741,11 +814,11 @@ async function startServer() {
 
   app.post("/api/simulator/inject-anomaly", (req: Request, res: Response) => {
     const anomaly_type = req.body.anomaly_type !== undefined ? req.body.anomaly_type : req.body.type;
-    const validAnomalies = ["level_2_bottleneck", "high_churn_boss_deaths", "toxic_chat", null, ""];
+    const validAnomalies = ["level_2_bottleneck", "high_churn_boss_deaths", "toxic_chat", "currency_duplication", null, ""];
     if (!validAnomalies.includes(anomaly_type)) {
       return res.status(400).json({
         success: false,
-        error: "Invalid anomaly_type. Valid values: level_2_bottleneck, high_churn_boss_deaths, toxic_chat, or null"
+        error: "Invalid anomaly_type. Valid values: level_2_bottleneck, high_churn_boss_deaths, toxic_chat, currency_duplication, or null"
       });
     }
 
@@ -901,7 +974,57 @@ async function startServer() {
       const data = req.body || {};
       const id = data.id || `camp_${Date.now()}`;
       await firestoreClient.collection("campaigns").doc(id).set(data, { merge: true });
+
+      // Dispatch activation event to Pub/Sub topic gaming-campaign-activations
+      try {
+        const topic = pubsubClient.topic(PUBSUB_TOPIC_CAMPAIGNS);
+        const eventPayload = {
+          campaign_id: id,
+          event_type: "CAMPAIGN_ACTIVATION",
+          name: data.name,
+          cohort: data.cohort,
+          budget: data.aiBudget || data.originalBudget || 5000,
+          timestamp: new Date().toISOString(),
+        };
+        await withTimeout(
+          topic.publishMessage({ data: Buffer.from(JSON.stringify(eventPayload)) }),
+          1500,
+          `mock_cmp_msg_${Date.now()}`
+        );
+        console.log(`[Pub/Sub] Published campaign activation event for ${id} to ${PUBSUB_TOPIC_CAMPAIGNS}`);
+      } catch (pubsubErr: any) {
+        console.warn(`[Pub/Sub] Campaign activation publish warning: ${pubsubErr.message}`);
+      }
+
       return res.status(201).json({ id, ...data });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/campaigns/:id/activate", async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id;
+      const updateData = { status: "Active", activatedAt: new Date().toISOString() };
+      await firestoreClient.collection("campaigns").doc(id).set(updateData, { merge: true });
+
+      try {
+        const topic = pubsubClient.topic(PUBSUB_TOPIC_CAMPAIGNS);
+        const eventPayload = {
+          campaign_id: id,
+          event_type: "CAMPAIGN_ACTIVATION",
+          timestamp: new Date().toISOString(),
+        };
+        await withTimeout(
+          topic.publishMessage({ data: Buffer.from(JSON.stringify(eventPayload)) }),
+          1500,
+          `mock_cmp_msg_${Date.now()}`
+        );
+      } catch (pubsubErr: any) {
+        console.warn(`[Pub/Sub] Campaign activation publish warning: ${pubsubErr.message}`);
+      }
+
+      return res.json({ success: true, id, status: "Active" });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
     }
@@ -989,6 +1112,137 @@ async function startServer() {
       const sku = req.params.sku;
       await firestoreClient.collection("offers").doc(sku).delete();
       return res.json({ success: true, sku });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --------------------------------------------------------------------------
+  // Moderation & Executive Actions (Firestore Datastore & Live Log Auditing)
+  // --------------------------------------------------------------------------
+  const DEFAULT_MODERATION_ACTIONS = [
+    {
+      action_id: "mod_act_001",
+      player_id: "p_77491_shadow",
+      player_name: "ShadowStrike99",
+      action_type: "TEMP_SUSPENSION_72H",
+      violation_type: "AIMBOT_MEMORY_INJECTION",
+      severity: "CRITICAL",
+      confidence_score: 0.98,
+      status: "ENFORCED",
+      automated: true,
+      agent_id: "agent_trust_and_safety",
+      details: "Repeated aimbot anomalies detected by gold_cheat_analytics across 8 consecutive matches.",
+      timestamp: new Date(Date.now() - 3600000).toISOString()
+    },
+    {
+      action_id: "mod_act_002",
+      player_id: "p_88120_toxic",
+      player_name: "ViperVoice",
+      action_type: "VOICE_AND_TEXT_MUTE_24H",
+      violation_type: "TOXIC_CHAT_HARASSMENT",
+      severity: "HIGH",
+      confidence_score: 0.94,
+      status: "ENFORCED",
+      automated: true,
+      agent_id: "agent_trust_and_safety",
+      details: "Profanity and toxic targeting threshold exceeded in regional lobby channel.",
+      timestamp: new Date(Date.now() - 7200000).toISOString()
+    }
+  ];
+
+  const DEFAULT_EXECUTIVE_ACTIONS = [
+    {
+      action_id: "exec_act_001",
+      title: "EU Storefront Payment Gateway Failover",
+      action_type: "GATEWAY_FAILOVER",
+      platform: "iOS",
+      region: "Europe",
+      severity: "HIGH",
+      remediation_target: "https://pay.apple-test-gateway.eu/checkout",
+      status: "EXECUTED",
+      authorized_by: "Executive AI Operations Agent",
+      details: "Dispute volume spiked > 5.0% on iOS EU storefront. Routing diverted to secondary checkout gateway.",
+      timestamp: new Date(Date.now() - 14400000).toISOString()
+    },
+    {
+      action_id: "exec_act_002",
+      title: "Compensatory Resurrect Shield Grant",
+      action_type: "COMPENSATORY_GRANT",
+      platform: "ALL",
+      region: "Global",
+      severity: "MEDIUM",
+      remediation_target: "frost_giant_shield_pack",
+      status: "ACTIVE",
+      authorized_by: "Executive AI Operations Agent",
+      details: "Granted 500 Gems and Resurrect Shield to 12,400 players impacted by Stage 2 difficulty anomaly.",
+      timestamp: new Date(Date.now() - 28800000).toISOString()
+    }
+  ];
+
+  // Moderation Actions API
+  app.get("/api/moderation/actions", async (_req: Request, res: Response) => {
+    try {
+      const snapshot = await firestoreClient.collection("moderation_actions").get();
+      if (snapshot.empty) {
+        for (const act of DEFAULT_MODERATION_ACTIONS) {
+          await firestoreClient.collection("moderation_actions").doc(act.action_id).set(act, { merge: true }).catch(() => {});
+        }
+        return res.json(DEFAULT_MODERATION_ACTIONS);
+      }
+      const actions = snapshot.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+      return res.json(actions);
+    } catch (err: any) {
+      console.warn("[Firestore REST] GET /api/moderation/actions fallback to defaults:", err.message);
+      return res.json(DEFAULT_MODERATION_ACTIONS);
+    }
+  });
+
+  app.post("/api/moderation/actions", async (req: Request, res: Response) => {
+    try {
+      const data = req.body || {};
+      const action_id = data.action_id || `mod_act_${Date.now()}`;
+      const record = {
+        action_id,
+        timestamp: new Date().toISOString(),
+        ...data,
+      };
+      await firestoreClient.collection("moderation_actions").doc(action_id).set(record, { merge: true });
+      return res.status(201).json(record);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Executive Actions API
+  app.get("/api/executive/actions", async (_req: Request, res: Response) => {
+    try {
+      const snapshot = await firestoreClient.collection("executive_actions").get();
+      if (snapshot.empty) {
+        for (const act of DEFAULT_EXECUTIVE_ACTIONS) {
+          await firestoreClient.collection("executive_actions").doc(act.action_id).set(act, { merge: true }).catch(() => {});
+        }
+        return res.json(DEFAULT_EXECUTIVE_ACTIONS);
+      }
+      const actions = snapshot.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+      return res.json(actions);
+    } catch (err: any) {
+      console.warn("[Firestore REST] GET /api/executive/actions fallback to defaults:", err.message);
+      return res.json(DEFAULT_EXECUTIVE_ACTIONS);
+    }
+  });
+
+  app.post("/api/executive/actions", async (req: Request, res: Response) => {
+    try {
+      const data = req.body || {};
+      const action_id = data.action_id || `exec_act_${Date.now()}`;
+      const record = {
+        action_id,
+        timestamp: new Date().toISOString(),
+        ...data,
+      };
+      await firestoreClient.collection("executive_actions").doc(action_id).set(record, { merge: true });
+      return res.status(201).json(record);
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
     }
@@ -1339,18 +1593,19 @@ FILTER USING (spend_tier = 'Whale' AND churn_risk_score >= 0.50);
     const startTime = Date.now();
     try {
       const message = typeof req.body?.message === "string" ? req.body.message : "";
-      const agentInfo = await getAgentEngineInfo('kc');
+      const roleRaw = ((req.body?.role as string) || (req.query?.role as string) || 'kc').toLowerCase().trim();
+      const targetRole = (roleRaw === 'anomaly' || roleRaw === 'fraud' || roleRaw === 'cheat')
+        ? 'anomaly'
+        : (roleRaw === 'churn' || roleRaw === 'retention' || roleRaw === 'kc')
+        ? 'kc'
+        : roleRaw;
+      const agentInfo = await getAgentEngineInfo(targetRole);
 
-      const fallbackReply = `**OmniArcade LiveOps & Governance Assistant**
-
-Thank you for your query regarding: *"${message || "LiveOps Governance"}"*
-
-**Unified Lakehouse Data Insights:**
-- **BigQuery Gold Feature Table**: \`gold_player_360\` tracks real-time player LTV and churn risk scores.
-- **Dataplex Knowledge Catalog**: Business glossary term **Whale Spend** (LTV > $500) and aspect tag **liveops_campaign_policy_aspect** are verified and active.
-- **Real-Time Guardrail Action**: When player churn risk hits 50%, Dataplex pre-caches certified reward SKU \`$0.99 Frost Giant Shield Pack\`. At 85% churn score, the pop-up offer is executed via SSE in <300ms.
-
-*Data unified via Google Cloud Lakehouse (BigQuery, Pub/Sub, Dataplex, Vertex AI).*`;
+      const fallbackReply = targetRole === 'difficulty'
+        ? `**Tuning Council Agent Brief (Level Difficulty Balancer)**\n\n- **Conformed Mart**: Analyzed \`gaming_gold.gold_level_difficulty_funnel\`.\n- **Bottleneck Identified**: Level 2 completion rate dropped to 20.0% with 30 moves limit.\n- **Playtest Simulation**: Simulated 1,000 runs with 35 moves (completion rate: 78.2%, PASS).\n- **Reference Config Updated**: \`gaming_reference_data.ref_level_configs\` updated to 35 moves limit (status: TUNED_BALANCED).`
+        : targetRole === 'council'
+        ? `**Marketing Agent Swarm Brief**\n\n- **Conformed Mart**: Analyzed \`gaming_gold.gold_mobile_marketing_performance\`.\n- **ROAS Alert**: Detected drop in ROAS for 'Adult' cohort on 'UnityAds'.\n- **Strategy**: Reallocated 40% budget to AppLovin, created targeted pixel art promotion.\n- **Storefront Promo**: Persisted discounted SKU into Firestore operational offers collection.`
+        : `**OmniArcade LiveOps & Governance Assistant**\n\nThank you for your query regarding: *"${message || "LiveOps Governance"}"*\n\n**Unified Lakehouse Data Insights:**\n- **BigQuery Gold Feature Table**: \`gold_player_360\` tracks real-time player LTV and churn risk scores.\n- **Dataplex Knowledge Catalog**: Business glossary term **Whale Spend** (LTV > $500) and aspect tag **liveops_campaign_policy_aspect** are verified and active.\n- **Real-Time Guardrail Action**: When player churn risk hits 50%, Dataplex pre-caches certified reward SKU \`$0.99 Frost Giant Shield Pack\`. At 85% churn score, the pop-up offer is executed via SSE in <300ms.\n\n*Data unified via Google Cloud Lakehouse (BigQuery, Pub/Sub, Dataplex, Vertex AI).*`;
 
       if (agentInfo) {
         const adkRes = await queryADKReasoningEngine(agentInfo.endpoint, message);
@@ -1601,6 +1856,28 @@ function generateRandomFallbackMetrics(tier: string) {
     }
   });
 
+  app.get("/api/analytics/active-players-90d", async (req: Request, res: Response) => {
+    try {
+      const active = await queryActivePlayers90D().catch((err) => {
+        console.warn("[Analytics API] queryActivePlayers90D fallback triggered:", err.message);
+        return {
+          total_active_players: 133949,
+          regional_active: [
+            { region: "NA", active_players: 49095 },
+            { region: "EMEA", active_players: 41864 },
+            { region: "APAC", active_players: 29022 },
+            { region: "LATAM", active_players: 13968 },
+          ],
+          is_live: false,
+        };
+      });
+      res.json({ success: true, ...active });
+    } catch (err: any) {
+      console.error("[Analytics API Error - Active Players 90D]:", err);
+      res.status(500).json({ error: err?.message || "Active players 90D query failed" });
+    }
+  });
+
   app.get("/api/analytics/financial", async (req: Request, res: Response) => {
     try {
       const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string) || 30));
@@ -1640,6 +1917,19 @@ function generateRandomFallbackMetrics(tier: string) {
     } catch (err: any) {
       console.error("[Analytics API Error - Cheat Analytics]:", err);
       res.status(500).json({ error: err?.message || "Cheat analytics query failed" });
+    }
+  });
+
+  app.get("/api/analytics/query-performance", async (req: Request, res: Response) => {
+    try {
+      const perf = await queryPerformanceMetrics().catch((err) => {
+        console.warn("[Analytics API] queryPerformanceMetrics fallback triggered:", err.message);
+        return { p95_latency_ms: 98, avg_latency_ms: 45, total_jobs: 1, is_live: false };
+      });
+      res.json({ success: true, ...perf });
+    } catch (err: any) {
+      console.error("[Analytics API Error - Query Performance]:", err);
+      res.status(500).json({ error: err?.message || "Query performance failed" });
     }
   });
 
@@ -1881,9 +2171,9 @@ function generateRandomFallbackMetrics(tier: string) {
   });
 
   // --------------------------------------------------------------------------
-  // 5b. Unified GCP System Health & Diagnostics Endpoint (/api/system/gcp-health)
+  // 5b. Unified GCP System Health & Diagnostics Endpoint (/api/system/gcp-health, /api/system/diagnostics, /api/diagnostics/gcp)
   // --------------------------------------------------------------------------
-  app.get("/api/system/gcp-health", async (req: Request, res: Response) => {
+  app.get(["/api/system/gcp-health", "/api/system/diagnostics", "/api/diagnostics/gcp"], async (req: Request, res: Response) => {
     const startTime = Date.now();
 
     // 1. Test Google Auth / ADC
@@ -1933,13 +2223,15 @@ function generateRandomFallbackMetrics(tier: string) {
     // 4. Test BQML ML.PREDICT Model
     const testBQML = async () => {
       const start = Date.now();
+      const cleanModel = BQML_MODEL_NAME.replace(/[`"]/g, "").trim();
+      const targetModel = cleanModel.split(".").length >= 3 ? cleanModel : `${PROJECT_ID}.${cleanModel}`;
       return withTimeout(
         (async () => {
           const bqRows = await executeCustomQuery(
-            `SELECT * FROM ML.PREDICT(MODEL \`${PROJECT_ID}.${BQML_MODEL_NAME}\`, (SELECT 3 AS consecutive_deaths, 420 AS session_duration_seconds, 'Whale' AS payer_tier, CAST(500.0 AS NUMERIC) AS total_iap_spend, 1 AS days_since_last_login, 'Skins & Cosmetics' AS favorite_category))`
+            `SELECT * FROM ML.PREDICT(MODEL \`${targetModel}\`, (SELECT 3 AS consecutive_deaths, 420 AS session_duration_seconds, 'Whale' AS payer_tier, CAST(500.0 AS NUMERIC) AS total_iap_spend, 1 AS days_since_last_login, 'Skins & Cosmetics' AS favorite_category))`
           );
           if (bqRows && bqRows.length > 0) {
-            return { status: "LIVE" as const, details: `BQML model '${BQML_MODEL_NAME}' online`, latency_ms: Date.now() - start };
+            return { status: "LIVE" as const, details: `BQML model '${targetModel}' online`, latency_ms: Date.now() - start };
           }
           return { status: "MOCK" as const, details: "BQML model query returned empty; using dynamic heuristic scoring", latency_ms: Date.now() - start };
         })(),
@@ -2057,18 +2349,127 @@ function generateRandomFallbackMetrics(tier: string) {
       );
     };
 
-    const testBQTable = async (tableName: string, label: string) => {
+    // 6b. Test agent_anomaly Vertex AI Reasoning Engine Probe
+    const testVertexAgentAnomaly = async () => {
       const start = Date.now();
+      const agentInfo = await getAgentEngineInfo('anomaly');
+
+      const sessionProbeId = `sess_probe_anomaly_${Date.now()}`;
+      if (!agentInfo || !agentInfo.id) {
+        const duration = Date.now() - start;
+        return {
+          status: "OFFLINE" as const,
+          agent_id: "",
+          agent_name: "Cheat & Anomaly Detection Agent",
+          endpoint: null,
+          session_id: sessionProbeId,
+          details: `No deployed agent_anomaly Reasoning Engine detected in project ${PROJECT_ID} (${LOCATION})`,
+          latencyMs: duration,
+          latency_ms: duration,
+        };
+      }
+
+      const agentId = agentInfo.id;
+      const endpoint = agentInfo.endpoint;
+
       return withTimeout(
         (async () => {
-          const rows = await executeCustomQuery(`SELECT 1 FROM \`${PROJECT_ID}.${tableName}\` LIMIT 1`);
-          if (rows) {
-            return { status: "LIVE" as const, details: `BigQuery Table '${tableName}' online (${label})`, latency_ms: Date.now() - start };
+          try {
+            const accessToken = await getADCAccessToken();
+            if (!accessToken) {
+              const duration = Date.now() - start;
+              return {
+                status: "OFFLINE" as const,
+                agent_id: agentId,
+                agent_name: agentInfo.displayName,
+                endpoint, session_id: sessionProbeId, details: `ADC Auth Token Unavailable | Endpoint ${endpoint}`,
+                latencyMs: duration,
+                latency_ms: duration,
+              };
+            }
+
+            const agentRes = await fetch(endpoint, {
+              headers: { Authorization: `Bearer ${accessToken}` },
+            }).catch(() => null);
+
+            const duration = Date.now() - start;
+            if (agentRes && agentRes.ok) {
+              return {
+                status: "LIVE" as const,
+                agent_id: agentId,
+                agent_name: agentInfo.displayName,
+                endpoint, session_id: sessionProbeId, details: `ADC Authenticated | ${agentInfo.displayName} (ID: ${agentId}) online & healthy`,
+                latencyMs: duration,
+                latency_ms: duration,
+              };
+            }
+
+            return {
+              status: "OFFLINE" as const,
+              agent_id: agentId,
+              agent_name: agentInfo.displayName,
+              endpoint, session_id: sessionProbeId, details: `ADC Authenticated | Endpoint ${endpoint} unreachable (Status ${agentRes?.status || 'Offline'})`,
+              latencyMs: duration,
+              latency_ms: duration,
+            };
+          } catch (err: any) {
+            const duration = Date.now() - start;
+            return {
+              status: "OFFLINE" as const,
+              agent_id: agentId,
+              agent_name: agentInfo.displayName,
+              endpoint, session_id: sessionProbeId, details: `Error probing Anomaly Agent (${agentInfo.displayName}): ${err?.message || err}`,
+              latencyMs: duration,
+              latency_ms: duration,
+            };
           }
-          return { status: "MOCK" as const, details: `BigQuery Table '${tableName}' unreachable; dev fallback active (${label})`, latency_ms: Date.now() - start };
         })(),
-        1500,
-        { status: "MOCK" as const, details: `BigQuery Table '${tableName}' probe timed out (1.5s); dev fallback active`, latency_ms: 1500 }
+        2000,
+        {
+          status: "OFFLINE" as const,
+          agent_id: agentId,
+          agent_name: agentInfo.displayName,
+          endpoint, session_id: sessionProbeId, details: `Endpoint ${endpoint} probe timed out (2s)`,
+          latencyMs: 2000,
+          latency_ms: 2000,
+        }
+      );
+    };
+
+    const currentTables = getTableMapping();
+
+    const testBQTable = async (fullTableName: string, label: string, envVarName: string) => {
+      const start = Date.now();
+      const cleanTable = fullTableName.replace(/[`"]/g, "").trim();
+      const targetTable = cleanTable.split(".").length >= 3 ? cleanTable : `${PROJECT_ID}.${cleanTable}`;
+      return withTimeout(
+        (async () => {
+          const rows = await executeCustomQuery(`SELECT 1 FROM \`${targetTable}\` LIMIT 1`);
+          if (rows !== null) {
+            return {
+              status: "LIVE" as const,
+              table_name: targetTable,
+              env_var: envVarName,
+              details: `BigQuery Table '${targetTable}' online (${label}) [env: ${envVarName}]`,
+              latency_ms: Date.now() - start
+            };
+          }
+          return {
+            status: "MOCK" as const,
+            table_name: targetTable,
+            env_var: envVarName,
+            details: `BigQuery Table '${targetTable}' unreachable; dev fallback active (${label}) [env: ${envVarName}]`,
+            latency_ms: Date.now() - start
+          };
+        })(),
+        6000,
+        {
+          status: "MOCK" as const,
+          table_name: targetTable,
+          env_var: envVarName,
+          details: `BigQuery Table '${targetTable}' probe timed out (6.0s); dev fallback active [env: ${envVarName}]`,
+          latency_ms: 6000
+        }
       );
     };
 
@@ -2091,20 +2492,24 @@ function generateRandomFallbackMetrics(tier: string) {
 
     const [
       authRes, 
-      bqRes,
+      bqRes, 
       pubsubRes, 
       bqmlRes, 
       dataplexRes, 
       vertexKcRes,
+      vertexAnomalyRes,
       firestoreRes,
-      bqPlayers,
-      bqSessions,
-      bqTransactions,
+      bqPlayerDna,
+      bqRawEvents,
+      bqSettlements,
       bqGoldP360,
       bqRegional,
-      bqCampaigns,
-      bqLatency,
-      bqDifficulty
+      bqFinancial,
+      bqDifficulty,
+      bqSilverSre,
+      bqSilverMatches,
+      bqSilverTxns,
+      bqRefReleases
     ] = await Promise.all([
       testAuth(),
       testBigQuery(),
@@ -2112,15 +2517,19 @@ function generateRandomFallbackMetrics(tier: string) {
       testBQML(),
       testDataplex(),
       testVertexAgentKC(),
+      testVertexAgentAnomaly(),
       testFirestore(),
-      testBQTable("gaming_raw.gcp_players", "Player Profiles & Tiers"),
-      testBQTable("gaming_raw.live_session_events", "Live Session Telemetry"),
-      testBQTable("gaming_raw.iap_transactions", "IAP Transaction Log"),
-      testBQTable("gaming_gold.gold_player_360", "Player 360 Feature Store"),
-      testBQTable("gaming_gold.gold_regional_kpis", "Regional Revenue & DAU"),
-      testBQTable("gaming_gold.gold_campaign_analytics", "Campaign ROI Analytics"),
-      testBQTable("gaming_silver.server_latency", "CCU & Server Latency"),
-      testBQTable("gaming_gold.gold_level_difficulty_funnel", "Level Completion Funnel")
+      testBQTable(currentTables.sourcePlayerDna, "Player Profiles & DNA", "SOURCE_PLAYER_DNA_TABLE"),
+      testBQTable(currentTables.sourceRawEvents, "Live Session Telemetry Events", "SOURCE_RAW_EVENTS_TABLE"),
+      testBQTable(currentTables.sourcePaymentSettlements, "Payment Gateway Settlements", "SOURCE_PAYMENT_SETTLEMENTS_TABLE"),
+      testBQTable(currentTables.goldPlayer360, "Player 360 Feature Store", "BIGQUERY_DATASET_GOLD"),
+      testBQTable(currentTables.goldRegionalKpis, "Regional Revenue & DAU", "BIGQUERY_DATASET_GOLD"),
+      testBQTable(currentTables.goldStudioFinancial, "Studio Multi-Store Financials", "BIGQUERY_DATASET_GOLD"),
+      testBQTable(currentTables.goldLevelDifficultyFunnel, "Level Completion Funnel", "BIGQUERY_DATASET_GOLD"),
+      testBQTable(currentTables.silverClientSreMetrics, "Client SRE & Latency Metrics", "BIGQUERY_DATASET_SILVER"),
+      testBQTable(currentTables.silverMatchSessions, "Match Sessions & Concurrency", "BIGQUERY_DATASET_SILVER"),
+      testBQTable(currentTables.silverMicrotransactions, "Real-Time IAP Conformance", "BIGQUERY_DATASET_SILVER"),
+      testBQTable(currentTables.refClientReleases, "Client Releases & Gateway Incidents", "BIGQUERY_DATASET_REFERENCE")
     ]);
 
     const simulatorRes = {
@@ -2138,15 +2547,21 @@ function generateRandomFallbackMetrics(tier: string) {
       dataplex: dataplexRes,
       vertex_agent: vertexKcRes,
       vertex_agent_kc: vertexKcRes,
+      vertex_agent_anomaly: vertexAnomalyRes,
       simulator: simulatorRes,
-      bq_gcp_players: bqPlayers,
-      bq_live_sessions: bqSessions,
-      bq_iap_transactions: bqTransactions,
+      // Canonical dynamic table probe keys
+      bq_source_player_dna: bqPlayerDna,
+      bq_source_raw_events: bqRawEvents,
+      bq_source_payment_settlements: bqSettlements,
       bq_gold_player_360: bqGoldP360,
       bq_gold_regional_kpis: bqRegional,
-      bq_gold_campaign_analytics: bqCampaigns,
-      bq_server_latency: bqLatency,
-      bq_difficulty_funnel: bqDifficulty
+      bq_gold_studio_financial: bqFinancial,
+      bq_gold_difficulty_funnel: bqDifficulty,
+      bq_silver_client_sre_metrics: bqSilverSre,
+      bq_silver_match_sessions: bqSilverMatches,
+      bq_silver_microtransactions: bqSilverTxns,
+      bq_ref_client_releases: bqRefReleases,
+      bq_gold_marketing_roas: bqFinancial,
     };
 
     const isAllLive = Object.values(services).every((s: any) => s?.status === "LIVE");
@@ -2154,15 +2569,64 @@ function generateRandomFallbackMetrics(tier: string) {
     const overallStatus = isAllLive ? "ALL_LIVE" : isAllMock ? "OFFLINE_MOCK" : "HEALTHY_WITH_FALLBACKS";
 
     const bqTables = [
-      { id: 'bq_players', name: 'BigQuery Table: gaming_raw.gcp_players', category: 'BigQuery Table', ...bqPlayers },
-      { id: 'bq_sessions', name: 'BigQuery Table: gaming_raw.live_session_events', category: 'BigQuery Table', ...bqSessions },
-      { id: 'bq_transactions', name: 'BigQuery Table: gaming_raw.iap_transactions', category: 'BigQuery Table', ...bqTransactions },
-      { id: 'bq_p360', name: 'BigQuery Table: gaming_gold.gold_player_360', category: 'BigQuery Table', ...bqGoldP360 },
-      { id: 'bq_regional', name: 'BigQuery Table: gaming_gold.gold_regional_kpis', category: 'BigQuery Table', ...bqRegional },
-      { id: 'bq_campaigns', name: 'BigQuery Table: gaming_gold.gold_campaign_analytics', category: 'BigQuery Table', ...bqCampaigns },
-      { id: 'bq_latency', name: 'BigQuery Table: gaming_silver.server_latency', category: 'BigQuery Table', ...bqLatency },
-      { id: 'bq_difficulty', name: 'BigQuery Table: gaming_gold.gold_level_difficulty_funnel', category: 'BigQuery Table', ...bqDifficulty },
+      { id: 'bq_source_player_dna', name: `BigQuery Table: ${currentTables.sourcePlayerDna}`, env_var: 'SOURCE_PLAYER_DNA_TABLE', category: 'BigQuery Source Table', ...bqPlayerDna },
+      { id: 'bq_source_raw_events', name: `BigQuery Table: ${currentTables.sourceRawEvents}`, env_var: 'SOURCE_RAW_EVENTS_TABLE', category: 'BigQuery Source Table', ...bqRawEvents },
+      { id: 'bq_source_payment_settlements', name: `BigQuery Table: ${currentTables.sourcePaymentSettlements}`, env_var: 'SOURCE_PAYMENT_SETTLEMENTS_TABLE', category: 'BigQuery Source Table', ...bqSettlements },
+      { id: 'bq_gold_player_360', name: `BigQuery Table: ${currentTables.goldPlayer360}`, env_var: 'BIGQUERY_DATASET_GOLD', category: 'BigQuery Gold Table', ...bqGoldP360 },
+      { id: 'bq_gold_regional_kpis', name: `BigQuery Table: ${currentTables.goldRegionalKpis}`, env_var: 'BIGQUERY_DATASET_GOLD', category: 'BigQuery Gold Table', ...bqRegional },
+      { id: 'bq_gold_studio_financial', name: `BigQuery Table: ${currentTables.goldStudioFinancial}`, env_var: 'BIGQUERY_DATASET_GOLD', category: 'BigQuery Gold Table', ...bqFinancial },
+      { id: 'bq_gold_difficulty_funnel', name: `BigQuery Table: ${currentTables.goldLevelDifficultyFunnel}`, env_var: 'BIGQUERY_DATASET_GOLD', category: 'BigQuery Gold Table', ...bqDifficulty },
+      { id: 'bq_silver_client_sre_metrics', name: `BigQuery View: ${currentTables.silverClientSreMetrics}`, env_var: 'BIGQUERY_DATASET_SILVER', category: 'BigQuery Silver View', ...bqSilverSre },
+      { id: 'bq_silver_match_sessions', name: `BigQuery View: ${currentTables.silverMatchSessions}`, env_var: 'BIGQUERY_DATASET_SILVER', category: 'BigQuery Silver View', ...bqSilverMatches },
+      { id: 'bq_silver_microtransactions', name: `BigQuery View: ${currentTables.silverMicrotransactions}`, env_var: 'BIGQUERY_DATASET_SILVER', category: 'BigQuery Silver View', ...bqSilverTxns },
+      { id: 'bq_ref_client_releases', name: `BigQuery Table: ${currentTables.refClientReleases}`, env_var: 'BIGQUERY_DATASET_REFERENCE', category: 'BigQuery Reference Table', ...bqRefReleases },
     ];
+
+    const probes = {
+      pubsub: {
+        status: pubsubRes.status === "LIVE" ? "ACTIVE" : "OFFLINE",
+        latency: `${pubsubRes.latency_ms}ms`,
+        message: pubsubRes.details
+      },
+      bigquery: {
+        status: bqGoldP360.status === "LIVE" ? "ACTIVE" : "OFFLINE",
+        latency: `${bqGoldP360.latency_ms}ms`,
+        message: bqGoldP360.details
+      },
+      bqml: {
+        status: bqmlRes.status === "LIVE" ? "ACTIVE" : "OFFLINE",
+        latency: `${bqmlRes.latency_ms}ms`,
+        message: bqmlRes.details
+      },
+      dataplex: {
+        status: dataplexRes.status === "LIVE" ? "ACTIVE" : "OFFLINE",
+        latency: `${dataplexRes.latency_ms}ms`,
+        message: dataplexRes.details
+      },
+      vertex: {
+        status: vertexKcRes.status === "LIVE" ? "ACTIVE" : "OFFLINE",
+        latency: `${vertexKcRes.latency_ms}ms`,
+        message: vertexKcRes.details
+      },
+      firestore: {
+        status: firestoreRes.status === "LIVE" ? "ACTIVE" : "OFFLINE",
+        latency: `${firestoreRes.latency_ms}ms`,
+        message: firestoreRes.details
+      }
+    };
+
+    const configured_resources = {
+      source_player_dna_table: currentTables.sourcePlayerDna,
+      source_raw_events_table: currentTables.sourceRawEvents,
+      source_payment_settlements_table: currentTables.sourcePaymentSettlements,
+      bigquery_dataset_silver: process.env.BIGQUERY_DATASET_SILVER || "gaming_silver",
+      bigquery_dataset_gold: process.env.BIGQUERY_DATASET_GOLD || "gaming_gold",
+      bigquery_dataset_reference: process.env.BIGQUERY_DATASET_REFERENCE || "gaming_reference_data",
+      bqml_model: BQML_MODEL_NAME,
+      pubsub_topic: PUBSUB_TOPIC_NAME,
+      firestore_database: "(default)",
+      publisher_name: PUBLISHER_NAME,
+    };
 
     return res.json({
       timestamp: new Date().toISOString(),
@@ -2171,6 +2635,9 @@ function generateRandomFallbackMetrics(tier: string) {
       overall_status: overallStatus,
       total_latency_ms: Date.now() - startTime,
       services,
+      probes,
+      table_mapping: currentTables,
+      configured_resources,
       gcp_services: [
         { id: 'auth', name: 'Google Cloud OAuth / ADC', category: 'Authentication', status: authRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: authRes.status.toLowerCase() as 'live' | 'mock', details: authRes.details, latency_ms: authRes.latency_ms },
         { id: 'firestore', name: 'Cloud Firestore Operational Datastore', category: 'Operational Database', status: firestoreRes.status === 'LIVE' ? 'LIVE' : 'FALLBACK', mode: firestoreRes.status.toLowerCase() as 'live' | 'mock', details: firestoreRes.details, latency_ms: firestoreRes.latency_ms },
@@ -2195,19 +2662,32 @@ function generateRandomFallbackMetrics(tier: string) {
     });
   });
 
-  // 5b. Unified System Diagnostics Endpoint (/api/system/diagnostics & /api/diagnostics/gcp)
-  app.get(["/api/system/diagnostics", "/api/diagnostics/gcp"], async (req: Request, res: Response) => {
-    return res.redirect("/api/system/gcp-health");
+  // 5b-0. Application Runtime Configuration Endpoint (/api/app-config)
+  app.get("/api/app-config", (_req: Request, res: Response) => {
+    return res.json({
+      publisherName: PUBLISHER_NAME,
+      publisherSlug: PUBLISHER_SLUG,
+      publisherInitial: PUBLISHER_INITIAL,
+      projectId: PROJECT_ID,
+      location: LOCATION,
+    });
   });
+
 
   // --------------------------------------------------------------------------
   // 5b-2. LiveOps Guardrail Agent Liveness Endpoint (/api/guardrail/agent-liveness)
   // --------------------------------------------------------------------------
-  app.get("/api/guardrail/agent-liveness", async (_req: Request, res: Response) => {
+  app.get("/api/guardrail/agent-liveness", async (req: Request, res: Response) => {
     try {
-      const agentInfo = await getAgentEngineInfo('kc');
+      const roleParam = ((req.query.role as string) || (req.query.agent_type as string) || "kc").toLowerCase().trim();
+      const targetRole = (roleParam === 'anomaly' || roleParam === 'fraud' || roleParam === 'cheat')
+        ? 'anomaly'
+        : (roleParam === 'churn' || roleParam === 'retention' || roleParam === 'kc')
+        ? 'kc'
+        : roleParam;
+      const agentInfo = await getAgentEngineInfo(targetRole);
       if (!agentInfo || !agentInfo.id) {
-        return res.json({ live: false, status: "OFFLINE", reason: "No agent_kc engine configured" });
+        return res.json({ live: false, status: "OFFLINE", reason: `No ${targetRole} engine configured` });
       }
       const accessToken = await getADCAccessToken().catch(() => null);
       if (!accessToken) {
@@ -2215,7 +2695,11 @@ function generateRandomFallbackMetrics(tier: string) {
       }
       const agentRes = await fetch(agentInfo.endpoint, {
         headers: { Authorization: `Bearer ${accessToken}` },
-      }).catch(() => null);
+        signal: AbortSignal.timeout(5000),
+      }).catch((err) => {
+        console.warn(`[Agent Liveness Probe] Fetch error: ${err?.message || err}`);
+        return null;
+      });
 
       if (agentRes && agentRes.ok) {
         return res.json({ live: true, status: "LIVE", agent_id: agentInfo.id, displayName: agentInfo.displayName });
@@ -2232,23 +2716,56 @@ function generateRandomFallbackMetrics(tier: string) {
   app.get("/api/guardrail/agent-trace", async (req: Request, res: Response) => {
     const startTime = Date.now();
     try {
-      const playerId = (req.query.player_id as string) || req.body?.player_id || "player_cosmic_whale_42";
+      const agentType = ((req.query.agent_type as string) || (req.query.role as string) || "kc").toLowerCase().trim();
+      const isAnomaly = agentType === "anomaly" || agentType === "fraud" || agentType === "cheat";
+      const isKC = agentType === "kc" || agentType === "retention" || agentType === "churn";
+      const playerId = (req.query.player_id as string) || req.body?.player_id || (isAnomaly ? "player_anomaly_042" : "player_cosmic_whale_42");
       const sessionId = (req.query.session_id as string) || `sess_${Date.now()}`;
-      const queryText = (req.query.query as string) || "Evaluate Player Retention Promo Guardrail";
+      const defaultAnomalyPrompt = `[MODE: AUTONOMOUS EXECUTION - NO INTERACTIVE PROMPTING]
+You are operating as a headless backend engine for the Operations Dashboard. 
+Do NOT ask clarifying questions, do NOT offer choices, and do NOT pause for human confirmation. 
+Task:
+1. Scan telemetry for fraud, item duplication loops, and economy anomalies.
+2. If anomalies are detected, autonomously look up the mitigation runbook via SOP search.
+3. Formulate the final operational proposal and recommended remediation actions.
+
+Response Structure:
+First, provide an executive human-readable incident brief (summary of findings, affected player accounts, risk assessment, and operational remediation reasoning).
+Second, conclude your response with a machine-parseable JSON block conforming to:
+\`\`\`json
+{
+  "finding": "<Summary of finding>",
+  "severity": "CRITICAL | HIGH | MEDIUM",
+  "exposure_badge": "P1 - $120K Exposure",
+  "recommended_action": "<Primary remediation recommendation>",
+  "actions": [
+    {"label": "Freeze Trading (player_id)", "action_type": "QUARANTINE_ACCOUNT", "target": "<ID>"},
+    {"label": "Notify Security Operations", "action_type": "ALERT_SECURITY", "target": "<ID>"},
+    {"label": "Export Log Audit", "action_type": "AUDIT_EXPORT", "target": "<ID>"}
+  ]
+}
+\`\`\``;
+
+      const queryText = (req.query.query as string) || (
+        isAnomaly
+          ? defaultAnomalyPrompt
+          : "Evaluate Player Retention Promo Guardrail"
+      );
       const isAutonomous = req.query.autonomous === "true";
       const isActive = req.query.active !== "false";
 
       // Query player profile & Dataplex policy
       const playerProfile = await queryPlayer360(playerId, 1).then((rows) => rows[0] || null).catch(() => null);
       const precachedOffer = precachedOffers.get(playerId) || {
-        sku: "frost_giant_shield_pack",
-        title: "$0.99 Frost Giant Shield Pack",
-        certified_by: "dataplex_policy_aspect",
-        discount_pct: 80,
+        sku: isAnomaly ? "quarantine_trading_freeze" : "frost_giant_shield_pack",
+        title: isAnomaly ? "Trading Freeze & Account Quarantine Sanction" : "$0.99 Frost Giant Shield Pack",
+        certified_by: isAnomaly ? "security_quarantine_policy_aspect" : "dataplex_policy_aspect",
+        discount_pct: isAnomaly ? 0 : 80,
       };
 
       // Execute live Vertex AI Reasoning Engine Query via ADK Protocol
-      const agentInfo = await getAgentEngineInfo('kc');
+      const targetRole = isAnomaly ? 'anomaly' : isKC ? 'kc' : agentType;
+      const agentInfo = await getAgentEngineInfo(targetRole);
       let liveAgentOutput: string | null = null;
       let activeSessionId = sessionId;
       let adkResult: ADKQueryResult | null = null;
@@ -2264,12 +2781,73 @@ function generateRandomFallbackMetrics(tier: string) {
       const statusStr = isLiveSuccess ? "SUCCESS" : hasError ? "ERROR" : "FALLBACK";
       const modeStr = isLiveSuccess ? "LIVE" : "MOCK";
 
-      const responseText = liveAgentOutput || `[agent-kc Analysis] Analyzing player telemetry stream for boss death anomalies:
+      let responseText = liveAgentOutput;
+      if (!responseText) {
+        if (isAnomaly) {
+          responseText = `**Incident Resolution Brief: Cheat & Anomaly Detection**
+
+**Summary of Findings:**
+Anomalous telemetry spike detected across live Cloud Spanner transaction ledger and BigQuery telemetry (\`gaming_silver.silver_microtransactions\` & \`silver_moderation_alerts\`) over a rolling 15-minute window. Rapid gold coin inflation divergence (+520% divergence from baseline) indicates an active item duplication race condition across 14 player IDs.
+
+**Governance & Policy Compliance:**
+Cross-referenced against Dataplex Knowledge Catalog entry aspect 'security_quarantine_policy_aspect'. Anomaly severity threshold (5.2σ) warrants automated trading freeze.
+
+**Recommended Remediation Plan:**
+Temporarily freeze trading index for flagged accounts and dispatch an automated P1 incident alert to Security Operations.
+
+\`\`\`json
+{
+  "finding": "Rapid gold coin inflation spike detected across live transaction telemetry.",
+  "severity": "CRITICAL",
+  "exposure_badge": "P1 - $120K Exposure",
+  "recommended_action": "Temporarily freeze trading index for flagged accounts and dispatch security incident report.",
+  "actions": [
+    {"label": "Freeze Trading (14 Flagged Accounts)", "action_type": "QUARANTINE_ACCOUNT", "target": "14 Flagged Accounts"},
+    {"label": "Notify Security Operations", "action_type": "ALERT_SECURITY", "target": "SecOps On-Call"},
+    {"label": "Export Log Audit", "action_type": "AUDIT_EXPORT", "target": "gold_cheat_analytics"}
+  ]
+}
+\`\`\``;
+        } else {
+          responseText = `[agent-kc Analysis] Analyzing player telemetry stream for boss death anomalies:
 - Identified 4 consecutive wipeouts on 'Frost Giant' boss in Realm of Eldoria RPG.
 - Cross-referenced Dataplex Knowledge Catalog entry aspect 'liveops_campaign_policy_aspect' & BQML churn model (89% churn score for Veteran Whale cohort).
 - Formulated policy-compliant retention campaign: 80% discount on SKU 'frost_giant_shield_pack' ($0.99), within authorized 85% discount boundary.`;
+        }
+      }
 
-      const traceSteps = [
+      const traceSteps = isAnomaly ? [
+        {
+          step: 1,
+          name: "Cloud Spanner Transaction Ingestion & Ledger Scan",
+          status: "SUCCESS",
+          details: `Scanned active Cloud Spanner transaction events for session '${activeSessionId}'. Detected 520% gold inflation spike across live transactions.`,
+          timestamp: new Date(startTime).toISOString(),
+        },
+        {
+          step: 2,
+          name: "BigQuery Moderation History & Lakehouse Analytics",
+          status: "APPROVED",
+          details: `Traversed player account history across gold_cheat_analytics and silver_moderation_alerts. Identified 14 suspicious accounts sharing exploit signatures.`,
+          timestamp: new Date(startTime + 15).toISOString(),
+        },
+        {
+          step: 3,
+          name: "Dataplex Security Policy Audit & Quarantine Verification",
+          status: "APPROVED",
+          details: `Dataplex aspect 'security_quarantine_policy_aspect' verified. Exploit severity threshold (5.2σ) warrants automated trading freeze.`,
+          timestamp: new Date(startTime + 30).toISOString(),
+        },
+        {
+          step: 4,
+          name: "Gemini Enterprise Anomaly Reasoning & Remediation",
+          status: isAutonomous ? "AUTO_EXECUTED" : "PROPOSED",
+          details: isAutonomous
+            ? `Autonomous Mode ACTIVE: Trading index frozen for 14 flagged accounts in <300ms.`
+            : `Single-Invocation Mode: Proposed trading index freeze pending human operator approval gate.`,
+          timestamp: new Date(startTime + 45).toISOString(),
+        },
+      ] : [
         {
           step: 1,
           name: "Telemetry Ingestion & BQML Feature Store",
@@ -2297,32 +2875,65 @@ function generateRandomFallbackMetrics(tier: string) {
 
       const latencyMs = adkResult?.latencyMs || (Date.now() - startTime);
 
+      let parsedAnomalyJson: any = null;
+      if (isAnomaly && responseText) {
+        const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)```/i);
+        if (jsonMatch) {
+          try {
+            parsedAnomalyJson = JSON.parse(jsonMatch[1]);
+          } catch (e) {}
+        }
+      }
+
+      let parsedActions: any[] | undefined = undefined;
+      if (Array.isArray(parsedAnomalyJson?.actions)) {
+        parsedActions = parsedAnomalyJson.actions.map((act: any) => {
+          const rawLabel = typeof act.label === "string" ? act.label : (typeof act.action_type === "string" ? act.action_type : "Execute Action");
+          const targetStr = typeof act.target === "string" ? act.target : undefined;
+          let formattedLabel = rawLabel;
+          if (targetStr && !rawLabel.toLowerCase().includes(targetStr.toLowerCase()) && (act.action_type === "QUARANTINE_ACCOUNT" || rawLabel.toLowerCase().includes("quarantine") || rawLabel.toLowerCase().includes("freeze"))) {
+            formattedLabel = `${rawLabel} (${targetStr})`;
+          }
+          return {
+            label: formattedLabel,
+            action_type: typeof act.action_type === "string" ? act.action_type : "CUSTOM_ACTION",
+            target: targetStr,
+          };
+        });
+      }
+
       const responsePayload = {
         status: statusStr,
         agent_id: agentInfo?.id || "",
-        agent_name: agentInfo?.displayName || "Knowledge Catalog Analytics Agent",
+        agent_name: agentInfo?.displayName || (isAnomaly ? "Cheat & Anomaly Detection Agent" : "Knowledge Catalog Analytics Agent"),
         session_id: activeSessionId,
         mode: modeStr,
         live: isLiveSuccess,
         endpoint: agentInfo?.endpoint || null,
         player_id: playerId,
         query: queryText,
-        user_prompt: queryText,
+        user_prompt: (req.query.display_prompt as string) || (isAnomaly ? "Scan real-time Cloud Spanner transaction ledger & BigQuery telemetry for fair-play, exploit, and currency anomalies." : queryText),
         response_text: responseText,
         text: responseText,
         active: isActive,
         autonomous: isAutonomous,
         latency_ms: latencyMs,
         error: isLiveSuccess ? null : (adkResult?.error || "Reasoning engine fallback synthetic response generated"),
-        bqml_prediction: {
+        finding: isAnomaly ? (parsedAnomalyJson?.finding || "Rapid gold coin inflation spike detected across live transaction telemetry.") : undefined,
+        impact: isAnomaly ? (parsedAnomalyJson?.exposure_badge || "In-game economy devaluation risk of $120K.") : undefined,
+        exposure_badge: isAnomaly ? (parsedAnomalyJson?.exposure_badge || "P1 - $120K Exposure") : undefined,
+        recommendation: isAnomaly ? (parsedAnomalyJson?.recommended_action || "Temporarily freeze trading index for flagged accounts and trigger incident report.") : undefined,
+        actions: isAnomaly ? (parsedActions || undefined) : undefined,
+        nextSteps: isAnomaly ? (parsedActions ? parsedActions.map((a: any) => a.label) : ["Freeze Trading", "Notify Security", "Export Log Audit"]) : ["Send In-Game Gift", "Auto-Notify Team", "Update Segment Tag"],
+        bqml_prediction: isAnomaly ? undefined : {
           churn_score: 0.87,
           risk_level: "CRITICAL",
           model: BQML_MODEL_NAME,
         },
         dataplex_aspect: {
-          aspect_type: "liveops_campaign_policy_aspect",
+          aspect_type: isAnomaly ? "security_quarantine_policy_aspect" : "liveops_campaign_policy_aspect",
           status: "APPROVED",
-          max_allowed_discount: 0.85,
+          max_allowed_discount: isAnomaly ? 0.0 : 0.85,
         },
         proposed_action: {
           offer: precachedOffer,
@@ -2395,6 +3006,10 @@ function generateRandomFallbackMetrics(tier: string) {
     "/api/simulate",
     "/api/marketing",
     "/api/executive",
+    "/api/financial-summary",
+    "/api/churn-root-cause-stats",
+    "/api/cheat-analytics-stats",
+    "/api/toxicity",
   ], (req: Request, res: Response) => {
     proxyToFlask(req, res);
   });
@@ -2464,9 +3079,35 @@ function generateRandomFallbackMetrics(tier: string) {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
+    const indexPath = path.join(distPath, "index.html");
+
+    // Dynamic HTML renderer that injects runtime window.__APP_CONFIG__ and document title
+    const renderIndexHtml = (): string => {
+      try {
+        if (fs.existsSync(indexPath)) {
+          let html = fs.readFileSync(indexPath, "utf-8");
+          const configScript = `<script id="__APP_CONFIG__">window.__APP_CONFIG__ = ${JSON.stringify({
+            publisherName: PUBLISHER_NAME,
+            publisherSlug: PUBLISHER_SLUG,
+            publisherInitial: PUBLISHER_INITIAL,
+            projectId: PROJECT_ID,
+            location: LOCATION,
+          })};</script>`;
+
+          html = html.replace(/<title>.*?<\/title>/i, `<title>${PUBLISHER_NAME} Player 360 | OmniArcade</title>`);
+          html = html.replace(/<head>/i, `<head>\n    ${configScript}`);
+          return html;
+        }
+      } catch (err: any) {
+        console.warn("[Server HTML Render Error]:", err?.message);
+      }
+      return `<!doctype html><html><head><title>${PUBLISHER_NAME} Player 360</title></head><body><div id="root"></div></body></html>`;
+    };
+
+    app.use(express.static(distPath, { index: false }));
     app.get("*", (_req: Request, res: Response) => {
-      res.sendFile(path.join(distPath, "index.html"));
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(renderIndexHtml());
     });
   }
 
@@ -2482,6 +3123,61 @@ function generateRandomFallbackMetrics(tier: string) {
     // Pre-cache deployed Gemini Enterprise Agent Runtimes on startup
     discoverReasoningEngines().catch((err) => {
       console.warn("[Agent Runtime Discovery] Startup pre-cache warning:", err.message);
+    });
+
+    // Seed Firestore operational collections on startup if empty
+    const seedFirestoreOnBoot = async () => {
+      try {
+        console.log(`[Firestore Boot] Checking Cloud Firestore (default) database in project '${PROJECT_ID}'...`);
+        let isLiveDb = false;
+        try {
+          await firestoreClient.collection("campaigns").limit(1).get();
+          isLiveDb = true;
+          console.log("[Firestore Boot] Live Cloud Firestore Native database connected successfully.");
+        } catch (probeErr: any) {
+          console.warn("[Firestore Boot] Cloud Firestore Native database probe note:", probeErr.message, "(offline in-memory fallback active).");
+        }
+
+        if (isLiveDb) {
+          const [campSnap, offerSnap, modSnap, execSnap] = await Promise.all([
+            firestoreClient.collection("campaigns").limit(1).get().catch(() => ({ empty: true })),
+            firestoreClient.collection("offers").limit(1).get().catch(() => ({ empty: true })),
+            firestoreClient.collection("moderation_actions").limit(1).get().catch(() => ({ empty: true })),
+            firestoreClient.collection("executive_actions").limit(1).get().catch(() => ({ empty: true })),
+          ]);
+
+          if (campSnap.empty) {
+            for (const camp of DEFAULT_CAMPAIGNS) {
+              await firestoreClient.collection("campaigns").doc(camp.id).set(camp, { merge: true }).catch(() => {});
+            }
+            console.log(`[Firestore Boot] Seeded ${DEFAULT_CAMPAIGNS.length} default campaigns into live Firestore.`);
+          }
+          if (offerSnap.empty) {
+            for (const offer of DEFAULT_OFFERS) {
+              await firestoreClient.collection("offers").doc(offer.sku).set(offer, { merge: true }).catch(() => {});
+            }
+            console.log(`[Firestore Boot] Seeded ${DEFAULT_OFFERS.length} default offers into live Firestore.`);
+          }
+          if (modSnap.empty) {
+            for (const act of DEFAULT_MODERATION_ACTIONS) {
+              await firestoreClient.collection("moderation_actions").doc(act.action_id).set(act, { merge: true }).catch(() => {});
+            }
+            console.log(`[Firestore Boot] Seeded ${DEFAULT_MODERATION_ACTIONS.length} default moderation actions into live Firestore.`);
+          }
+          if (execSnap.empty) {
+            for (const act of DEFAULT_EXECUTIVE_ACTIONS) {
+              await firestoreClient.collection("executive_actions").doc(act.action_id).set(act, { merge: true }).catch(() => {});
+            }
+            console.log(`[Firestore Boot] Seeded ${DEFAULT_EXECUTIVE_ACTIONS.length} default executive actions into live Firestore.`);
+          }
+        }
+      } catch (err: any) {
+        console.warn("[Firestore Boot] Startup seeding notice (offline fallback active):", err.message);
+      }
+    };
+
+    seedFirestoreOnBoot().catch((err) => {
+      console.warn("[Firestore Boot] Background seeding error:", err.message);
     });
   });
 
