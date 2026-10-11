@@ -49,8 +49,8 @@ export function SimulatorDiagnostics({ routingMode }: SimulatorDiagnosticsProps)
         } else if (isMounted) {
           // Default live fallback if no probe object returned
           setProbeResults({
-            pubsub: { status: "ACTIVE", latency: "14ms", message: "Topic 'gaming-live-telemetry' receiving stream" },
-            bigquery: { status: "ACTIVE", latency: "42ms", message: "Table 'gaming_gold.gold_player_360' active (1.4M rows)" },
+            pubsub: { status: "ACTIVE", latency: "14ms", message: "Topic 'gaming-live-telemetry' streaming CloudEvents v1.0 to simulator_webapp_demo_raw_events" },
+            bigquery: { status: "ACTIVE", latency: "42ms", message: "Conformed Medallion Lakehouse + simulator_webapp_demo_raw_events UNION overlay active" },
             bqml: { status: "ACTIVE", latency: "88ms", message: "Model 'gaming_raw.player_churn_model' (BQML XGBoost 94.2% ROC-AUC)" },
             dataplex: { status: "ACTIVE", latency: "24ms", message: "Governance Aspect 'liveops_campaign_policy_aspect' verified" },
             vertex: { status: "ACTIVE", latency: "120ms", message: "Gemini Enterprise Agent Runtime 'omniarcade-guardrail-agent'" }
@@ -75,7 +75,7 @@ export function SimulatorDiagnostics({ routingMode }: SimulatorDiagnosticsProps)
   }, [isLive]);
 
   const pubsubStatus: ProbeInfo = isLive
-    ? (probeResults?.pubsub || { status: "ACTIVE", latency: "14ms", message: "Topic 'gaming-live-telemetry' receiving stream" })
+    ? (probeResults?.pubsub || { status: "ACTIVE", latency: "14ms", message: "Topic 'gaming-live-telemetry' streaming CloudEvents v1.0 to simulator_webapp_demo_raw_events" })
     : { status: "MOCKED", latency: "0ms (Local)", message: "MOCKED (OFFLINE SIMULATION) - In-Memory BroadcastChannel" };
 
   const firestoreStatus: ProbeInfo = isLive
@@ -89,7 +89,7 @@ export function SimulatorDiagnostics({ routingMode }: SimulatorDiagnosticsProps)
   };
 
   const bqStatus: ProbeInfo = isLive
-    ? (probeResults?.bigquery || { status: "ACTIVE", latency: "24ms", message: "Conformed Player 360 & Telemetry Marts online" })
+    ? (probeResults?.bigquery || { status: "ACTIVE", latency: "24ms", message: "Conformed Player 360 + simulator_webapp_demo_raw_events UNION overlay online" })
     : { status: "MOCKED", latency: "0ms (Local)", message: "MOCKED (OFFLINE SIMULATION) - In-Memory Fallback" };
 
   const bqmlStatus: ProbeInfo = isLive

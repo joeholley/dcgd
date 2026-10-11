@@ -14,6 +14,7 @@ export interface TableMapping {
   // Source / Ingestion Tables
   sourcePlayerDna: string;
   sourceRawEvents: string;
+  simulatorWebappDemoRawEvents: string;
   sourcePaymentSettlements: string;
 
   // Silver Conformance Layer
@@ -55,6 +56,10 @@ export function getBigQueryLocation(): string {
   );
 }
 
+export function getRawDataset(): string {
+  return process.env.BIGQUERY_DATASET_RAW || "gaming_raw";
+}
+
 export function getSilverDataset(): string {
   return process.env.BIGQUERY_DATASET_SILVER || "gaming_silver";
 }
@@ -71,6 +76,13 @@ export function getSourceRawEventsTable(): string {
   return (
     process.env.SOURCE_RAW_EVENTS_TABLE ||
     `${getGcpProjectId()}.gaming_raw.raw_events`
+  );
+}
+
+export function getSimulatorWebappDemoRawEventsTable(): string {
+  return (
+    process.env.SIMULATOR_WEBAPP_DEMO_RAW_EVENTS_TABLE ||
+    `${getGcpProjectId()}.${getRawDataset()}.simulator_webapp_demo_raw_events`
   );
 }
 
@@ -97,6 +109,7 @@ export function getTableMapping(): TableMapping {
   return {
     sourcePlayerDna: getSourcePlayerDnaTable(),
     sourceRawEvents: getSourceRawEventsTable(),
+    simulatorWebappDemoRawEvents: getSimulatorWebappDemoRawEventsTable(),
     sourcePaymentSettlements: getSourcePaymentSettlementsTable(),
 
     silverMicrotransactions: `${projectId}.${silverDs}.silver_microtransactions`,

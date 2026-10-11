@@ -7,7 +7,14 @@
 
 export type RoutingMode = "LIVE" | "MOCKED";
 export type PlayerCohortId = "Whale" | "Dolphin" | "Minnow" | "F2P";
-export type AnomalyType = "none" | "high_churn_boss_deaths" | "level_2_bottleneck" | "toxic_chat" | "currency_duplication";
+export type AnomalyType =
+  | "none"
+  | "high_churn_boss_deaths"
+  | "ddos_latency_spike"
+  | "toxic_chat"
+  | "fraudulent_chargeback_wave"
+  | "level_2_bottleneck"
+  | "currency_duplication";
 
 export interface CohortStats {
   playerDeaths: number;
@@ -193,7 +200,15 @@ function loadInitialState(): SimulatorPersistentState {
           ? parsed.selectedCohort
           : "Whale",
         peakCCU: typeof parsed.peakCCU === "number" ? parsed.peakCCU : 250000,
-        activeAnomaly: ["none", "high_churn_boss_deaths", "level_2_bottleneck", "toxic_chat", "currency_duplication"].includes(parsed.activeAnomaly)
+        activeAnomaly: [
+          "none",
+          "high_churn_boss_deaths",
+          "ddos_latency_spike",
+          "toxic_chat",
+          "fraudulent_chargeback_wave",
+          "level_2_bottleneck",
+          "currency_duplication",
+        ].includes(parsed.activeAnomaly)
           ? parsed.activeAnomaly
           : "high_churn_boss_deaths",
         activeTimezones: {
@@ -496,6 +511,26 @@ export function clearStreamLogs(): void {
   if (broadcastChannel) {
     broadcastChannel.postMessage({ type: "LOGS_UPDATE", logs: currentLogs });
   }
+  // Automatically truncate gaming_raw.simulator_webapp_demo_raw_events in BigQuery
+  if (typeof fetch !== "undefined") {
+    fetch("/api/simulator/reset-overlay", { method: "POST" }).catch((err) => {
+      console.warn("[SimulatorBridge] Non-blocking overlay reset warning:", err);
+    });
+  }
+}
+
+export async function refreshPlayerSampleCache(): Promise<{
+  success: boolean;
+  count: number;
+  source: string;
+  refreshed_at: string;
+  message?: string;
+}> {
+  const res = await fetch("/api/simulator/refresh-player-cache", { method: "POST" });
+  if (!res.ok) {
+    throw new Error(`Failed to refresh player cache (${res.status})`);
+  }
+  return res.json();
 }
 
 export function onStreamLogUpdate(listener: (logs: StreamLogEntry[]) => void): () => void {

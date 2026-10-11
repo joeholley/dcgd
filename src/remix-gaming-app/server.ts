@@ -39,7 +39,12 @@ import {
   executeCustomQuery,
   checkBigQueryHealth 
 } from "./src/services/bigquery";
-import { getTableMapping } from "./src/services/dataSourceConfig";
+import { 
+  getTableMapping, 
+  getSimulatorWebappDemoRawEventsTable, 
+  getSourcePlayerDnaTable,
+  getSourceRawEventsTable
+} from "./src/services/dataSourceConfig";
 
 dotenv.config();
 
@@ -628,6 +633,104 @@ async function verifyDataplexPolicyAndPrecache(
 // --------------------------------------------------------------------------
 // Live Game & Telemetry Simulator Engine State & Background Loop
 // --------------------------------------------------------------------------
+interface SimulatedPlayerProfile {
+  player_id: string;
+  telemetry_guid: string;
+  device_id: string;
+  platform: string;
+  region: string;
+  monetization_tier: string;
+}
+
+const DEFAULT_FALLBACK_PLAYERS: SimulatedPlayerProfile[] = Array.from({ length: 50 }, (_, idx) => {
+  const num = idx + 1;
+  const tiers = ["Whale", "Dolphin", "Minnow", "F2P"];
+  const platforms = ["PC_STEAM", "PS5", "XBOX_SERIES_X", "MOBILE_IOS", "MOBILE_ANDROID"];
+  const regions = ["NA-EAST", "EU-WEST", "APAC-EAST", "LATAM"];
+  const hexIdx = num.toString(16).padStart(4, "0");
+  return {
+    player_id: `PLAY-000${num.toString().padStart(2, "0")}`,
+    telemetry_guid: `550e8400-e29b-41d4-a716-44665544${hexIdx}`,
+    device_id: `dev-hw-${hexIdx}-${(num * 7919).toString(16).slice(0, 6)}`,
+    platform: platforms[idx % platforms.length],
+    region: regions[idx % regions.length],
+    monetization_tier: tiers[idx % tiers.length],
+  };
+});
+
+let cachedPlayerSamplePool: SimulatedPlayerProfile[] = [...DEFAULT_FALLBACK_PLAYERS];
+let lastPlayerSampleRefreshedAt: string = new Date().toISOString();
+
+async function refreshRandomPlayerSamplePool(): Promise<{ count: number; source: string; refreshedAt: string }> {
+  try {
+    const playerDnaTable = getSourcePlayerDnaTable();
+    const rawEventsTable = getSourceRawEventsTable();
+    const sql = `
+      WITH active_players_today AS (
+        SELECT DISTINCT
+          COALESCE(
+            JSON_VALUE(event_envelope, '$.subject'),
+            JSON_VALUE(event_envelope, '$.data.player_id')
+          ) AS active_id
+        FROM \`${rawEventsTable}\`
+        WHERE DATE(TIMESTAMP(JSON_VALUE(event_envelope, '$.time'))) = CURRENT_DATE()
+      )
+      SELECT
+        CAST(p.player_id AS STRING) AS player_id,
+        CAST(p.telemetry_guid AS STRING) AS telemetry_guid,
+        COALESCE(CAST(p.device_id AS STRING), CONCAT('dev-hw-', SUBSTR(CAST(p.telemetry_guid AS STRING), 1, 8))) AS device_id,
+        COALESCE(CAST(p.platform AS STRING), 'PC_STEAM') AS platform,
+        COALESCE(CAST(p.country AS STRING), 'US') AS region,
+        COALESCE(CAST(p.monetization_tier AS STRING), 'Dolphin') AS monetization_tier
+      FROM \`${playerDnaTable}\` p
+      LEFT JOIN active_players_today a
+        ON CAST(p.telemetry_guid AS STRING) = a.active_id
+        OR CAST(p.player_id AS STRING) = a.active_id
+      WHERE p.telemetry_guid IS NOT NULL
+      ORDER BY
+        CASE WHEN a.active_id IS NULL THEN 0 ELSE 1 END ASC,
+        RAND()
+      LIMIT 50
+    `;
+    const rows = await executeCustomQuery(sql);
+    if (rows && rows.length > 0) {
+      cachedPlayerSamplePool = rows.map((r: any, idx: number) => ({
+        player_id: r.player_id || `PLAY-000${(idx + 1).toString().padStart(2, "0")}`,
+        telemetry_guid: r.telemetry_guid || `550e8400-e29b-41d4-a716-44665544${(idx + 1).toString(16).padStart(4, "0")}`,
+        device_id: r.device_id || `dev-hw-${(idx + 1).toString(16).padStart(4, "0")}`,
+        platform: r.platform || "PC_STEAM",
+        region: r.region || "NA-EAST",
+        monetization_tier: r.monetization_tier || "Dolphin",
+      }));
+      lastPlayerSampleRefreshedAt = new Date().toISOString();
+      console.log(`[Simulator Gateway] Refreshed 50-player random sample pool from ${playerDnaTable} excluding today's active eventsim players (${cachedPlayerSamplePool.length} players)`);
+      return { count: cachedPlayerSamplePool.length, source: "bigquery_rand_dormant_today", refreshedAt: lastPlayerSampleRefreshedAt };
+    }
+  } catch (err: any) {
+    console.warn(`[Simulator Gateway] Fallback shuffle for 50-player sample pool (BQ offline or table missing): ${err.message}`);
+  }
+
+  // Fallback: generate fresh random sample permutations with randomized UUIDs & cohorts so every refresh yields distinct 50 players
+  const seedOffset = Math.floor(Math.random() * 9000) + 1000;
+  const tiers = ["Whale", "Dolphin", "Minnow", "F2P"];
+  const platforms = ["PC_STEAM", "PS5", "XBOX_SERIES_X", "MOBILE_IOS", "MOBILE_ANDROID"];
+  const regions = ["NA-EAST", "EU-WEST", "APAC-EAST", "LATAM"];
+  cachedPlayerSamplePool = Array.from({ length: 50 }, (_, idx) => {
+    const randId = seedOffset + idx;
+    const hexId = randId.toString(16).padStart(4, "0");
+    return {
+      player_id: `PLAY-00${randId}`,
+      telemetry_guid: `550e8400-e29b-41d4-a716-44665544${hexId}`,
+      device_id: `dev-hw-${hexId}-${Math.floor(Math.random() * 899999 + 100000)}`,
+      platform: platforms[Math.floor(Math.random() * platforms.length)],
+      region: regions[Math.floor(Math.random() * regions.length)],
+      monetization_tier: tiers[Math.floor(Math.random() * tiers.length)],
+    };
+  });
+  lastPlayerSampleRefreshedAt = new Date().toISOString();
+  return { count: cachedPlayerSamplePool.length, source: "fallback_random_shuffle", refreshedAt: lastPlayerSampleRefreshedAt };
+}
+
 interface SimulatorState {
   isRunning: boolean;
   activeAnomaly: string | null;
@@ -659,83 +762,149 @@ function runSimulationTick() {
   try {
     simulatorState.currentCCU = calculateCurrentCCU();
 
-    let eventType = "health check heartbeat";
-    let level = 1;
-    let consecutiveDeaths = 0;
-    let sessionDuration = Math.floor(Math.random() * 1800) + 60;
-    let toxicityScore = 0;
+    // Select a random player across ALL cohorts from the 50-player sample pool
+    const player = cachedPlayerSamplePool[Math.floor(Math.random() * cachedPlayerSamplePool.length)] || DEFAULT_FALLBACK_PLAYERS[0];
+    const nowMs = Date.now();
+    const sessionId = `sess_${nowMs}_${Math.floor(Math.random() * 900) + 100}`;
+    const matchId = `match_${sessionId}`;
+    const endTimestamp = new Date(nowMs).toISOString();
 
+    let cloudEventType = "com.gamestudio.gameplay.match_ended";
+    let uiEventType = "match_complete";
+    let levelId = "level_01";
+    let levelNum = 1;
+    let outcome = "VICTORY";
+    let consecutiveDeaths = 0;
+    let sessionDuration = Math.floor(Math.random() * 1200) + 180;
+    let bossDamagePct = 1.0;
+    let xpEarned = Math.floor(Math.random() * 500) + 250;
     let stageId: string | undefined = undefined;
     let bossId: string | undefined = undefined;
 
-    if (simulatorState.activeAnomaly === "level_2_bottleneck") {
-      if (Math.random() < 0.75) {
-        eventType = "level_fail";
-        level = 2;
-        consecutiveDeaths = Math.floor(Math.random() * 3) + 2;
-      }
-    } else if (simulatorState.activeAnomaly === "high_churn_boss_deaths") {
-      if (Math.random() < 0.85) {
-        eventType = Math.random() < 0.6 ? "boss_death" : "boss_fail";
-        level = 2;
-        stageId = "tutorial_stage_2";
-        bossId = "frost_giant_boss";
-        consecutiveDeaths = Math.floor(Math.random() * 3) + 3; // 3 to 5 deaths
-        sessionDuration = Math.floor(Math.random() * 3000) + 600;
-      }
-    } else if (simulatorState.activeAnomaly === "toxic_chat") {
-      if (Math.random() < 0.80) {
-        eventType = "toxic_chat";
-        toxicityScore = Math.round((0.75 + Math.random() * 0.24) * 100) / 100;
-      }
+    if (simulatorState.activeAnomaly === "high_churn_boss_deaths") {
+      // Emit high-death boss wipeout events across all players in the 50-player sample
+      cloudEventType = "com.gamestudio.gameplay.match_ended";
+      uiEventType = Math.random() < 0.6 ? "boss_death" : "boss_fail";
+      levelId = "level_02";
+      levelNum = 2;
+      stageId = "tutorial_stage_2";
+      bossId = "frost_giant_boss";
+      outcome = "DEFEAT";
+      consecutiveDeaths = Math.floor(Math.random() * 4) + 3; // 3 to 6 deaths
+      sessionDuration = Math.floor(Math.random() * 1800) + 600;
+      bossDamagePct = Math.round((0.55 + Math.random() * 0.38) * 100) / 100;
+      xpEarned = Math.floor(Math.random() * 120) + 40;
+    } else {
+      // Baseline healthy gameplay
+      const isWin = Math.random() < 0.78;
+      outcome = isWin ? "VICTORY" : "DEFEAT";
+      consecutiveDeaths = isWin ? Math.floor(Math.random() * 2) : Math.floor(Math.random() * 2) + 1;
+      bossDamagePct = isWin ? 1.0 : Math.round((0.70 + Math.random() * 0.25) * 100) / 100;
     }
 
-    const playerId = `player_${Math.floor(Math.random() * 9000) + 1000}`;
-    const sessionId = `sess_${Date.now()}_${Math.floor(Math.random() * 900) + 100}`;
-    const timestamp = new Date().toISOString();
+    const startTimestamp = new Date(nowMs - sessionDuration * 1000).toISOString();
 
-    const telemetryPayload = {
-      session_id: sessionId,
-      player_id: playerId,
-      event_type: eventType,
-      level,
-      ...(stageId ? { stage_id: stageId } : {}),
-      ...(bossId ? { boss_id: bossId } : {}),
-      consecutive_deaths: consecutiveDeaths,
-      session_duration_seconds: sessionDuration,
-      current_ccu: simulatorState.currentCCU,
-      active_anomaly: simulatorState.activeAnomaly,
-      timestamp,
+    const startEnvelope = {
+      specversion: "1.0",
+      id: `evt_start_${nowMs}_${Math.floor(Math.random() * 10000)}`,
+      source: "urn:uuid:73f9b2d1-a8e4-4c3b-9e12-f6d8c4b2a101",
+      type: "com.gamestudio.gameplay.match_started",
+      subject: player.telemetry_guid,
+      time: startTimestamp,
+      datacontenttype: "application/json",
+      data: {
+        match_id: matchId,
+        session_id: sessionId,
+        player_id: player.player_id,
+        device_id: player.device_id,
+        platform: player.platform,
+        region: player.region,
+        level_number: levelNum,
+        level_id: levelId,
+      },
+    };
+
+    const eventEnvelope = {
+      specversion: "1.0",
+      id: `evt_end_${nowMs}_${Math.floor(Math.random() * 10000)}`,
+      source: "urn:uuid:73f9b2d1-a8e4-4c3b-9e12-f6d8c4b2a101",
+      type: cloudEventType,
+      subject: player.telemetry_guid,
+      time: endTimestamp,
+      datacontenttype: "application/json",
+      data: {
+        match_id: matchId,
+        session_id: sessionId,
+        player_id: player.player_id,
+        device_id: player.device_id,
+        platform: player.platform,
+        region: player.region,
+        monetization_tier: player.monetization_tier,
+        level_number: levelNum,
+        level_id: levelId,
+        ...(stageId ? { stage_id: stageId } : {}),
+        ...(bossId ? { boss_id: bossId } : {}),
+        outcome,
+        deaths: consecutiveDeaths,
+        duration_seconds: sessionDuration,
+        boss_damage_pct: bossDamagePct,
+        xp_earned: xpEarned,
+      },
+    };
+
+    // Pub/Sub subscription writes directly to gaming_raw.simulator_webapp_demo_raw_events (event_envelope JSON, ingestion_timestamp TIMESTAMP)
+    const pubsubStartRow = {
+      event_envelope: startEnvelope,
+      ingestion_timestamp: startTimestamp,
+    };
+    const pubsubEndRow = {
+      event_envelope: eventEnvelope,
+      ingestion_timestamp: endTimestamp,
     };
 
     let predictedChurnScore: number;
-    if (simulatorState.activeAnomaly === "high_churn_boss_deaths" && (eventType === "boss_death" || eventType === "boss_fail")) {
+    if (simulatorState.activeAnomaly === "high_churn_boss_deaths") {
       predictedChurnScore = Math.round((0.85 + Math.random() * 0.12) * 100) / 100;
     } else {
-      const deathWeight = consecutiveDeaths * 0.30;
-      const eventWeight = eventType === "mission_quit" || eventType === "churn_event" ? 0.85 : 0.05;
-      predictedChurnScore = Math.round(Math.min(0.99, Math.max(0.05, deathWeight + eventWeight)) * 100) / 100;
+      const deathWeight = consecutiveDeaths * 0.25;
+      predictedChurnScore = Math.round(Math.min(0.99, Math.max(0.05, deathWeight + 0.08)) * 100) / 100;
     }
     const churnRiskLevel = predictedChurnScore >= 0.80 ? "CRITICAL" : predictedChurnScore >= 0.50 ? "HIGH" : "LOW";
 
-    let pubsubMessageId = `sim_msg_${Date.now()}`;
+    let pubsubMessageId = `sim_msg_${nowMs}`;
     try {
       const topic = pubsubClient.topic(PUBSUB_TOPIC_NAME);
-      const dataBuffer = Buffer.from(JSON.stringify(telemetryPayload));
-      withTimeout(topic.publishMessage({ data: dataBuffer }), 1000, pubsubMessageId).catch(() => {});
+      withTimeout(topic.publishMessage({ data: Buffer.from(JSON.stringify(pubsubStartRow)) }), 1000, `${pubsubMessageId}_start`).catch(() => {});
+      withTimeout(topic.publishMessage({ data: Buffer.from(JSON.stringify(pubsubEndRow)) }), 1000, pubsubMessageId).catch(() => {});
     } catch (e) {}
 
     simulatorState.totalEventsPublished++;
 
     const backendMode = simulatorState.isRunning ? "LIVE" : "MOCK";
     const ssePayload = {
-      ...telemetryPayload,
+      session_id: sessionId,
+      player_id: player.player_id,
+      telemetry_guid: player.telemetry_guid,
+      device_id: player.device_id,
+      platform: player.platform,
+      monetization_tier: player.monetization_tier,
+      event_type: uiEventType,
+      cloud_event_type: cloudEventType,
+      level: levelNum,
+      level_id: levelId,
+      ...(stageId ? { stage_id: stageId } : {}),
+      ...(bossId ? { boss_id: bossId } : {}),
+      outcome,
+      consecutive_deaths: consecutiveDeaths,
+      session_duration_seconds: sessionDuration,
+      current_ccu: simulatorState.currentCCU,
+      active_anomaly: simulatorState.activeAnomaly,
+      timestamp: endTimestamp,
+      event_envelope: eventEnvelope,
       predicted_churn_score: predictedChurnScore,
       churn_risk_level: churnRiskLevel,
       pubsub_message_id: pubsubMessageId,
       total_events_published: simulatorState.totalEventsPublished,
-      current_ccu: simulatorState.currentCCU,
-      active_anomaly: simulatorState.activeAnomaly,
       backend_mode: backendMode,
     };
 
@@ -767,6 +936,9 @@ async function startServer() {
     }
     next();
   });
+
+  // Prime the 50-player random sample pool asynchronously on startup
+  refreshRandomPlayerSamplePool().catch(() => {});
 
   // Start integrated background telemetry simulation loop
   startIntegratedSimulatorLoop();
@@ -808,21 +980,85 @@ async function startServer() {
       event_rate_hz: simulatorState.eventRateHz,
       total_events_published: simulatorState.totalEventsPublished,
       current_ccu: simulatorState.currentCCU,
-      active_anomaly: simulatorState.activeAnomaly
+      active_anomaly: simulatorState.activeAnomaly,
+      player_sample_count: cachedPlayerSamplePool.length,
+      player_sample_refreshed_at: lastPlayerSampleRefreshedAt,
+      overlay_table: getSimulatorWebappDemoRawEventsTable(),
     });
+  });
+
+  app.post("/api/simulator/refresh-player-cache", async (_req: Request, res: Response) => {
+    try {
+      const result = await refreshRandomPlayerSamplePool();
+      return res.json({
+        success: true,
+        count: result.count,
+        source: result.source,
+        refreshed_at: result.refreshedAt,
+        sample_preview: cachedPlayerSamplePool.slice(0, 5),
+        message: `Refreshed random 50-player sample (${result.source})`
+      });
+    } catch (err: any) {
+      return res.status(500).json({
+        success: false,
+        error: err.message || "Failed to refresh player cache"
+      });
+    }
+  });
+
+  app.get("/api/simulator/player-cache", (_req: Request, res: Response) => {
+    return res.json({
+      success: true,
+      count: cachedPlayerSamplePool.length,
+      refreshed_at: lastPlayerSampleRefreshedAt,
+      players: cachedPlayerSamplePool,
+    });
+  });
+
+  app.post("/api/simulator/reset-overlay", async (_req: Request, res: Response) => {
+    const overlayTable = getSimulatorWebappDemoRawEventsTable();
+    try {
+      await executeCustomQuery(`TRUNCATE TABLE \`${overlayTable}\``);
+      simulatorState.totalEventsPublished = 0;
+      console.log(`[Simulator Gateway] Truncated live overlay table: ${overlayTable}`);
+      return res.json({
+        success: true,
+        table: overlayTable,
+        message: `Cleared live overlay table (${overlayTable})`
+      });
+    } catch (err: any) {
+      console.warn(`[Simulator Gateway] Overlay reset warning (${overlayTable}): ${err.message}`);
+      simulatorState.totalEventsPublished = 0;
+      return res.json({
+        success: true,
+        table: overlayTable,
+        warning: err.message,
+        message: `Reset local event counter (BigQuery TRUNCATE skipped/offline)`
+      });
+    }
   });
 
   app.post("/api/simulator/inject-anomaly", (req: Request, res: Response) => {
     const anomaly_type = req.body.anomaly_type !== undefined ? req.body.anomaly_type : req.body.type;
-    const validAnomalies = ["level_2_bottleneck", "high_churn_boss_deaths", "toxic_chat", "currency_duplication", null, ""];
-    if (!validAnomalies.includes(anomaly_type)) {
+    const normalized = anomaly_type === "none" ? null : anomaly_type;
+    const validAnomalies = [
+      "high_churn_boss_deaths",
+      "ddos_latency_spike",
+      "toxic_chat",
+      "fraudulent_chargeback_wave",
+      "level_2_bottleneck",
+      "currency_duplication",
+      null,
+      ""
+    ];
+    if (!validAnomalies.includes(normalized)) {
       return res.status(400).json({
         success: false,
-        error: "Invalid anomaly_type. Valid values: level_2_bottleneck, high_churn_boss_deaths, toxic_chat, currency_duplication, or null"
+        error: "Invalid anomaly_type. Valid values: high_churn_boss_deaths, ddos_latency_spike, toxic_chat, fraudulent_chargeback_wave, or null"
       });
     }
 
-    simulatorState.activeAnomaly = anomaly_type || null;
+    simulatorState.activeAnomaly = normalized || null;
     console.log(`[Simulator Gateway] Active anomaly set to: ${simulatorState.activeAnomaly}`);
     return res.json({
       success: true,
@@ -1264,30 +1500,77 @@ async function startServer() {
 
       const rawDuration = Number(rawBody.session_duration_seconds ?? rawBody.payload?.sessionDuration ?? 420);
       const session_duration_seconds = !isNaN(rawDuration) && rawDuration >= 0 ? Math.floor(rawDuration) : 420;
+      const timestamp = new Date().toISOString();
+
+      // Match or select a player from the 50-player random sample pool so telemetry_guid is valid for Silver view joins
+      const matchedPlayer = cachedPlayerSamplePool.find(
+        p => p.player_id === player_id || p.telemetry_guid === rawBody.telemetry_guid
+      ) || cachedPlayerSamplePool[Math.floor(Math.random() * cachedPlayerSamplePool.length)] || DEFAULT_FALLBACK_PLAYERS[0];
+
+      const telemetry_guid = rawBody.telemetry_guid || matchedPlayer.telemetry_guid;
+      const device_id = rawBody.device_id || matchedPlayer.device_id;
+      const cloudEventType = rawBody.cloud_event_type || (
+        event_type === "boss_death" || event_type === "boss_fail" || event_type === "level_fail" || event_type === "match_complete"
+          ? "com.gamestudio.gameplay.match_ended"
+          : "com.gamestudio.gameplay.session_heartbeat"
+      );
+
+      const eventEnvelope = rawBody.event_envelope || {
+        specversion: "1.0",
+        id: `evt_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+        source: "urn:uuid:73f9b2d1-a8e4-4c3b-9e12-f6d8c4b2a101",
+        type: cloudEventType,
+        subject: telemetry_guid,
+        time: timestamp,
+        datacontenttype: "application/json",
+        data: {
+          session_id,
+          player_id,
+          device_id,
+          platform: matchedPlayer.platform,
+          region: matchedPlayer.region,
+          monetization_tier: matchedPlayer.monetization_tier,
+          level_id: rawBody.level_id || `level_0${rawBody.level || 2}`,
+          outcome: consecutive_deaths >= 2 || event_type.includes("fail") || event_type.includes("death") ? "DEFEAT" : "VICTORY",
+          deaths: consecutive_deaths,
+          duration_seconds: session_duration_seconds,
+          boss_damage_pct: consecutive_deaths >= 2 ? 0.68 : 1.0,
+          xp_earned: 150,
+        }
+      };
+
+      const pubsubRowPayload = {
+        event_envelope: eventEnvelope,
+        ingestion_timestamp: timestamp,
+      };
 
       // Format strict snake_case JSON payload with ISO-8601 UTC timestamp
       const telemetryPayload = {
         session_id,
         player_id,
+        telemetry_guid,
+        device_id,
         event_type,
+        cloud_event_type: cloudEventType,
         consecutive_deaths,
         session_duration_seconds,
-        timestamp: new Date().toISOString(),
+        timestamp,
+        event_envelope: eventEnvelope,
       };
 
-      console.log(`[Telemetry Gateway] Received payload for player: ${player_id}`, telemetryPayload);
+      console.log(`[Telemetry Gateway] Received payload for player: ${player_id} (${telemetry_guid})`, telemetryPayload);
 
-      // 1. Publish payload to Cloud Pub/Sub topic `gaming-live-telemetry`
+      // 1. Publish payload to Cloud Pub/Sub topic `gaming-live-telemetry` -> simulator_webapp_demo_raw_events
       let pubsubMessageId: string | null = null;
       try {
         const topic = pubsubClient.topic(PUBSUB_TOPIC_NAME);
-        const dataBuffer = Buffer.from(JSON.stringify(telemetryPayload));
+        const dataBuffer = Buffer.from(JSON.stringify(pubsubRowPayload));
         pubsubMessageId = await withTimeout(
           topic.publishMessage({ data: dataBuffer }),
           1500,
           `mock_msg_${Date.now()}`
         );
-        console.log(`[Pub/Sub] Published message ${pubsubMessageId} to topic ${PUBSUB_TOPIC_NAME}`);
+        console.log(`[Pub/Sub] Published CloudEvents message ${pubsubMessageId} to topic ${PUBSUB_TOPIC_NAME}`);
       } catch (pubsubErr: any) {
         console.warn(`[Pub/Sub] Topic publish fallback (running offline/mock): ${pubsubErr.message}`);
         pubsubMessageId = `mock_msg_${Date.now()}`;

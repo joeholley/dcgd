@@ -14,33 +14,33 @@ import sys
 import time
 from datetime import datetime, timezone
 
-# Optional Pub/Sub import with fallback
+# Optional Pub/Sub and BigQuery imports with fallback
 try:
     from google.cloud import pubsub_v1
     PUBSUB_AVAILABLE = True
 except ImportError:
     PUBSUB_AVAILABLE = False
 
+try:
+    from google.cloud import bigquery
+    BQ_AVAILABLE = True
+except ImportError:
+    BQ_AVAILABLE = False
+
 
 class TelemetrySimulator:
     """
     Simulates live game telemetry ticks, CCU fluctuations, and LiveOps anomalies.
+    Emits CloudEvents v1.0 payloads wrapped in { event_envelope, ingestion_timestamp }
+    for Pub/Sub subscription ingestion into gaming_raw.simulator_webapp_demo_raw_events.
     """
 
-    EVENT_TYPES = [
-        "session_start",
-        "match_start",
-        "level_fail",
-        "boss_encounter",
-        "boss_death",
-        "iap_attempt",
-        "toxic_chat"
-    ]
-
     ANOMALIES = [
-        "level_2_bottleneck",
+        "none",
         "high_churn_boss_deaths",
-        "toxic_chat"
+        "ddos_latency_spike",
+        "toxic_chat",
+        "fraudulent_chargeback_wave"
     ]
 
     def __init__(self, project_id=None, topic_name=None, rate_hz=10, active_anomaly="high_churn_boss_deaths"):
@@ -51,6 +51,7 @@ class TelemetrySimulator:
         self.publisher = None
         self.topic_path = None
         self.total_events_published = 0
+        self.player_sample_pool = self._load_random_player_sample()
 
         if PUBSUB_AVAILABLE:
             try:
@@ -63,10 +64,80 @@ class TelemetrySimulator:
         else:
             print("[Simulator] google-cloud-pubsub not installed. Operating in local stdout fallback mode.")
 
+    def _load_random_player_sample(self):
+        """
+        Fetches a random 50-player sample across all cohorts from player_dna via ORDER BY RAND() LIMIT 50,
+        or generates a fallback 50-player sample with authentic UUIDv4 telemetry_guids.
+        """
+        player_dna_table = os.environ.get("SOURCE_PLAYER_DNA_TABLE", "gaming_player_data.player_dna")
+        raw_events_table = os.environ.get("SOURCE_RAW_EVENTS_TABLE", "gaming_raw.raw_events")
+        if BQ_AVAILABLE:
+            try:
+                bq_client = bigquery.Client(project=self.project_id)
+                sql = f"""
+                    WITH active_players_today AS (
+                      SELECT DISTINCT
+                        COALESCE(
+                          JSON_VALUE(event_envelope, '$.subject'),
+                          JSON_VALUE(event_envelope, '$.data.player_id')
+                        ) AS active_id
+                      FROM `{raw_events_table}`
+                      WHERE DATE(TIMESTAMP(JSON_VALUE(event_envelope, '$.time'))) = CURRENT_DATE()
+                    )
+                    SELECT
+                      CAST(p.player_id AS STRING) AS player_id,
+                      CAST(p.telemetry_guid AS STRING) AS telemetry_guid,
+                      COALESCE(CAST(p.device_id AS STRING), CONCAT('dev-hw-', SUBSTR(CAST(p.telemetry_guid AS STRING), 1, 8))) AS device_id,
+                      COALESCE(CAST(p.platform AS STRING), 'PC_STEAM') AS platform,
+                      COALESCE(CAST(p.country AS STRING), 'US') AS region,
+                      COALESCE(CAST(p.monetization_tier AS STRING), 'Dolphin') AS monetization_tier
+                    FROM `{player_dna_table}` p
+                    LEFT JOIN active_players_today a
+                      ON CAST(p.telemetry_guid AS STRING) = a.active_id
+                      OR CAST(p.player_id AS STRING) = a.active_id
+                    WHERE p.telemetry_guid IS NOT NULL
+                    ORDER BY
+                      CASE WHEN a.active_id IS NULL THEN 0 ELSE 1 END ASC,
+                      RAND()
+                    LIMIT 50
+                """
+                rows = list(bq_client.query(sql).result(timeout=5.0))
+                if rows:
+                    pool = [
+                        {
+                            "player_id": r.player_id or f"PLAY-000{idx+1:02d}",
+                            "telemetry_guid": r.telemetry_guid or f"550e8400-e29b-41d4-a716-44665544{idx+1:04x}",
+                            "device_id": r.device_id or f"dev-hw-{idx+1:04x}",
+                            "platform": r.platform or "PC_STEAM",
+                            "region": r.region or "NA-EAST",
+                            "monetization_tier": r.monetization_tier or "Dolphin",
+                        }
+                        for idx, r in enumerate(rows)
+                    ]
+                    print(f"[Simulator] Loaded {len(pool)} random players from {player_dna_table}")
+                    return pool
+            except Exception as e:
+                print(f"[Simulator] BigQuery RAND() sample fallback ({e}). Generating 50 random fallback players.")
+
+        tiers = ["Whale", "Dolphin", "Minnow", "F2P"]
+        platforms = ["PC_STEAM", "PS5", "XBOX_SERIES_X", "MOBILE_IOS", "MOBILE_ANDROID"]
+        regions = ["NA-EAST", "EU-WEST", "APAC-EAST", "LATAM"]
+        seed_offset = random.randint(1000, 8999)
+        return [
+            {
+                "player_id": f"PLAY-00{seed_offset + i}",
+                "telemetry_guid": f"550e8400-e29b-41d4-a716-44665544{seed_offset + i:04x}",
+                "device_id": f"dev-hw-{seed_offset + i:04x}-{random.randint(100000, 999999)}",
+                "platform": random.choice(platforms),
+                "region": random.choice(regions),
+                "monetization_tier": random.choice(tiers),
+            }
+            for i in range(50)
+        ]
+
     def calculate_ccu(self, t_seconds=None):
         """
         Generates a sinusoidal 24-hour CCU curve (1,200 to 18,500 CCU).
-        Formula: current_ccu = int(1200 + 17300 * (sin(pi * t / 86400) ** 2))
         """
         if t_seconds is None:
             now = datetime.now(timezone.utc)
@@ -85,68 +156,62 @@ class TelemetrySimulator:
 
     def generate_event(self):
         """
-        Generates a single telemetry tick payload, adjusted for active anomalies.
+        Generates a single CloudEvents v1.0 telemetry payload wrapped for simulator_webapp_demo_raw_events.
         """
         now_iso = datetime.now(timezone.utc).isoformat()
         current_ccu = self.calculate_ccu()
-        player_id = f"player_{random.randint(1000, 9999)}"
+        player = random.choice(self.player_sample_pool)
         session_id = f"sess_{int(time.time() * 1000)}_{random.randint(100, 999)}"
 
-        # Default event distribution
-        event_type = random.choices(
-            self.EVENT_TYPES,
-            weights=[0.25, 0.25, 0.15, 0.15, 0.10, 0.05, 0.05]
-        )[0]
+        cloud_event_type = "com.gamestudio.gameplay.match_ended"
+        level_id = "level_01"
+        outcome = "VICTORY"
+        deaths = random.choice([0, 1])
+        duration_seconds = random.randint(180, 1200)
+        boss_damage_pct = 1.0
+        xp_earned = random.randint(250, 600)
+        boss_id = None
 
-        level = random.randint(1, 10)
-        consecutive_deaths = random.choices([0, 1, 2, 3, 4, 5], weights=[0.5, 0.25, 0.12, 0.08, 0.03, 0.02])[0]
-        session_duration = random.randint(30, 3600)
-        toxicity_score = round(random.uniform(0.0, 0.2), 2)
-        iap_amount = None
+        if self.active_anomaly == "high_churn_boss_deaths":
+            level_id = "level_02"
+            boss_id = "frost_giant_boss"
+            outcome = "DEFEAT"
+            deaths = random.randint(3, 6)
+            duration_seconds = random.randint(600, 2400)
+            boss_damage_pct = round(random.uniform(0.55, 0.92), 2)
+            xp_earned = random.randint(40, 150)
 
-        # Apply LiveOps Anomaly Modifications
-        if self.active_anomaly == "level_2_bottleneck":
-            if random.random() < 0.70:
-                event_type = "level_fail"
-                level = 2
-                consecutive_deaths = random.randint(2, 5)
-
-        elif self.active_anomaly == "high_churn_boss_deaths":
-            if random.random() < 0.80:
-                event_type = random.choice(["boss_death", "level_fail"])
-                consecutive_deaths = random.randint(3, 6)
-                session_duration = random.randint(600, 4800)
-
-        elif self.active_anomaly == "toxic_chat":
-            if random.random() < 0.75:
-                event_type = "toxic_chat"
-                toxicity_score = round(random.uniform(0.75, 0.99), 2)
-
-        if event_type == "iap_attempt":
-            iap_amount = random.choice([0.99, 4.99, 9.99, 19.99, 49.99])
-
-        payload = {
-            "session_id": session_id,
-            "player_id": player_id,
-            "event_type": event_type,
-            "level": level,
-            "consecutive_deaths": consecutive_deaths,
-            "session_duration_seconds": session_duration,
-            "current_ccu": current_ccu,
-            "active_anomaly": self.active_anomaly,
-            "timestamp": now_iso,
+        event_envelope = {
+            "specversion": "1.0",
+            "id": f"evt_{int(time.time() * 1000)}_{random.randint(1000, 9999)}",
+            "source": "urn:uuid:73f9b2d1-a8e4-4c3b-9e12-f6d8c4b2a101",
+            "type": cloud_event_type,
+            "subject": player["telemetry_guid"],
+            "time": now_iso,
+            "datacontenttype": "application/json",
+            "data": {
+                "session_id": session_id,
+                "player_id": player["player_id"],
+                "device_id": player["device_id"],
+                "platform": player["platform"],
+                "region": player["region"],
+                "monetization_tier": player["monetization_tier"],
+                "level_id": level_id,
+                **({"boss_id": boss_id} if boss_id else {}),
+                "outcome": outcome,
+                "deaths": deaths,
+                "duration_seconds": duration_seconds,
+                "boss_damage_pct": boss_damage_pct,
+                "xp_earned": xp_earned,
+                "current_ccu": current_ccu,
+                "active_anomaly": self.active_anomaly,
+            },
         }
 
-        if event_type == "toxic_chat":
-            payload["toxicity_score"] = toxicity_score
-            payload["chat_message"] = random.choice([
-                "gg noob team", "uninstall game please", "cheater reported", "clown play"
-            ])
-        elif event_type == "iap_attempt":
-            payload["iap_amount"] = iap_amount
-            payload["sku"] = random.choice(["frost_giant_shield_pack", "gold_battlepass", "starter_pack_gold"])
-
-        return payload
+        return {
+            "event_envelope": event_envelope,
+            "ingestion_timestamp": now_iso,
+        }
 
     def publish_event(self, event):
         """
@@ -188,7 +253,9 @@ class TelemetrySimulator:
                 event = self.generate_event()
                 pub_success = self.publish_event(event)
                 dest = "Pub/Sub" if pub_success else "stdout/local"
-                print(f"[{dest}] #{self.total_events_published} | {event['event_type']} | CCU: {event['current_ccu']} | Player: {event['player_id']}")
+                env = event["event_envelope"]
+                data = env["data"]
+                print(f"[{dest}] #{self.total_events_published} | {env['type']} ({data['outcome']}, deaths={data['deaths']}) | Player: {data['player_id']} ({env['subject'][:8]}...)")
 
                 time.sleep(interval)
         except KeyboardInterrupt:

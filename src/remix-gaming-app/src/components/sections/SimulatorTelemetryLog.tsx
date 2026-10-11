@@ -146,10 +146,11 @@ export function SimulatorTelemetryLog({ routingMode = "LIVE" }: SimulatorTelemet
             <button
               type="button"
               onClick={() => clearStreamLogs()}
-              className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-all border border-slate-800 cursor-pointer"
-              title="Clear Log Stream"
+              className="p-1.5 px-2 rounded-lg bg-slate-900 hover:bg-rose-950/50 text-slate-400 hover:text-rose-300 transition-all border border-slate-800 hover:border-rose-800/50 cursor-pointer flex items-center gap-1"
+              title="Clear Log & Reset BigQuery Overlay Table (TRUNCATE simulator_webapp_demo_raw_events)"
             >
               <Trash2 className="w-3.5 h-3.5" />
+              <span className="text-[10px] font-bold hidden sm:inline">Clear Log & Overlay</span>
             </button>
           </div>
         </div>
